@@ -113,6 +113,13 @@ impl MacShell {
         self.runtime.replace_active_document(document)
     }
 
+    pub fn replace_active_document_source(
+        &mut self,
+        source: impl Into<String>,
+    ) -> Result<(), RuntimeError> {
+        self.runtime.replace_active_document_source(source)
+    }
+
     pub fn set_mode(&mut self, mode: EditorMode) {
         self.runtime.set_mode(mode);
     }
@@ -131,7 +138,8 @@ mod tests {
     use std::fs;
 
     use markdowner_core::{
-        Block, Document, EditorMode, ThemeKind, ThemeSelection, WorkspaceState, apply_theme,
+        Block, Document, EditorMode, Inline, ThemeKind, ThemeSelection, WorkspaceState,
+        apply_theme, parse_markdown,
     };
     use tempfile::tempdir;
 
@@ -245,7 +253,7 @@ mod tests {
             shell.workspace().active_document().unwrap().document(),
             &Document::new(vec![Block::Heading {
                 level: 1,
-                text: "Intro".to_string(),
+                text: vec![Inline::Text("Intro".to_string())],
             }])
         );
     }
@@ -270,7 +278,7 @@ mod tests {
         shell
             .replace_active_document(Document::new(vec![Block::Heading {
                 level: 1,
-                text: "Edited".to_string(),
+                text: vec![Inline::Text("Edited".to_string())],
             }]))
             .unwrap();
 
@@ -300,11 +308,33 @@ mod tests {
             .replace_active_document(Document::new(vec![
                 Block::Heading {
                     level: 1,
-                    text: "Formatted".to_string(),
+                    text: vec![
+                        Inline::Text("Formatted ".to_string()),
+                        Inline::Bold(vec![Inline::Text("Title".to_string())]),
+                    ],
                 },
+                Block::Paragraph(vec![
+                    Inline::Text("Open ".to_string()),
+                    Inline::Link {
+                        text: vec![Inline::Text("docs".to_string())],
+                        destination: "https://example.com".to_string(),
+                    },
+                    Inline::Text(" with ".to_string()),
+                    Inline::Italic(vec![Inline::Text("style".to_string())]),
+                    Inline::Text(" and ".to_string()),
+                    Inline::Code("code".to_string()),
+                ]),
+                Block::BulletItem(vec![
+                    Inline::Text("Bullet ".to_string()),
+                    Inline::Bold(vec![Inline::Text("item".to_string())]),
+                ]),
+                Block::Quote(vec![
+                    Inline::Text("Quote ".to_string()),
+                    Inline::Italic(vec![Inline::Text("block".to_string())]),
+                ]),
                 Block::ChecklistItem {
                     checked: true,
-                    text: "Done".to_string(),
+                    text: vec![Inline::Text("Done".to_string())],
                 },
                 Block::CodeFence {
                     language: Some("rust".to_string()),
@@ -316,9 +346,39 @@ mod tests {
 
         assert_eq!(
             fs::read_to_string(&document_path).unwrap(),
-            "# Formatted\n\n- [x] Done\n\n```rust\nfn main() {}\n```"
+            "# Formatted **Title**\n\nOpen [docs](https://example.com) with *style* and `code`\n\n- Bullet **item**\n\n> Quote *block*\n\n- [x] Done\n\n```rust\nfn main() {}\n```"
         );
         assert_eq!(shell.workspace().mode(), EditorMode::Wysiwyg);
+    }
+
+    #[test]
+    fn automated_ui_smoke_validates_source_markdown_renders_in_wysiwyg_and_preview() {
+        let temp = tempdir().unwrap();
+        let document_path = temp.path().join("source-rich.md");
+        fs::write(&document_path, "Start").unwrap();
+
+        let adapter =
+            MacPlatformAdapter::new().with_next_file_selection(Some(document_path.clone()));
+        let runtime = EditorRuntime::default();
+        let mut shell = MacShell::with_adapter(runtime, adapter);
+        shell.request_document_open().unwrap();
+
+        let source =
+            "# Source **Heading**\n\n- Bullet with [link](https://example.com)\n\n> `quoted`";
+        shell.set_mode(EditorMode::Source);
+        shell.replace_active_document_source(source).unwrap();
+
+        shell.set_mode(EditorMode::Preview);
+        assert_eq!(
+            shell.workspace().active_document().unwrap().document(),
+            &parse_markdown(source)
+        );
+
+        shell.set_mode(EditorMode::Wysiwyg);
+        assert_eq!(
+            shell.workspace().active_document().unwrap().source(),
+            source
+        );
     }
 
     #[test]

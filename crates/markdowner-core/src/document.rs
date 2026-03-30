@@ -20,17 +20,29 @@ impl Default for Document {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Inline {
+    Text(String),
+    Bold(Vec<Inline>),
+    Italic(Vec<Inline>),
+    Link {
+        text: Vec<Inline>,
+        destination: String,
+    },
+    Code(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Block {
     Heading {
         level: u8,
-        text: String,
+        text: Vec<Inline>,
     },
-    Paragraph(String),
-    Quote(String),
-    BulletItem(String),
+    Paragraph(Vec<Inline>),
+    Quote(Vec<Inline>),
+    BulletItem(Vec<Inline>),
     ChecklistItem {
         checked: bool,
-        text: String,
+        text: Vec<Inline>,
     },
     CodeFence {
         language: Option<String>,

@@ -245,6 +245,19 @@ impl EditorRuntime {
         }
     }
 
+    pub fn replace_active_document_source(
+        &mut self,
+        source: impl Into<String>,
+    ) -> Result<(), RuntimeError> {
+        if self.workspace.replace_active_document_source(source) {
+            Ok(())
+        } else {
+            self.fail(RuntimeError::new(
+                "Could not edit document source because no document is open",
+            ))
+        }
+    }
+
     pub fn set_mode(&mut self, mode: crate::EditorMode) {
         self.workspace.set_mode(mode);
     }

@@ -62,6 +62,13 @@ impl OpenDocument {
         self.dirty = true;
     }
 
+    fn replace_source(&mut self, source: impl Into<String>) {
+        let source = source.into();
+        self.document = parse_markdown(&source);
+        self.source = source;
+        self.dirty = true;
+    }
+
     fn mark_saved(&mut self) {
         self.dirty = false;
     }
@@ -187,6 +194,16 @@ impl WorkspaceState {
         };
 
         active_document.replace_document(document);
+        self.clear_error();
+        true
+    }
+
+    pub fn replace_active_document_source(&mut self, source: impl Into<String>) -> bool {
+        let Some(active_document) = self.active_document_mut() else {
+            return false;
+        };
+
+        active_document.replace_source(source);
         self.clear_error();
         true
     }

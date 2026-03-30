@@ -1,15 +1,15 @@
 use std::{fs, path::PathBuf};
 
 use markdowner_core::{
-    Block, Document, EditorMode, EditorRuntime, FileDialogOptions, MenuDescriptor, MenuItem,
-    PlatformAdapter, ThemeKind, ThemeSelection, WindowDescriptor, WorkspaceState, apply_theme,
-    parse_markdown, serialize_markdown,
+    Block, Document, EditorMode, EditorRuntime, FileDialogOptions, Inline, MenuDescriptor,
+    MenuItem, PlatformAdapter, ThemeKind, ThemeSelection, WindowDescriptor, WorkspaceState,
+    apply_theme, parse_markdown, serialize_markdown,
 };
 use tempfile::tempdir;
 
 #[test]
 fn markdown_round_trip_covers_core_document_model() {
-    let source = "# Title\n\nParagraph body\n\n- [x] done\n\n```rust\nfn main() {}\n```";
+    let source = "# Title **Bold** *Italic*\n\nParagraph with [link](https://example.com) and `code`.\n\n> Quote with *style*\n\n- Bullet with **weight**\n\n- [x] done\n\n```rust\nfn main() {}\n```";
 
     let document = parse_markdown(source);
 
@@ -18,12 +18,34 @@ fn markdown_round_trip_covers_core_document_model() {
         &[
             Block::Heading {
                 level: 1,
-                text: "Title".to_string(),
+                text: vec![
+                    Inline::Text("Title ".to_string()),
+                    Inline::Bold(vec![Inline::Text("Bold".to_string())]),
+                    Inline::Text(" ".to_string()),
+                    Inline::Italic(vec![Inline::Text("Italic".to_string())]),
+                ],
             },
-            Block::Paragraph("Paragraph body".to_string()),
+            Block::Paragraph(vec![
+                Inline::Text("Paragraph with ".to_string()),
+                Inline::Link {
+                    text: vec![Inline::Text("link".to_string())],
+                    destination: "https://example.com".to_string(),
+                },
+                Inline::Text(" and ".to_string()),
+                Inline::Code("code".to_string()),
+                Inline::Text(".".to_string()),
+            ]),
+            Block::Quote(vec![
+                Inline::Text("Quote with ".to_string()),
+                Inline::Italic(vec![Inline::Text("style".to_string())]),
+            ]),
+            Block::BulletItem(vec![
+                Inline::Text("Bullet with ".to_string()),
+                Inline::Bold(vec![Inline::Text("weight".to_string())]),
+            ]),
             Block::ChecklistItem {
                 checked: true,
-                text: "done".to_string(),
+                text: vec![Inline::Text("done".to_string())],
             },
             Block::CodeFence {
                 language: Some("rust".to_string()),
@@ -36,7 +58,9 @@ fn markdown_round_trip_covers_core_document_model() {
 
 #[test]
 fn theme_application_is_pure_core_logic() {
-    let document = Document::new(vec![Block::Paragraph("Hello".to_string())]);
+    let document = Document::new(vec![Block::Paragraph(vec![Inline::Text(
+        "Hello".to_string(),
+    )])]);
     let styled = apply_theme(
         &document,
         &ThemeSelection::new(
@@ -57,7 +81,9 @@ fn theme_application_is_pure_core_logic() {
 fn workspace_state_tracks_documents_without_ui_runtime() {
     let mut workspace = WorkspaceState::default();
     let path = PathBuf::from("/tmp/note.md");
-    let document = Document::new(vec![Block::Paragraph("Workspace".to_string())]);
+    let document = Document::new(vec![Block::Paragraph(vec![Inline::Text(
+        "Workspace".to_string(),
+    )])]);
 
     workspace.open_document(path.clone(), document.clone());
     workspace.set_mode(EditorMode::Preview);
@@ -132,9 +158,9 @@ fn runtime_loads_markdown_contents_and_saves_active_document() {
         .replace_active_document(Document::new(vec![
             Block::Heading {
                 level: 1,
-                text: "Updated".to_string(),
+                text: vec![Inline::Text("Updated".to_string())],
             },
-            Block::Paragraph("Saved back to disk".to_string()),
+            Block::Paragraph(vec![Inline::Text("Saved back to disk".to_string())]),
         ]))
         .unwrap();
     runtime.save_active_document().unwrap();
@@ -142,6 +168,85 @@ fn runtime_loads_markdown_contents_and_saves_active_document() {
     assert_eq!(
         fs::read_to_string(&document_path).unwrap(),
         "# Updated\n\nSaved back to disk"
+    );
+}
+
+#[test]
+fn runtime_round_trips_rich_text_edits_after_save_and_reopen() {
+    let temp = tempdir().unwrap();
+    let document_path = temp.path().join("rich.md");
+    fs::write(&document_path, "Start").unwrap();
+
+    let mut runtime = EditorRuntime::default();
+    runtime.open_document(&document_path).unwrap();
+    let edited_document = Document::new(vec![
+        Block::Heading {
+            level: 2,
+            text: vec![
+                Inline::Text("Rich ".to_string()),
+                Inline::Bold(vec![Inline::Text("Title".to_string())]),
+            ],
+        },
+        Block::Paragraph(vec![
+            Inline::Text("Visit ".to_string()),
+            Inline::Link {
+                text: vec![Inline::Text("docs".to_string())],
+                destination: "https://example.com/docs".to_string(),
+            },
+            Inline::Text(" and use ".to_string()),
+            Inline::Code("cargo test".to_string()),
+        ]),
+        Block::Quote(vec![
+            Inline::Italic(vec![Inline::Text("Quoted".to_string())]),
+            Inline::Text(" insight".to_string()),
+        ]),
+    ]);
+
+    runtime
+        .replace_active_document(edited_document.clone())
+        .unwrap();
+    runtime.save_active_document().unwrap();
+
+    let mut reopened_runtime = EditorRuntime::default();
+    reopened_runtime.open_document(&document_path).unwrap();
+
+    assert_eq!(
+        fs::read_to_string(&document_path).unwrap(),
+        "## Rich **Title**\n\nVisit [docs](https://example.com/docs) and use `cargo test`\n\n> *Quoted* insight"
+    );
+    assert_eq!(
+        reopened_runtime
+            .workspace()
+            .active_document()
+            .unwrap()
+            .document(),
+        &edited_document
+    );
+}
+
+#[test]
+fn runtime_reparses_source_edits_for_rendered_modes() {
+    let temp = tempdir().unwrap();
+    let document_path = temp.path().join("source.md");
+    fs::write(&document_path, "Initial").unwrap();
+
+    let mut runtime = EditorRuntime::default();
+    runtime.open_document(&document_path).unwrap();
+    runtime.set_mode(EditorMode::Source);
+
+    let source = "# Source **mode**\n\n- Item with [link](https://example.com)\n\n> `quoted`";
+    runtime.replace_active_document_source(source).unwrap();
+
+    runtime.set_mode(EditorMode::Preview);
+    assert_eq!(
+        runtime.workspace().active_document().unwrap().document(),
+        &parse_markdown(source)
+    );
+
+    runtime.set_mode(EditorMode::Wysiwyg);
+    assert_eq!(
+        runtime.workspace().active_document().unwrap().source(),
+        source
     );
 }
 
