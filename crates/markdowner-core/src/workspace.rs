@@ -1,12 +1,14 @@
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use crate::{
-    Block, Document, ThemeSelection,
+    Block, Document, StyledDocument, ThemeSelection, apply_theme,
     markdown::{serialize_block, split_markdown_blocks},
     parse_markdown, serialize_markdown,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum EditorMode {
     #[default]
     Wysiwyg,
@@ -269,6 +271,17 @@ impl WorkspaceState {
 
     pub fn active_wysiwyg_view(&self) -> Option<Vec<WysiwygBlockView>> {
         Some(self.active_document()?.active_wysiwyg_view())
+    }
+
+    pub fn active_preview_document(&self) -> Option<StyledDocument> {
+        if self.mode != EditorMode::Preview {
+            return None;
+        }
+
+        Some(apply_theme(
+            self.active_document()?.document(),
+            self.theme(),
+        ))
     }
 
     pub fn active_inline_reveal_selection(&self) -> Option<&InlineRevealSelection> {

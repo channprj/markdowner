@@ -7,11 +7,20 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::platform::RuntimeError;
+use crate::{EditorMode, platform::RuntimeError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-struct WorkspaceSession {
+struct SerializedWorkspaceSession {
+    #[serde(default)]
     recent_documents: Vec<String>,
+    #[serde(default)]
+    mode: EditorMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct WorkspaceSession {
+    pub(crate) recent_documents: Vec<PathBuf>,
+    pub(crate) mode: EditorMode,
 }
 
 pub(crate) fn list_markdown_files(root: &Path) -> Result<Vec<PathBuf>, RuntimeError> {
@@ -21,35 +30,39 @@ pub(crate) fn list_markdown_files(root: &Path) -> Result<Vec<PathBuf>, RuntimeEr
     Ok(documents)
 }
 
-pub(crate) fn load_recent_documents(path: &Path) -> Result<Vec<PathBuf>, RuntimeError> {
+pub(crate) fn load_workspace_session(path: &Path) -> Result<WorkspaceSession, RuntimeError> {
     let raw = match fs::read_to_string(path) {
         Ok(raw) => raw,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(WorkspaceSession::default()),
         Err(error) => {
             return Err(RuntimeError::new(format!(
-                "Could not restore recent documents from '{}': {error}",
+                "Could not restore session from '{}': {error}",
                 path.display()
             )));
         }
     };
 
-    let session: WorkspaceSession = serde_json::from_str(&raw).map_err(|error| {
+    let session: SerializedWorkspaceSession = serde_json::from_str(&raw).map_err(|error| {
         RuntimeError::new(format!(
-            "Could not parse recent documents from '{}': {error}",
+            "Could not parse session from '{}': {error}",
             path.display()
         ))
     })?;
 
-    Ok(session
-        .recent_documents
-        .into_iter()
-        .map(PathBuf::from)
-        .collect())
+    Ok(WorkspaceSession {
+        recent_documents: session
+            .recent_documents
+            .into_iter()
+            .map(PathBuf::from)
+            .collect(),
+        mode: session.mode,
+    })
 }
 
-pub(crate) fn persist_recent_documents(
+pub(crate) fn persist_workspace_session(
     path: &Path,
     recent_documents: &[PathBuf],
+    mode: EditorMode,
 ) -> Result<(), RuntimeError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
@@ -60,22 +73,23 @@ pub(crate) fn persist_recent_documents(
         })?;
     }
 
-    let session = WorkspaceSession {
+    let session = SerializedWorkspaceSession {
         recent_documents: recent_documents
             .iter()
             .map(|path| path.to_string_lossy().into_owned())
             .collect(),
+        mode,
     };
     let payload = serde_json::to_string_pretty(&session).map_err(|error| {
         RuntimeError::new(format!(
-            "Could not serialize recent documents for '{}': {error}",
+            "Could not serialize session for '{}': {error}",
             path.display()
         ))
     })?;
 
     fs::write(path, payload).map_err(|error| {
         RuntimeError::new(format!(
-            "Could not persist recent documents to '{}': {error}",
+            "Could not persist session to '{}': {error}",
             path.display()
         ))
     })

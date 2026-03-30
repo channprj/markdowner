@@ -7,8 +7,8 @@ use std::{
 use crate::{
     Document, InlineRevealSelection, WorkspaceState,
     storage::{
-        list_markdown_files, load_recent_documents, persist_recent_documents, read_document_source,
-        write_document_source,
+        list_markdown_files, load_workspace_session, persist_workspace_session,
+        read_document_source, write_document_source,
     },
 };
 
@@ -160,6 +160,9 @@ impl EditorRuntime {
         adapter.install_menu(&MenuDescriptor::new(vec![
             MenuItem::new("open-document", "Open…"),
             MenuItem::new("open-workspace", "Open Folder…"),
+            MenuItem::new("mode-wysiwyg", "WYSIWYG"),
+            MenuItem::new("mode-source", "Source"),
+            MenuItem::new("mode-preview", "Preview"),
         ]));
     }
 
@@ -168,11 +171,13 @@ impl EditorRuntime {
             return Ok(());
         };
 
-        let recent_documents = match load_recent_documents(&session_store) {
-            Ok(recent_documents) => recent_documents,
+        let session = match load_workspace_session(&session_store) {
+            Ok(session) => session,
             Err(error) => return self.fail(error),
         };
-        self.workspace.restore_recent_documents(recent_documents);
+        self.workspace
+            .restore_recent_documents(session.recent_documents);
+        self.workspace.set_mode(session.mode);
         self.workspace.clear_error();
         Ok(())
     }
@@ -182,7 +187,11 @@ impl EditorRuntime {
             return Ok(());
         };
 
-        match persist_recent_documents(&session_store, self.workspace.recent_documents()) {
+        match persist_workspace_session(
+            &session_store,
+            self.workspace.recent_documents(),
+            self.workspace.mode(),
+        ) {
             Ok(()) => {
                 self.workspace.clear_error();
                 Ok(())
@@ -300,6 +309,7 @@ impl EditorRuntime {
 
     pub fn set_mode(&mut self, mode: crate::EditorMode) {
         self.workspace.set_mode(mode);
+        let _ = self.persist_session();
     }
 
     pub fn set_theme(&mut self, theme: crate::ThemeSelection) {

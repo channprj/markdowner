@@ -203,7 +203,13 @@ mod tests {
         );
         assert_eq!(
             shell.adapter.installed_menu_commands(),
-            vec!["open-document".to_string(), "open-workspace".to_string()]
+            vec![
+                "open-document".to_string(),
+                "open-workspace".to_string(),
+                "mode-wysiwyg".to_string(),
+                "mode-source".to_string(),
+                "mode-preview".to_string(),
+            ]
         );
     }
 
@@ -219,7 +225,13 @@ mod tests {
         );
         assert_eq!(
             shell.adapter.installed_menu_commands(),
-            vec!["open-document".to_string(), "open-workspace".to_string()]
+            vec![
+                "open-document".to_string(),
+                "open-workspace".to_string(),
+                "mode-wysiwyg".to_string(),
+                "mode-source".to_string(),
+                "mode-preview".to_string(),
+            ]
         );
     }
 
@@ -389,10 +401,12 @@ mod tests {
         shell.replace_active_document_source(source).unwrap();
 
         shell.set_mode(EditorMode::Preview);
+        let preview = shell.workspace().active_preview_document().unwrap();
         assert_eq!(
             shell.workspace().active_document().unwrap().document(),
             &parse_markdown(source)
         );
+        assert_eq!(preview.document(), &parse_markdown(source));
 
         shell.set_mode(EditorMode::Wysiwyg);
         assert_eq!(
@@ -425,6 +439,22 @@ mod tests {
             imported.theme().stylesheet(),
             Some("body { color: tomato; }")
         );
+    }
+
+    #[test]
+    fn automated_ui_smoke_restores_last_used_mode_after_relaunch() {
+        let temp = tempdir().unwrap();
+        let session_path = temp.path().join("session.json");
+
+        let mut first_shell =
+            MacShell::new(WorkspaceState::default()).with_session_store_path(session_path.clone());
+        first_shell.set_mode(EditorMode::Preview);
+
+        let mut second_shell =
+            MacShell::new(WorkspaceState::default()).with_session_store_path(session_path);
+        second_shell.restore_session().unwrap();
+
+        assert_eq!(second_shell.workspace().mode(), EditorMode::Preview);
     }
 
     #[test]

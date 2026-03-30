@@ -96,6 +96,30 @@ fn workspace_state_tracks_documents_without_ui_runtime() {
 }
 
 #[test]
+fn workspace_projects_preview_mode_as_a_styled_read_only_view() {
+    let mut workspace = WorkspaceState::default();
+    let path = PathBuf::from("/tmp/preview.md");
+    let source = "# Preview\n\nStyled document";
+    workspace.open_document_from_source(path, source);
+    workspace.set_theme(ThemeSelection::new(
+        ThemeKind::CustomCss,
+        Some("body { color: tomato; }".to_string()),
+    ));
+
+    assert!(workspace.active_preview_document().is_none());
+
+    workspace.set_mode(EditorMode::Preview);
+    let preview = workspace.active_preview_document().unwrap();
+
+    assert_eq!(preview.document(), &parse_markdown(source));
+    assert_eq!(
+        preview.theme().stylesheet(),
+        Some("body { color: tomato; }")
+    );
+    assert_eq!(workspace.active_document().unwrap().source(), source);
+}
+
+#[test]
 fn runtime_uses_platform_adapter_boundary_for_native_capabilities() {
     let temp = tempdir().unwrap();
     let document_path = temp.path().join("from-dialog.md");
@@ -122,6 +146,9 @@ fn runtime_uses_platform_adapter_boundary_for_native_capabilities() {
         vec![MenuDescriptor::new(vec![
             MenuItem::new("open-document", "Open…"),
             MenuItem::new("open-workspace", "Open Folder…"),
+            MenuItem::new("mode-wysiwyg", "WYSIWYG"),
+            MenuItem::new("mode-source", "Source"),
+            MenuItem::new("mode-preview", "Preview"),
         ])]
     );
     assert_eq!(
@@ -371,6 +398,20 @@ fn runtime_restores_recent_documents_across_relaunches() {
         second_runtime.workspace().recent_documents(),
         std::slice::from_ref(&document_path)
     );
+}
+
+#[test]
+fn runtime_restores_last_editor_mode_across_relaunches() {
+    let temp = tempdir().unwrap();
+    let session_path = temp.path().join("session.json");
+
+    let mut first_runtime = EditorRuntime::default().with_session_store(session_path.clone());
+    first_runtime.set_mode(EditorMode::Preview);
+
+    let mut second_runtime = EditorRuntime::default().with_session_store(session_path);
+    second_runtime.restore_session().unwrap();
+
+    assert_eq!(second_runtime.workspace().mode(), EditorMode::Preview);
 }
 
 #[test]
