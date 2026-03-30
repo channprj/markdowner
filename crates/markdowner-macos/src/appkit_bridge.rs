@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::VecDeque, path::PathBuf};
 
 use markdowner_core::{FileDialogOptions, MenuDescriptor, WindowDescriptor};
 
@@ -7,7 +7,7 @@ struct NsWindowHandle(usize);
 
 #[derive(Debug, Default)]
 pub(crate) struct AppKitBridge {
-    next_file_selection: Option<PathBuf>,
+    next_file_selections: VecDeque<PathBuf>,
     next_folder_selection: Option<PathBuf>,
     open_panels: Vec<FileDialogOptions>,
     folder_panels: Vec<String>,
@@ -21,7 +21,9 @@ impl AppKitBridge {
     }
 
     pub(crate) fn set_next_file_selection(&mut self, path: Option<PathBuf>) {
-        self.next_file_selection = path;
+        if let Some(path) = path {
+            self.next_file_selections.push_back(path);
+        }
     }
 
     pub(crate) fn set_next_folder_selection(&mut self, path: Option<PathBuf>) {
@@ -30,7 +32,7 @@ impl AppKitBridge {
 
     pub(crate) fn choose_file(&mut self, options: &FileDialogOptions) -> Option<PathBuf> {
         self.open_panels.push(options.clone());
-        self.next_file_selection.clone()
+        self.next_file_selections.pop_front()
     }
 
     pub(crate) fn choose_folder(&mut self, title: &str) -> Option<PathBuf> {

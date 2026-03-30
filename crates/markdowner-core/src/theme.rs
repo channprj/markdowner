@@ -93,11 +93,25 @@ pub struct ThemeSelection {
     kind: ThemeKind,
     #[serde(default)]
     stylesheet: Option<String>,
+    #[serde(default)]
+    stylesheet_path: Option<String>,
 }
 
 impl ThemeSelection {
     pub fn new(kind: ThemeKind, stylesheet: Option<String>) -> Self {
-        Self { kind, stylesheet }
+        Self {
+            kind,
+            stylesheet,
+            stylesheet_path: None,
+        }
+    }
+
+    pub fn imported(path: impl Into<String>, stylesheet: impl Into<String>) -> Self {
+        Self {
+            kind: ThemeKind::CustomCss,
+            stylesheet: Some(stylesheet.into()),
+            stylesheet_path: Some(path.into()),
+        }
     }
 
     pub fn kind(&self) -> ThemeKind {
@@ -106,6 +120,10 @@ impl ThemeSelection {
 
     pub fn stylesheet(&self) -> Option<&str> {
         self.stylesheet.as_deref()
+    }
+
+    pub fn stylesheet_path(&self) -> Option<&str> {
+        self.stylesheet_path.as_deref()
     }
 }
 
@@ -211,6 +229,37 @@ pub fn apply_theme(document: &Document, selection: &ThemeSelection) -> StyledDoc
             .map(|block| style_code_block(block, &palette))
             .collect(),
     }
+}
+
+pub(crate) fn validate_stylesheet(stylesheet: &str) -> Result<(), String> {
+    let trimmed = stylesheet.trim();
+    if trimmed.is_empty() {
+        return Err("CSS theme is empty".to_string());
+    }
+
+    if !trimmed.contains('{') || !trimmed.contains('}') {
+        return Err("CSS theme must contain at least one rule block".to_string());
+    }
+
+    let mut depth = 0usize;
+    for character in trimmed.chars() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                if depth == 0 {
+                    return Err("CSS theme contains an unmatched closing brace".to_string());
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+    }
+
+    if depth != 0 {
+        return Err("CSS theme contains an unmatched opening brace".to_string());
+    }
+
+    Ok(())
 }
 
 pub(crate) fn style_code_block(block: &Block, palette: &ThemePalette) -> Option<StyledCodeBlock> {

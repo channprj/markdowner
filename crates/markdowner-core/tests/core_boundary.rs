@@ -119,6 +119,21 @@ fn theme_application_is_pure_core_logic() {
 }
 
 #[test]
+fn theme_selection_can_track_imported_css_source_path() {
+    let selection = ThemeSelection::imported(
+        "/tmp/theme.css",
+        "body { font-family: 'IBM Plex Sans'; color: #2a2a2a; }",
+    );
+
+    assert_eq!(selection.kind(), ThemeKind::CustomCss);
+    assert_eq!(selection.stylesheet_path(), Some("/tmp/theme.css"));
+    assert_eq!(
+        selection.stylesheet(),
+        Some("body { font-family: 'IBM Plex Sans'; color: #2a2a2a; }")
+    );
+}
+
+#[test]
 fn workspace_state_tracks_documents_without_ui_runtime() {
     let mut workspace = WorkspaceState::default();
     let path = PathBuf::from("/tmp/note.md");
@@ -190,6 +205,25 @@ fn workspace_theme_changes_immediately_update_document_views_without_mutating_so
     let dark_preview = workspace.active_preview_document().unwrap();
     assert_eq!(dark_preview.theme().palette().background(), "#14161a");
     assert_eq!(workspace.active_document().unwrap().source(), source);
+}
+
+#[test]
+fn workspace_preview_uses_imported_css_typography_spacing_and_color_styles() {
+    let mut workspace = WorkspaceState::default();
+    let path = PathBuf::from("/tmp/custom-preview.md");
+    workspace.open_document_from_source(path, "# Custom\n\nStyled");
+    workspace.set_theme(ThemeSelection::imported(
+        "/tmp/custom.css",
+        "body { font-family: 'IBM Plex Sans'; line-height: 1.8; color: #223344; }",
+    ));
+    workspace.set_mode(EditorMode::Preview);
+
+    let preview = workspace.active_preview_document().unwrap();
+
+    assert_eq!(
+        preview.theme().stylesheet(),
+        Some("body { font-family: 'IBM Plex Sans'; line-height: 1.8; color: #223344; }")
+    );
 }
 
 #[test]
@@ -266,6 +300,7 @@ fn runtime_uses_platform_adapter_boundary_for_native_capabilities() {
             MenuItem::new("mode-preview", "Preview"),
             MenuItem::new("theme-light", "Light Theme"),
             MenuItem::new("theme-dark", "Dark Theme"),
+            MenuItem::new("theme-import-css", "Import CSS Theme…"),
         ])]
     );
     assert_eq!(
@@ -709,6 +744,85 @@ fn runtime_restores_last_theme_across_relaunches() {
 }
 
 #[test]
+fn runtime_imports_custom_css_theme_from_disk_and_restores_it_after_relaunch() {
+    let temp = tempdir().unwrap();
+    let document_path = temp.path().join("theme.md");
+    let css_path = temp.path().join("writer.css");
+    let session_path = temp.path().join("session.json");
+    fs::write(&document_path, "# Theme").unwrap();
+    fs::write(
+        &css_path,
+        "body { font-family: 'IBM Plex Sans'; line-height: 1.7; color: #223344; }",
+    )
+    .unwrap();
+
+    let mut first_runtime = EditorRuntime::default().with_session_store(session_path.clone());
+    first_runtime.open_document(&document_path).unwrap();
+    let imported_path = first_runtime.import_theme_from_path(&css_path).unwrap();
+
+    assert_eq!(imported_path, css_path);
+    assert_eq!(
+        first_runtime.workspace().theme(),
+        &ThemeSelection::imported(
+            css_path.to_string_lossy(),
+            "body { font-family: 'IBM Plex Sans'; line-height: 1.7; color: #223344; }",
+        )
+    );
+    first_runtime.workspace_mut().set_mode(EditorMode::Preview);
+    let preview = first_runtime.workspace().active_preview_document().unwrap();
+    assert_eq!(
+        preview.theme().stylesheet(),
+        Some("body { font-family: 'IBM Plex Sans'; line-height: 1.7; color: #223344; }")
+    );
+
+    let mut second_runtime = EditorRuntime::default().with_session_store(session_path);
+    second_runtime.restore_session().unwrap();
+
+    assert_eq!(
+        second_runtime.workspace().theme(),
+        &ThemeSelection::imported(
+            css_path.to_string_lossy(),
+            "body { font-family: 'IBM Plex Sans'; line-height: 1.7; color: #223344; }",
+        )
+    );
+    assert_eq!(
+        second_runtime.workspace().theme().stylesheet_path(),
+        Some(css_path.to_string_lossy().as_ref())
+    );
+}
+
+#[test]
+fn runtime_recovers_to_default_theme_when_imported_css_is_invalid() {
+    let temp = tempdir().unwrap();
+    let document_path = temp.path().join("theme.md");
+    let css_path = temp.path().join("broken.css");
+    fs::write(&document_path, "# Theme").unwrap();
+    fs::write(&css_path, "body { color: tomato;").unwrap();
+
+    let mut runtime = EditorRuntime::default();
+    runtime
+        .workspace_mut()
+        .set_theme(ThemeSelection::new(ThemeKind::BuiltInDark, None));
+    runtime.open_document(&document_path).unwrap();
+
+    let error = runtime.import_theme_from_path(&css_path).unwrap_err();
+
+    assert!(error.to_string().contains("broken.css"));
+    assert_eq!(runtime.workspace().theme(), &ThemeSelection::default());
+    assert_eq!(
+        runtime.workspace().active_document().unwrap().source(),
+        "# Theme"
+    );
+    assert!(
+        runtime
+            .workspace()
+            .last_error()
+            .unwrap()
+            .contains("broken.css")
+    );
+}
+
+#[test]
 fn runtime_reports_error_when_recent_document_is_missing() {
     let temp = tempdir().unwrap();
     let missing_path = temp.path().join("missing.md");
@@ -734,7 +848,7 @@ fn runtime_reports_error_when_recent_document_is_missing() {
 
 #[derive(Debug, Default)]
 struct RecordingAdapter {
-    next_file: Option<PathBuf>,
+    next_files: std::collections::VecDeque<PathBuf>,
     next_folder: Option<PathBuf>,
     file_requests: Vec<FileDialogOptions>,
     folder_requests: Vec<String>,
@@ -744,8 +858,12 @@ struct RecordingAdapter {
 
 impl RecordingAdapter {
     fn new(next_file: Option<PathBuf>, next_folder: Option<PathBuf>) -> Self {
+        let mut next_files = std::collections::VecDeque::new();
+        if let Some(next_file) = next_file {
+            next_files.push_back(next_file);
+        }
         Self {
-            next_file,
+            next_files,
             next_folder,
             ..Self::default()
         }
@@ -755,7 +873,7 @@ impl RecordingAdapter {
 impl PlatformAdapter for RecordingAdapter {
     fn open_file(&mut self, options: &FileDialogOptions) -> Option<PathBuf> {
         self.file_requests.push(options.clone());
-        self.next_file.clone()
+        self.next_files.pop_front()
     }
 
     fn open_folder(&mut self, title: &str) -> Option<PathBuf> {

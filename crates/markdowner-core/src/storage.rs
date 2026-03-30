@@ -110,6 +110,15 @@ pub(crate) fn read_document_source(path: &Path) -> Result<String, RuntimeError> 
     })
 }
 
+pub(crate) fn read_stylesheet_source(path: &Path) -> Result<String, RuntimeError> {
+    fs::read_to_string(path).map_err(|error| {
+        RuntimeError::new(format!(
+            "Could not read CSS theme file '{}': {error}",
+            path.display()
+        ))
+    })
+}
+
 pub(crate) fn write_document_source(path: &Path, source: &str) -> Result<(), RuntimeError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| {

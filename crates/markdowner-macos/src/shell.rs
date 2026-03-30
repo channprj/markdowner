@@ -94,6 +94,10 @@ impl MacShell {
         self.runtime.open_document_via(&mut self.adapter)
     }
 
+    pub fn request_theme_import(&mut self) -> Result<Option<PathBuf>, RuntimeError> {
+        self.runtime.import_theme_via(&mut self.adapter)
+    }
+
     pub fn request_document_save(&mut self) -> Result<PathBuf, RuntimeError> {
         self.runtime.save_active_document()
     }
@@ -228,6 +232,7 @@ mod tests {
                 "mode-preview".to_string(),
                 "theme-light".to_string(),
                 "theme-dark".to_string(),
+                "theme-import-css".to_string(),
             ]
         );
     }
@@ -252,6 +257,7 @@ mod tests {
                 "mode-preview".to_string(),
                 "theme-light".to_string(),
                 "theme-dark".to_string(),
+                "theme-import-css".to_string(),
             ]
         );
     }
@@ -484,10 +490,17 @@ mod tests {
     fn automated_ui_smoke_validates_toggling_modes_and_applying_themes() {
         let temp = tempdir().unwrap();
         let document_path = temp.path().join("theme-smoke.md");
+        let css_path = temp.path().join("theme-smoke.css");
         fs::write(&document_path, "```rust\nfn main() {}\n```").unwrap();
+        fs::write(
+            &css_path,
+            "body { font-family: 'IBM Plex Sans'; line-height: 1.7; color: #223344; }",
+        )
+        .unwrap();
 
-        let adapter =
-            MacPlatformAdapter::new().with_next_file_selection(Some(document_path.clone()));
+        let adapter = MacPlatformAdapter::new()
+            .with_next_file_selection(Some(document_path.clone()))
+            .with_next_file_selection(Some(css_path.clone()));
         let runtime = EditorRuntime::default();
         let mut shell = MacShell::with_adapter(runtime, adapter);
         shell.request_document_open().unwrap();
@@ -510,22 +523,27 @@ mod tests {
             "```rust\nfn main() {}\n```"
         );
 
-        shell.set_theme(ThemeSelection::new(
-            ThemeKind::CustomCss,
-            Some("body { color: tomato; }".to_string()),
-        ));
+        let imported_path = shell.request_theme_import().unwrap().unwrap();
+        assert_eq!(imported_path, css_path);
         let imported = apply_theme(
             shell.workspace().active_document().unwrap().document(),
             shell.workspace().theme(),
         );
         assert_eq!(
             imported.theme().stylesheet(),
-            Some("body { color: tomato; }")
+            Some("body { font-family: 'IBM Plex Sans'; line-height: 1.7; color: #223344; }")
+        );
+        assert_eq!(
+            shell.workspace().theme().stylesheet_path(),
+            Some(css_path.to_string_lossy().as_ref())
         );
         assert_eq!(
             shell.workspace().active_document().unwrap().source(),
             "```rust\nfn main() {}\n```"
         );
+
+        shell.set_theme(ThemeSelection::new(ThemeKind::BuiltInLight, None));
+        assert_eq!(shell.workspace().theme(), &ThemeSelection::default());
     }
 
     #[test]
@@ -548,10 +566,19 @@ mod tests {
     fn automated_ui_smoke_restores_last_used_theme_after_relaunch() {
         let temp = tempdir().unwrap();
         let session_path = temp.path().join("session.json");
+        let css_path = temp.path().join("writer.css");
+        fs::write(
+            &css_path,
+            "body { font-family: 'IBM Plex Sans'; line-height: 1.7; color: #223344; }",
+        )
+        .unwrap();
 
         let mut first_shell =
             MacShell::new(WorkspaceState::default()).with_session_store_path(session_path.clone());
-        first_shell.set_theme(ThemeSelection::new(ThemeKind::BuiltInDark, None));
+        first_shell.set_theme(ThemeSelection::imported(
+            css_path.to_string_lossy(),
+            "body { font-family: 'IBM Plex Sans'; line-height: 1.7; color: #223344; }",
+        ));
 
         let mut second_shell =
             MacShell::new(WorkspaceState::default()).with_session_store_path(session_path);
@@ -559,7 +586,10 @@ mod tests {
 
         assert_eq!(
             second_shell.workspace().theme(),
-            &ThemeSelection::new(ThemeKind::BuiltInDark, None)
+            &ThemeSelection::imported(
+                css_path.to_string_lossy(),
+                "body { font-family: 'IBM Plex Sans'; line-height: 1.7; color: #223344; }",
+            )
         );
     }
 

@@ -8,8 +8,9 @@ use crate::{
     Document, Inline, InlineRevealSelection, WorkspaceState,
     storage::{
         list_markdown_files, load_workspace_session, persist_workspace_session,
-        read_document_source, write_document_source,
+        read_document_source, read_stylesheet_source, write_document_source,
     },
+    theme::validate_stylesheet,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,6 +166,7 @@ impl EditorRuntime {
             MenuItem::new("mode-preview", "Preview"),
             MenuItem::new("theme-light", "Light Theme"),
             MenuItem::new("theme-dark", "Dark Theme"),
+            MenuItem::new("theme-import-css", "Import CSS Theme…"),
         ]));
     }
 
@@ -222,8 +224,47 @@ impl EditorRuntime {
         self.open_document_with_message(path, "Could not open document")
     }
 
+    pub fn import_theme_via(
+        &mut self,
+        adapter: &mut impl PlatformAdapter,
+    ) -> Result<Option<PathBuf>, RuntimeError> {
+        let Some(path) = adapter.open_file(&FileDialogOptions::new(
+            "Import CSS Theme",
+            vec!["css".to_string()],
+        )) else {
+            return Ok(None);
+        };
+
+        self.import_theme_from_path(&path).map(Some)
+    }
+
     pub fn open_recent_document(&mut self, path: &Path) -> Result<PathBuf, RuntimeError> {
         self.open_document_with_message(path, "Could not open recent document")
+    }
+
+    pub fn import_theme_from_path(&mut self, path: &Path) -> Result<PathBuf, RuntimeError> {
+        let stylesheet = match read_stylesheet_source(path) {
+            Ok(stylesheet) => stylesheet,
+            Err(error) => return self.recover_default_theme(error),
+        };
+
+        if let Err(message) = validate_stylesheet(&stylesheet) {
+            return self.recover_default_theme(RuntimeError::new(format!(
+                "Could not import CSS theme '{}': {message}",
+                path.display()
+            )));
+        }
+
+        self.workspace.set_theme(crate::ThemeSelection::imported(
+            path.to_string_lossy().into_owned(),
+            stylesheet,
+        ));
+        if let Err(error) = self.persist_session() {
+            return self.fail(error);
+        }
+
+        self.workspace.clear_error();
+        Ok(path.to_path_buf())
     }
 
     pub fn save_active_document(&mut self) -> Result<PathBuf, RuntimeError> {
@@ -416,6 +457,12 @@ impl EditorRuntime {
 
         self.workspace.clear_error();
         Ok(path.to_path_buf())
+    }
+
+    fn recover_default_theme<T>(&mut self, error: RuntimeError) -> Result<T, RuntimeError> {
+        self.workspace.set_theme(crate::ThemeSelection::default());
+        let _ = self.persist_session();
+        self.fail(error)
     }
 
     fn fail<T>(&mut self, error: RuntimeError) -> Result<T, RuntimeError> {
