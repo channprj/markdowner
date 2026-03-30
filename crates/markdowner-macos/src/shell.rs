@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use markdowner_core::{
-    Document, EditorMode, EditorRuntime, FileDialogOptions, InlineRevealSelection, MenuDescriptor,
-    PlatformAdapter, RuntimeError, ThemeSelection, WindowDescriptor, WorkspaceState,
+    Document, EditorMode, EditorRuntime, FileDialogOptions, Inline, InlineRevealSelection,
+    MenuDescriptor, PlatformAdapter, RuntimeError, ThemeSelection, WindowDescriptor,
+    WorkspaceState,
 };
 
 use crate::appkit_bridge::AppKitBridge;
@@ -120,6 +121,21 @@ impl MacShell {
         self.runtime.replace_active_document_source(source)
     }
 
+    pub fn toggle_checklist_item(&mut self, block_index: usize) -> Result<(), RuntimeError> {
+        self.runtime.toggle_checklist_item(block_index)
+    }
+
+    pub fn replace_table_cell(
+        &mut self,
+        block_index: usize,
+        row_index: usize,
+        column_index: usize,
+        cell: Vec<Inline>,
+    ) -> Result<(), RuntimeError> {
+        self.runtime
+            .replace_table_cell(block_index, row_index, column_index, cell)
+    }
+
     pub fn activate_inline_reveal(
         &mut self,
         selection: InlineRevealSelection,
@@ -158,8 +174,9 @@ mod tests {
     use std::fs;
 
     use markdowner_core::{
-        Block, Document, EditorMode, Inline, InlineRevealRange, InlineRevealSelection, ThemeKind,
-        ThemeSelection, WorkspaceState, WysiwygBlockPresentation, apply_theme, parse_markdown,
+        Block, Document, EditorMode, Inline, InlineRevealRange, InlineRevealSelection,
+        TableAlignment, TableRow, ThemeKind, ThemeSelection, WorkspaceState,
+        WysiwygBlockPresentation, apply_theme, parse_markdown,
     };
     use tempfile::tempdir;
 
@@ -368,17 +385,37 @@ mod tests {
                     checked: true,
                     text: vec![Inline::Text("Done".to_string())],
                 },
+                Block::Image {
+                    alt: "Architecture".to_string(),
+                    source: "assets/diagram.png".to_string(),
+                    title: Some("System".to_string()),
+                },
+                Block::Table {
+                    headers: TableRow::new(vec![
+                        vec![Inline::Text("Task".to_string())],
+                        vec![Inline::Text("State".to_string())],
+                    ]),
+                    alignments: vec![TableAlignment::Left, TableAlignment::Center],
+                    rows: vec![TableRow::new(vec![
+                        vec![Inline::Text("Smoke".to_string())],
+                        vec![Inline::Text("Draft".to_string())],
+                    ])],
+                },
                 Block::CodeFence {
                     language: Some("rust".to_string()),
                     code: "fn main() {}".to_string(),
                 },
             ]))
             .unwrap();
+        shell
+            .replace_table_cell(6, 0, 1, vec![Inline::Text("Ready".to_string())])
+            .unwrap();
+        shell.toggle_checklist_item(4).unwrap();
         shell.request_document_save().unwrap();
 
         assert_eq!(
             fs::read_to_string(&document_path).unwrap(),
-            "# Formatted **Title**\n\nOpen [docs](https://example.com) with *style* and `code`\n\n- Bullet **item**\n\n> Quote *block*\n\n- [x] Done\n\n```rust\nfn main() {}\n```"
+            "# Formatted **Title**\n\nOpen [docs](https://example.com) with *style* and `code`\n\n- Bullet **item**\n\n> Quote *block*\n\n- [ ] Done\n\n![Architecture](assets/diagram.png \"System\")\n\n| Task | State |\n| :--- | :---: |\n| Smoke | Ready |\n\n```rust\nfn main() {}\n```"
         );
         assert_eq!(shell.workspace().mode(), EditorMode::Wysiwyg);
     }
@@ -395,8 +432,7 @@ mod tests {
         let mut shell = MacShell::with_adapter(runtime, adapter);
         shell.request_document_open().unwrap();
 
-        let source =
-            "# Source **Heading**\n\n- Bullet with [link](https://example.com)\n\n> `quoted`";
+        let source = "# Source **Heading**\n\n![Preview](assets/preview.png)\n\n| Name | Value |\n| --- | --- |\n| Docs | Ready |\n\n- [ ] Bullet with [link](https://example.com)\n\n> `quoted`";
         shell.set_mode(EditorMode::Source);
         shell.replace_active_document_source(source).unwrap();
 
@@ -409,6 +445,15 @@ mod tests {
         assert_eq!(preview.document(), &parse_markdown(source));
 
         shell.set_mode(EditorMode::Wysiwyg);
+        let rendered = shell.workspace().active_wysiwyg_view().unwrap();
+        assert!(matches!(
+            rendered[1].presentation(),
+            WysiwygBlockPresentation::Rendered(Block::Image { .. })
+        ));
+        assert!(matches!(
+            rendered[2].presentation(),
+            WysiwygBlockPresentation::Rendered(Block::Table { .. })
+        ));
         assert_eq!(
             shell.workspace().active_document().unwrap().source(),
             source

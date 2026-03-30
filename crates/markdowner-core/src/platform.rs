@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    Document, InlineRevealSelection, WorkspaceState,
+    Document, Inline, InlineRevealSelection, WorkspaceState,
     storage::{
         list_markdown_files, load_workspace_session, persist_workspace_session,
         read_document_source, write_document_source,
@@ -263,6 +263,35 @@ impl EditorRuntime {
         } else {
             self.fail(RuntimeError::new(
                 "Could not edit document source because no document is open",
+            ))
+        }
+    }
+
+    pub fn toggle_checklist_item(&mut self, block_index: usize) -> Result<(), RuntimeError> {
+        if self.workspace.toggle_checklist_item(block_index) {
+            Ok(())
+        } else {
+            self.fail(RuntimeError::new(
+                "Could not toggle checklist item because the target block is unavailable",
+            ))
+        }
+    }
+
+    pub fn replace_table_cell(
+        &mut self,
+        block_index: usize,
+        row_index: usize,
+        column_index: usize,
+        cell: Vec<Inline>,
+    ) -> Result<(), RuntimeError> {
+        if self
+            .workspace
+            .replace_table_cell(block_index, row_index, column_index, cell)
+        {
+            Ok(())
+        } else {
+            self.fail(RuntimeError::new(
+                "Could not edit table cell because the target cell is unavailable",
             ))
         }
     }

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Block, Document, StyledDocument, ThemeSelection, apply_theme,
+    Block, Document, Inline, StyledDocument, ThemeSelection, apply_theme,
     markdown::{serialize_block, split_markdown_blocks},
     parse_markdown, serialize_markdown,
 };
@@ -347,6 +347,50 @@ impl WorkspaceState {
         true
     }
 
+    pub fn toggle_checklist_item(&mut self, block_index: usize) -> bool {
+        let Some(active_document) = self.active_document_mut() else {
+            return false;
+        };
+
+        let mut blocks = active_document.document().blocks().to_vec();
+        let Some(Block::ChecklistItem { checked, .. }) = blocks.get_mut(block_index) else {
+            return false;
+        };
+
+        *checked = !*checked;
+        active_document.replace_document(Document::new(blocks));
+        self.clear_error();
+        true
+    }
+
+    pub fn replace_table_cell(
+        &mut self,
+        block_index: usize,
+        row_index: usize,
+        column_index: usize,
+        cell: Vec<Inline>,
+    ) -> bool {
+        let Some(active_document) = self.active_document_mut() else {
+            return false;
+        };
+
+        let mut blocks = active_document.document().blocks().to_vec();
+        let Some(Block::Table { rows, .. }) = blocks.get_mut(block_index) else {
+            return false;
+        };
+        let Some(row) = rows.get_mut(row_index) else {
+            return false;
+        };
+        let Some(target_cell) = row.cells_mut().get_mut(column_index) else {
+            return false;
+        };
+
+        *target_cell = cell;
+        active_document.replace_document(Document::new(blocks));
+        self.clear_error();
+        true
+    }
+
     pub fn activate_inline_reveal(&mut self, selection: InlineRevealSelection) -> bool {
         let Some(active_document) = self.active_document_mut() else {
             return false;
@@ -548,23 +592,38 @@ fn normalize_source(source: String) -> String {
 }
 
 fn requires_raw_fallback(source_block: &str, rendered_block: &Block) -> bool {
-    contains_unsupported_markdown(source_block) || serialize_block(rendered_block) != source_block
+    contains_unsupported_markdown(source_block)
+        || looks_like_unsupported_image(source_block, rendered_block)
+        || looks_like_unsupported_table(source_block, rendered_block)
+        || serialize_block(rendered_block) != source_block
 }
 
 fn contains_unsupported_markdown(source_block: &str) -> bool {
     source_block.lines().any(|line| {
         let trimmed = line.trim();
         trimmed.contains("~~")
-            || trimmed.contains("![")
             || trimmed.contains("[^")
             || trimmed.starts_with("---")
             || trimmed.starts_with("***")
-            || trimmed.starts_with('|')
-            || trimmed.ends_with('|')
             || trimmed.starts_with('<')
             || is_ordered_list_item(trimmed)
             || has_indented_list_prefix(line)
     })
+}
+
+fn looks_like_unsupported_image(source_block: &str, rendered_block: &Block) -> bool {
+    source_block.lines().count() == 1
+        && source_block.trim().starts_with("![")
+        && !matches!(rendered_block, Block::Image { .. })
+}
+
+fn looks_like_unsupported_table(source_block: &str, rendered_block: &Block) -> bool {
+    let lines: Vec<&str> = source_block.lines().collect();
+    lines.len() >= 2
+        && lines
+            .iter()
+            .all(|line| line.trim().starts_with('|') && line.trim().ends_with('|'))
+        && !matches!(rendered_block, Block::Table { .. })
 }
 
 fn is_ordered_list_item(line: &str) -> bool {

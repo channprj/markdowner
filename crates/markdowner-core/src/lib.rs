@@ -5,7 +5,7 @@ mod storage;
 mod theme;
 mod workspace;
 
-pub use document::{Block, Document, Inline};
+pub use document::{Block, Document, Inline, TableAlignment, TableRow};
 pub use markdown::{parse_markdown, serialize_markdown};
 pub use platform::{
     EditorRuntime, FileDialogOptions, MenuDescriptor, MenuItem, PlatformAdapter, RuntimeError,

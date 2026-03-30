@@ -2,9 +2,9 @@ use std::{fs, path::PathBuf};
 
 use markdowner_core::{
     Block, Document, EditorMode, EditorRuntime, FileDialogOptions, Inline, InlineRevealRange,
-    InlineRevealSelection, MenuDescriptor, MenuItem, PlatformAdapter, ThemeKind, ThemeSelection,
-    WindowDescriptor, WorkspaceState, WysiwygBlockPresentation, apply_theme, parse_markdown,
-    serialize_markdown,
+    InlineRevealSelection, MenuDescriptor, MenuItem, PlatformAdapter, TableAlignment, TableRow,
+    ThemeKind, ThemeSelection, WindowDescriptor, WorkspaceState, WysiwygBlockPresentation,
+    apply_theme, parse_markdown, serialize_markdown,
 };
 use tempfile::tempdir;
 
@@ -51,6 +51,46 @@ fn markdown_round_trip_covers_core_document_model() {
             Block::CodeFence {
                 language: Some("rust".to_string()),
                 code: "fn main() {}".to_string(),
+            },
+        ]
+    );
+    assert_eq!(serialize_markdown(&document), source);
+}
+
+#[test]
+fn markdown_round_trip_covers_images_tables_and_checklists() {
+    let source = "![Architecture](assets/diagram.png \"System Diagram\")\n\n| Task | Owner |\n| :--- | ---: |\n| Parser | Core |\n| Smoke | Shell |\n\n- [ ] Ship";
+
+    let document = parse_markdown(source);
+
+    assert_eq!(
+        document.blocks(),
+        &[
+            Block::Image {
+                alt: "Architecture".to_string(),
+                source: "assets/diagram.png".to_string(),
+                title: Some("System Diagram".to_string()),
+            },
+            Block::Table {
+                headers: TableRow::new(vec![
+                    vec![Inline::Text("Task".to_string())],
+                    vec![Inline::Text("Owner".to_string())],
+                ]),
+                alignments: vec![TableAlignment::Left, TableAlignment::Right],
+                rows: vec![
+                    TableRow::new(vec![
+                        vec![Inline::Text("Parser".to_string())],
+                        vec![Inline::Text("Core".to_string())],
+                    ]),
+                    TableRow::new(vec![
+                        vec![Inline::Text("Smoke".to_string())],
+                        vec![Inline::Text("Shell".to_string())],
+                    ]),
+                ],
+            },
+            Block::ChecklistItem {
+                checked: false,
+                text: vec![Inline::Text("Ship".to_string())],
             },
         ]
     );
@@ -276,6 +316,84 @@ fn runtime_reparses_source_edits_for_rendered_modes() {
         runtime.workspace().active_document().unwrap().source(),
         source
     );
+}
+
+#[test]
+fn runtime_edits_tables_and_toggles_checklists_through_wysiwyg_state() {
+    let temp = tempdir().unwrap();
+    let document_path = temp.path().join("rich-structures.md");
+    fs::write(
+        &document_path,
+        "| Task | Status |\n| --- | --- |\n| Docs | Draft |\n\n- [ ] Ship",
+    )
+    .unwrap();
+
+    let mut runtime = EditorRuntime::default();
+    runtime.open_document(&document_path).unwrap();
+
+    runtime
+        .replace_table_cell(0, 0, 1, vec![Inline::Text("Ready".to_string())])
+        .unwrap();
+    runtime.toggle_checklist_item(1).unwrap();
+    runtime.save_active_document().unwrap();
+
+    assert_eq!(
+        fs::read_to_string(&document_path).unwrap(),
+        "| Task | Status |\n| --- | --- |\n| Docs | Ready |\n\n- [x] Ship"
+    );
+
+    let mut reopened = EditorRuntime::default();
+    reopened.open_document(&document_path).unwrap();
+
+    assert_eq!(
+        reopened.workspace().active_document().unwrap().document(),
+        &Document::new(vec![
+            Block::Table {
+                headers: TableRow::new(vec![
+                    vec![Inline::Text("Task".to_string())],
+                    vec![Inline::Text("Status".to_string())],
+                ]),
+                alignments: vec![TableAlignment::None, TableAlignment::None],
+                rows: vec![TableRow::new(vec![
+                    vec![Inline::Text("Docs".to_string())],
+                    vec![Inline::Text("Ready".to_string())],
+                ])],
+            },
+            Block::ChecklistItem {
+                checked: true,
+                text: vec![Inline::Text("Ship".to_string())],
+            },
+        ])
+    );
+}
+
+#[test]
+fn workspace_projects_simple_images_and_tables_but_falls_back_for_complex_tables() {
+    let mut workspace = WorkspaceState::default();
+    let rendered_path = PathBuf::from("/tmp/rendered.md");
+    let rendered_source =
+        "![Diagram](assets/diagram.png)\n\n| Name | Value |\n| --- | --- |\n| Docs | Ready |";
+    workspace.open_document_from_source(rendered_path, rendered_source);
+
+    let rendered = workspace.active_wysiwyg_view().unwrap();
+    assert!(matches!(
+        rendered[0].presentation(),
+        WysiwygBlockPresentation::Rendered(Block::Image { .. })
+    ));
+    assert!(matches!(
+        rendered[1].presentation(),
+        WysiwygBlockPresentation::Rendered(Block::Table { .. })
+    ));
+
+    let fallback_path = PathBuf::from("/tmp/fallback.md");
+    let fallback_source = "| Name | Value |\n| --- |\n| Docs | Ready |";
+    workspace.open_document_from_source(fallback_path, fallback_source);
+
+    let fallback = workspace.active_wysiwyg_view().unwrap();
+    assert!(matches!(
+        fallback[0].presentation(),
+        WysiwygBlockPresentation::RawFallback(source) if source == fallback_source
+    ));
 }
 
 #[test]

@@ -19,6 +19,33 @@ impl Default for Document {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableAlignment {
+    None,
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableRow {
+    cells: Vec<Vec<Inline>>,
+}
+
+impl TableRow {
+    pub fn new(cells: Vec<Vec<Inline>>) -> Self {
+        Self { cells }
+    }
+
+    pub fn cells(&self) -> &[Vec<Inline>] {
+        &self.cells
+    }
+
+    pub(crate) fn cells_mut(&mut self) -> &mut [Vec<Inline>] {
+        &mut self.cells
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Inline {
     Text(String),
@@ -38,6 +65,16 @@ pub enum Block {
         text: Vec<Inline>,
     },
     Paragraph(Vec<Inline>),
+    Image {
+        alt: String,
+        source: String,
+        title: Option<String>,
+    },
+    Table {
+        headers: TableRow,
+        alignments: Vec<TableAlignment>,
+        rows: Vec<TableRow>,
+    },
     Quote(Vec<Inline>),
     BulletItem(Vec<Inline>),
     ChecklistItem {
