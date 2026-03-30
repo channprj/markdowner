@@ -5,3 +5,6 @@ edition = "2024"
 
 [dependencies]
 markdowner-core = { path = "../markdowner-core" }
+
+[dev-dependencies]
+tempfile = "3"

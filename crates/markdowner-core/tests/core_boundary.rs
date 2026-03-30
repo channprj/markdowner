@@ -1,10 +1,11 @@
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 use markdowner_core::{
     Block, Document, EditorMode, EditorRuntime, FileDialogOptions, MenuDescriptor, MenuItem,
     PlatformAdapter, ThemeKind, ThemeSelection, WindowDescriptor, WorkspaceState, apply_theme,
     parse_markdown, serialize_markdown,
 };
+use tempfile::tempdir;
 
 #[test]
 fn markdown_round_trip_covers_core_document_model() {
@@ -69,24 +70,22 @@ fn workspace_state_tracks_documents_without_ui_runtime() {
 
 #[test]
 fn runtime_uses_platform_adapter_boundary_for_native_capabilities() {
+    let temp = tempdir().unwrap();
+    let document_path = temp.path().join("from-dialog.md");
+    let workspace_path = temp.path().join("workspace");
+    fs::create_dir_all(&workspace_path).unwrap();
+    fs::write(&document_path, "Opened via dialog").unwrap();
+
     let mut runtime = EditorRuntime::default();
-    let mut adapter = RecordingAdapter::new(
-        Some(PathBuf::from("/tmp/from-dialog.md")),
-        Some(PathBuf::from("/tmp/workspace")),
-    );
+    let mut adapter =
+        RecordingAdapter::new(Some(document_path.clone()), Some(workspace_path.clone()));
 
     runtime.bootstrap_ui(&mut adapter);
-    let opened = runtime.open_document_via(&mut adapter);
-    let folder = runtime.open_workspace_via(&mut adapter);
+    let opened = runtime.open_document_via(&mut adapter).unwrap();
+    let folder = runtime.open_workspace_via(&mut adapter).unwrap();
 
-    assert_eq!(
-        opened.as_deref(),
-        Some(PathBuf::from("/tmp/from-dialog.md").as_path())
-    );
-    assert_eq!(
-        folder.as_deref(),
-        Some(PathBuf::from("/tmp/workspace").as_path())
-    );
+    assert_eq!(opened.as_deref(), Some(document_path.as_path()));
+    assert_eq!(folder.as_deref(), Some(workspace_path.as_path()));
     assert_eq!(
         adapter.window_requests,
         vec![WindowDescriptor::new("main", "Markdowner")]
@@ -104,6 +103,89 @@ fn runtime_uses_platform_adapter_boundary_for_native_capabilities() {
             "Open Markdown",
             vec!["md".to_string()]
         )]
+    );
+}
+
+#[test]
+fn runtime_loads_markdown_contents_and_saves_active_document() {
+    let temp = tempdir().unwrap();
+    let document_path = temp.path().join("daily.md");
+    let session_path = temp.path().join("session.json");
+    fs::write(&document_path, "# Daily\n\nLoaded from disk").unwrap();
+
+    let mut runtime = EditorRuntime::default().with_session_store(session_path);
+    let mut adapter = RecordingAdapter::new(Some(document_path.clone()), None);
+
+    let opened = runtime.open_document_via(&mut adapter).unwrap();
+
+    assert_eq!(opened.as_deref(), Some(document_path.as_path()));
+    assert_eq!(
+        runtime.workspace().active_document().unwrap().document(),
+        &parse_markdown("# Daily\n\nLoaded from disk")
+    );
+    assert_eq!(
+        runtime.workspace().active_document().unwrap().source(),
+        "# Daily\n\nLoaded from disk"
+    );
+
+    runtime
+        .replace_active_document(Document::new(vec![
+            Block::Heading {
+                level: 1,
+                text: "Updated".to_string(),
+            },
+            Block::Paragraph("Saved back to disk".to_string()),
+        ]))
+        .unwrap();
+    runtime.save_active_document().unwrap();
+
+    assert_eq!(
+        fs::read_to_string(&document_path).unwrap(),
+        "# Updated\n\nSaved back to disk"
+    );
+}
+
+#[test]
+fn runtime_restores_recent_documents_across_relaunches() {
+    let temp = tempdir().unwrap();
+    let document_path = temp.path().join("recent.md");
+    let session_path = temp.path().join("session.json");
+    fs::write(&document_path, "Recent").unwrap();
+
+    let mut first_runtime = EditorRuntime::default().with_session_store(session_path.clone());
+    let mut adapter = RecordingAdapter::new(Some(document_path.clone()), None);
+    first_runtime.open_document_via(&mut adapter).unwrap();
+
+    let mut second_runtime = EditorRuntime::default().with_session_store(session_path);
+    second_runtime.restore_session().unwrap();
+
+    assert_eq!(
+        second_runtime.workspace().recent_documents(),
+        std::slice::from_ref(&document_path)
+    );
+}
+
+#[test]
+fn runtime_reports_error_when_recent_document_is_missing() {
+    let temp = tempdir().unwrap();
+    let missing_path = temp.path().join("missing.md");
+    let session_path = temp.path().join("session.json");
+    let mut runtime = EditorRuntime::default().with_session_store(session_path);
+
+    runtime
+        .workspace_mut()
+        .restore_recent_documents(vec![missing_path.clone()]);
+    runtime.persist_session().unwrap();
+
+    let error = runtime.open_recent_document(&missing_path).unwrap_err();
+
+    assert!(error.to_string().contains("missing.md"));
+    assert!(
+        runtime
+            .workspace()
+            .last_error()
+            .unwrap()
+            .contains("missing.md")
     );
 }
 
