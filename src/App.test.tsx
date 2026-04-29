@@ -26,8 +26,12 @@ const saveDialogMock = vi.fn();
 const messageMock = vi.fn();
 const destroyWindowMock = vi.fn();
 const onCloseRequestedMock = vi.fn();
+const listenMock = vi.fn();
 let closeRequestedHandler:
   | ((event: { preventDefault: () => void }) => Promise<void>)
+  | undefined;
+let menuCommandHandler:
+  | ((event: { payload: string }) => void | Promise<void>)
   | undefined;
 
 vi.mock('./lib/desktop', () => ({
@@ -55,6 +59,10 @@ vi.mock('@tauri-apps/api/window', () => ({
     destroy: destroyWindowMock,
     onCloseRequested: onCloseRequestedMock,
   }),
+}));
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: listenMock,
 }));
 
 vi.mock('@tiptap/react', () => ({
@@ -118,9 +126,18 @@ describe('App recent documents', () => {
     messageMock.mockReset();
     destroyWindowMock.mockReset();
     onCloseRequestedMock.mockReset();
+    listenMock.mockReset();
     closeRequestedHandler = undefined;
+    menuCommandHandler = undefined;
     onCloseRequestedMock.mockImplementation(async (handler) => {
       closeRequestedHandler = handler;
+      return vi.fn();
+    });
+    listenMock.mockImplementation(async (eventName, handler) => {
+      if (eventName === 'markdowner://menu-command') {
+        menuCommandHandler = handler;
+      }
+
       return vi.fn();
     });
 
@@ -602,6 +619,68 @@ describe('App recent documents', () => {
 
     await waitFor(() => {
       expect(setModeMock).toHaveBeenCalledWith('Source');
+    });
+  });
+
+  it('opens a Markdown document from the native menu event', async () => {
+    openDialogMock.mockResolvedValue('/tmp/project/from-menu.md');
+    openDocumentMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'from-menu.md',
+        activeDocumentPath: '/tmp/project/from-menu.md',
+        activeDocumentSource: '# From menu',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(menuCommandHandler).toBeTypeOf('function');
+    });
+
+    await menuCommandHandler?.({ payload: 'open-document' });
+
+    await waitFor(() => {
+      expect(openDialogMock).toHaveBeenCalledWith({
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd'] }],
+      });
+      expect(openDocumentMock).toHaveBeenCalledWith('/tmp/project/from-menu.md');
+    });
+  });
+
+  it('switches modes from the native menu event', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+      }),
+    );
+    setModeMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Preview',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(menuCommandHandler).toBeTypeOf('function');
+    });
+
+    await menuCommandHandler?.({ payload: 'mode-preview' });
+
+    await waitFor(() => {
+      expect(setModeMock).toHaveBeenCalledWith('Preview');
     });
   });
 

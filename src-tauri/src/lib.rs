@@ -5,7 +5,77 @@ use std::{
 
 use markdowner_core::{EditorMode, EditorRuntime, ThemeKind, ThemeSelection, WorkspaceState};
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{
+    AppHandle, Emitter, Manager, Runtime, State,
+    menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
+};
+
+const MENU_COMMAND_EVENT: &str = "markdowner://menu-command";
+const MENU_FILE_ID: &str = "file";
+const MENU_VIEW_ID: &str = "view";
+const MENU_COMMAND_NEW_DOCUMENT: &str = "new-document";
+const MENU_COMMAND_OPEN_DOCUMENT: &str = "open-document";
+const MENU_COMMAND_OPEN_WORKSPACE: &str = "open-workspace";
+const MENU_COMMAND_SAVE_ACTIVE_DOCUMENT: &str = "save-active-document";
+const MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS: &str = "save-active-document-as";
+const MENU_COMMAND_SET_MODE_WYSIWYG: &str = "mode-wysiwyg";
+const MENU_COMMAND_SET_MODE_SOURCE: &str = "mode-source";
+const MENU_COMMAND_SET_MODE_PREVIEW: &str = "mode-preview";
+const MENU_FILE_TITLE: &str = "File";
+const MENU_VIEW_TITLE: &str = "View";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MenuCommandDescriptor {
+    id: &'static str,
+    label: &'static str,
+    accelerator: &'static str,
+}
+
+const FILE_MENU_COMMANDS: &[MenuCommandDescriptor] = &[
+    MenuCommandDescriptor {
+        id: MENU_COMMAND_NEW_DOCUMENT,
+        label: "New Document",
+        accelerator: "CmdOrCtrl+N",
+    },
+    MenuCommandDescriptor {
+        id: MENU_COMMAND_OPEN_DOCUMENT,
+        label: "Open Markdown…",
+        accelerator: "CmdOrCtrl+O",
+    },
+    MenuCommandDescriptor {
+        id: MENU_COMMAND_OPEN_WORKSPACE,
+        label: "Open Folder…",
+        accelerator: "CmdOrCtrl+Shift+O",
+    },
+    MenuCommandDescriptor {
+        id: MENU_COMMAND_SAVE_ACTIVE_DOCUMENT,
+        label: "Save",
+        accelerator: "CmdOrCtrl+S",
+    },
+    MenuCommandDescriptor {
+        id: MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS,
+        label: "Save As…",
+        accelerator: "CmdOrCtrl+Shift+S",
+    },
+];
+
+const VIEW_MENU_COMMANDS: &[MenuCommandDescriptor] = &[
+    MenuCommandDescriptor {
+        id: MENU_COMMAND_SET_MODE_WYSIWYG,
+        label: "WYSIWYG",
+        accelerator: "CmdOrCtrl+1",
+    },
+    MenuCommandDescriptor {
+        id: MENU_COMMAND_SET_MODE_SOURCE,
+        label: "Source",
+        accelerator: "CmdOrCtrl+2",
+    },
+    MenuCommandDescriptor {
+        id: MENU_COMMAND_SET_MODE_PREVIEW,
+        label: "Preview",
+        accelerator: "CmdOrCtrl+3",
+    },
+];
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -154,6 +224,50 @@ impl DesktopAppState {
     }
 }
 
+fn build_menu_item<R: Runtime>(
+    app: &AppHandle<R>,
+    descriptor: MenuCommandDescriptor,
+) -> tauri::Result<tauri::menu::MenuItem<R>> {
+    MenuItemBuilder::with_id(descriptor.id, descriptor.label)
+        .accelerator(descriptor.accelerator)
+        .build(app)
+}
+
+fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let mut file_menu_builder = SubmenuBuilder::with_id(app, MENU_FILE_ID, MENU_FILE_TITLE);
+    for descriptor in FILE_MENU_COMMANDS {
+        let item = build_menu_item(app, *descriptor)?;
+        file_menu_builder = file_menu_builder.item(&item);
+    }
+    let file_menu = file_menu_builder.build()?;
+
+    let mut view_menu_builder = SubmenuBuilder::with_id(app, MENU_VIEW_ID, MENU_VIEW_TITLE);
+    for descriptor in VIEW_MENU_COMMANDS {
+        let item = build_menu_item(app, *descriptor)?;
+        view_menu_builder = view_menu_builder.item(&item);
+    }
+    let view_menu = view_menu_builder.build()?;
+
+    MenuBuilder::new(app)
+        .item(&file_menu)
+        .item(&view_menu)
+        .build()
+}
+
+fn menu_command_from_id(id: &str) -> Option<&'static str> {
+    match id {
+        MENU_COMMAND_NEW_DOCUMENT => Some(MENU_COMMAND_NEW_DOCUMENT),
+        MENU_COMMAND_OPEN_DOCUMENT => Some(MENU_COMMAND_OPEN_DOCUMENT),
+        MENU_COMMAND_OPEN_WORKSPACE => Some(MENU_COMMAND_OPEN_WORKSPACE),
+        MENU_COMMAND_SAVE_ACTIVE_DOCUMENT => Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT),
+        MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS => Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS),
+        MENU_COMMAND_SET_MODE_WYSIWYG => Some(MENU_COMMAND_SET_MODE_WYSIWYG),
+        MENU_COMMAND_SET_MODE_SOURCE => Some(MENU_COMMAND_SET_MODE_SOURCE),
+        MENU_COMMAND_SET_MODE_PREVIEW => Some(MENU_COMMAND_SET_MODE_PREVIEW),
+        _ => None,
+    }
+}
+
 fn session_store_path(app_handle: &AppHandle) -> Option<PathBuf> {
     app_handle
         .path()
@@ -249,6 +363,11 @@ fn import_theme(path: String, state: State<'_, DesktopAppState>) -> Result<AppSn
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(|app, event| {
+            if let Some(command) = menu_command_from_id(event.id().as_ref()) {
+                let _ = app.emit(MENU_COMMAND_EVENT, command);
+            }
+        })
         .setup(|app| {
             let session_store = session_store_path(app.handle());
             let mut state = DesktopAppState::new(session_store);
@@ -257,6 +376,8 @@ pub fn run() {
                 let _ = backend.restore_session();
             }
 
+            let menu = build_app_menu(app.handle())?;
+            app.set_menu(menu)?;
             app.manage(state);
             Ok(())
         })
@@ -284,7 +405,12 @@ mod tests {
     use markdowner_core::ThemeKind;
     use tempfile::tempdir;
 
-    use super::DesktopBackend;
+    use super::{
+        DesktopBackend, FILE_MENU_COMMANDS, MENU_COMMAND_NEW_DOCUMENT, MENU_COMMAND_OPEN_DOCUMENT,
+        MENU_COMMAND_OPEN_WORKSPACE, MENU_COMMAND_SAVE_ACTIVE_DOCUMENT,
+        MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS, MENU_COMMAND_SET_MODE_PREVIEW, MENU_FILE_TITLE,
+        MENU_VIEW_TITLE, VIEW_MENU_COMMANDS, menu_command_from_id,
+    };
 
     #[test]
     fn backend_snapshot_reflects_active_document_mode_and_theme() {
@@ -404,5 +530,44 @@ mod tests {
         assert_eq!(snapshot.active_document_source.as_deref(), Some(""));
         assert!(snapshot.active_document_dirty);
         assert!(snapshot.recent_documents.is_empty());
+    }
+
+    #[test]
+    fn app_menu_descriptors_cover_file_and_view_commands() {
+        assert_eq!(MENU_FILE_TITLE, "File");
+        assert_eq!(MENU_VIEW_TITLE, "View");
+        assert_eq!(
+            FILE_MENU_COMMANDS
+                .iter()
+                .map(|descriptor| descriptor.id)
+                .collect::<Vec<_>>(),
+            vec![
+                MENU_COMMAND_NEW_DOCUMENT,
+                MENU_COMMAND_OPEN_DOCUMENT,
+                MENU_COMMAND_OPEN_WORKSPACE,
+                MENU_COMMAND_SAVE_ACTIVE_DOCUMENT,
+                MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS,
+            ]
+        );
+        assert_eq!(
+            VIEW_MENU_COMMANDS
+                .iter()
+                .map(|descriptor| descriptor.id)
+                .collect::<Vec<_>>(),
+            vec![
+                super::MENU_COMMAND_SET_MODE_WYSIWYG,
+                super::MENU_COMMAND_SET_MODE_SOURCE,
+                MENU_COMMAND_SET_MODE_PREVIEW,
+            ]
+        );
+    }
+
+    #[test]
+    fn menu_command_mapping_only_accepts_supported_command_ids() {
+        assert_eq!(
+            menu_command_from_id(MENU_COMMAND_SET_MODE_PREVIEW),
+            Some(MENU_COMMAND_SET_MODE_PREVIEW)
+        );
+        assert_eq!(menu_command_from_id("unknown-command"), None);
     }
 }

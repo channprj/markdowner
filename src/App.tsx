@@ -1,4 +1,5 @@
 import { markdown } from '@codemirror/lang-markdown';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   message,
@@ -61,6 +62,7 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 
 const MARKDOWN_FILE_EXTENSIONS = ['md', 'markdown', 'mdown', 'mkd'];
 const WINDOW_TITLE = 'Markdowner';
+const MENU_COMMAND_EVENT = 'markdowner://menu-command';
 
 function usesCommandModifier(event: KeyboardEvent) {
   return event.metaKey || event.ctrlKey;
@@ -551,6 +553,39 @@ export default function App() {
     );
   };
 
+  const handleNativeMenuCommand = useEffectEvent(async (command: string) => {
+    if (busy) {
+      return;
+    }
+
+    switch (command) {
+      case 'new-document':
+        await handleNewDocument();
+        return;
+      case 'open-document':
+        await handleOpenDocument();
+        return;
+      case 'open-workspace':
+        await handleOpenWorkspace();
+        return;
+      case 'save-active-document':
+        await handleSave();
+        return;
+      case 'save-active-document-as':
+        await handleSaveAs();
+        return;
+      case 'mode-wysiwyg':
+        await handleSetMode('Wysiwyg');
+        return;
+      case 'mode-source':
+        await handleSetMode('Source');
+        return;
+      case 'mode-preview':
+        await handleSetMode('Preview');
+      default:
+    }
+  });
+
   const renderWorkspaceTreeNode = (node: WorkspaceTreeNode, depth = 0) => {
     if (node.kind === 'folder') {
       const collapsed = !filteringWorkspace && collapsedFolderKeys.includes(node.key);
@@ -653,6 +688,31 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyboardShortcut);
     };
   }, [busy, localDraft, snapshot]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    listen<string>(MENU_COMMAND_EVENT, (event) => {
+      void handleNativeMenuCommand(event.payload);
+    })
+      .then((nextUnlisten) => {
+        if (cancelled) {
+          nextUnlisten();
+          return;
+        }
+
+        unlisten = nextUnlisten;
+      })
+      .catch((error) => {
+        console.error(error);
+      });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   const handleWindowCloseRequest = useEffectEvent(
     async (event: { preventDefault: () => void }) => {
