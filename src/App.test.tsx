@@ -183,6 +183,33 @@ describe('App recent documents', () => {
     expect(document.title).toBe('● meeting-notes.md — Markdowner');
   });
 
+  it('scopes imported custom CSS to markdown content surfaces', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'theme-preview.md',
+        activeDocumentPath: '/tmp/project/theme-preview.md',
+        activeDocumentSource: '# Scoped preview',
+        mode: 'Preview',
+        theme: {
+          kind: 'CustomCss',
+          stylesheet: 'body, h1 { color: tomato; }',
+          stylesheetPath: '/tmp/project/theme.css',
+        },
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const previewHeading = await screen.findByText('Scoped preview');
+    expect(previewHeading.closest('.markdowner-content')).not.toBeNull();
+
+    const importedTheme = document.getElementById('markdowner-imported-theme');
+    expect(importedTheme?.textContent).toContain('.markdowner-content');
+    expect(importedTheme?.textContent).not.toContain('body, h1 {');
+  });
+
   it('saves the active document to a new path from the shell', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({

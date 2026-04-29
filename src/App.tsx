@@ -32,6 +32,10 @@ import {
   setMode,
   setTheme,
 } from './lib/desktop';
+import {
+  MARKDOWN_CONTENT_SCOPE_CLASS,
+  scopeImportedStylesheet,
+} from './lib/themeScope';
 
 const EMPTY_SNAPSHOT: AppSnapshot = {
   rootDir: null,
@@ -108,7 +112,7 @@ function applyImportedStylesheet(snapshot: AppSnapshot) {
 
   const style = existing ?? document.createElement('style');
   style.id = 'markdowner-imported-theme';
-  style.textContent = snapshot.theme.stylesheet;
+  style.textContent = scopeImportedStylesheet(snapshot.theme.stylesheet);
   if (!existing) {
     document.head.appendChild(style);
   }
@@ -212,7 +216,7 @@ export default function App() {
     contentType: 'markdown',
     editorProps: {
       attributes: {
-        class: 'editor-surface tiptap-surface',
+        class: `editor-surface tiptap-surface ${MARKDOWN_CONTENT_SCOPE_CLASS}`,
       },
     },
     onUpdate: ({ editor: nextEditor }) => {
@@ -622,7 +626,9 @@ export default function App() {
           ) : null}
 
           {activeDocumentOpen && currentMode === 'Preview' ? (
-            <div className="editor-scroll preview-shell">
+            <div
+              className={`editor-scroll preview-shell ${MARKDOWN_CONTENT_SCOPE_CLASS}`}
+            >
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{previewSource}</ReactMarkdown>
             </div>
           ) : null}
