@@ -55,6 +55,50 @@
     "notes": "Common inline markdown should round-trip without drift."
   },
   {
+    "id": "MD-FIX-INL-002",
+    "category": "inline-formatting",
+    "source": "inline/nested-emphasis.md",
+    "expected": "inline/nested-emphasis.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["bold", "italic", "nested-emphasis"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Nested bold and italic spans should remain rendered and source-stable."
+  },
+  {
+    "id": "MD-FIX-INL-003",
+    "category": "inline-formatting",
+    "source": "inline/escaped-punctuation.md",
+    "expected": "inline/escaped-punctuation.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["escaped-punctuation", "backslash", "literal-markup"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Escaped inline punctuation should stay literal without forcing raw fallback."
+  },
+  {
+    "id": "MD-FIX-INL-004",
+    "category": "inline-formatting",
+    "source": "inline/multiple-links-and-code.md",
+    "expected": "inline/multiple-links-and-code.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["link", "inline-code", "multiple-links"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Multiple links and an inline code span should round-trip cleanly in one paragraph."
+  },
+  {
+    "id": "MD-FIX-INL-005",
+    "category": "inline-formatting",
+    "source": "inline/multiline-mixed.md",
+    "expected": "inline/multiline-mixed.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["bold", "italic", "link", "inline-code", "multiline-paragraph"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Inline formatting should stay stable across a multiline paragraph block."
+  },
+  {
     "id": "MD-FIX-LST-001",
     "category": "lists-and-checklists",
     "source": "lists/bullets-and-checklists.md",

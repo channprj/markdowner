@@ -45,6 +45,10 @@ fn markdown_fixtures_include_v0_code_fence_image_and_unsupported_seed_coverage()
         .iter()
         .filter(|fixture| fixture.category == "headings-and-paragraphs")
         .count();
+    let inline_fixtures = fixtures
+        .iter()
+        .filter(|fixture| fixture.category == "inline-formatting")
+        .count();
     let code_fence_fixtures = fixtures
         .iter()
         .filter(|fixture| fixture.category == "code-fences")
@@ -70,6 +74,11 @@ fn markdown_fixtures_include_v0_code_fence_image_and_unsupported_seed_coverage()
         heading_fixtures >= 4,
         "expected at least four v0.2 headings-and-paragraphs fixtures, found {}",
         heading_fixtures
+    );
+    assert!(
+        inline_fixtures >= 5,
+        "expected at least five v0.2 inline-formatting fixtures, found {}",
+        inline_fixtures
     );
     assert!(
         code_fence_fixtures >= 4,
