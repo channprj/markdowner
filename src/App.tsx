@@ -1,5 +1,10 @@
 import { markdown } from '@codemirror/lang-markdown';
-import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import {
+  message,
+  open as openDialog,
+  save as saveDialog,
+} from '@tauri-apps/plugin-dialog';
 import Image from '@tiptap/extension-image';
 import Link from '@tiptap/extension-link';
 import { Table } from '@tiptap/extension-table';
@@ -12,7 +17,7 @@ import { Markdown } from '@tiptap/markdown';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import CodeMirror from '@uiw/react-codemirror';
-import { startTransition, useEffect, useState } from 'react';
+import { startTransition, useEffect, useEffectEvent, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -241,6 +246,10 @@ export default function App() {
 
   const currentMode = snapshot.mode;
   const activeDocumentOpen = snapshot.activeDocumentSource !== null;
+  const hasUnsavedChanges =
+    activeDocumentOpen && localDraft !== (snapshot.activeDocumentSource ?? '')
+      ? true
+      : snapshot.activeDocumentDirty;
   const errorMessage = snapshot.lastError;
   const activeDocumentName = snapshot.activeDocumentName ?? 'No document open';
   const workspaceTree = buildWorkspaceTree(snapshot.workspaceDocuments, snapshot.rootDir);
@@ -440,6 +449,33 @@ export default function App() {
     });
   };
 
+  const saveActiveDocumentForClose = async () => {
+    if (!activeDocumentOpen) {
+      return true;
+    }
+
+    if (!snapshot.activeDocumentPath) {
+      const selected = await saveDialog({
+        defaultPath: snapshot.activeDocumentPath ?? snapshot.activeDocumentName ?? 'Untitled.md',
+        filters: [{ name: 'Markdown', extensions: MARKDOWN_FILE_EXTENSIONS }],
+      });
+
+      if (typeof selected !== 'string') {
+        return false;
+      }
+
+      await syncActiveDraft();
+      const next = await saveActiveDocumentAs(selected);
+      applySnapshot(next, true);
+      return true;
+    }
+
+    await syncActiveDraft();
+    const next = await saveActiveDocument();
+    applySnapshot(next, true);
+    return true;
+  };
+
   const handleImportTheme = async () => {
     const selected = await openDialog({
       multiple: false,
@@ -617,6 +653,78 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyboardShortcut);
     };
   }, [busy, localDraft, snapshot]);
+
+  const handleWindowCloseRequest = useEffectEvent(
+    async (event: { preventDefault: () => void }) => {
+      if (!hasUnsavedChanges) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (busy) {
+        return;
+      }
+
+      try {
+        const currentWindow = getCurrentWindow();
+        const decision = await message(
+          `Save changes to '${snapshot.activeDocumentName ?? 'Untitled.md'}' before closing?`,
+          {
+            title: WINDOW_TITLE,
+            kind: 'warning',
+            buttons: {
+              yes: 'Save',
+              no: "Don't Save",
+              cancel: 'Cancel',
+            },
+          },
+        );
+
+        if (decision === 'Save') {
+          await withBusy(async () => {
+            const saved = await saveActiveDocumentForClose();
+            if (saved) {
+              await currentWindow.destroy();
+            }
+          });
+          return;
+        }
+
+        if (decision === "Don't Save") {
+          await currentWindow.destroy();
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    },
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    getCurrentWindow()
+      .onCloseRequested(async (event) => {
+        await handleWindowCloseRequest(event);
+      })
+      .then((nextUnlisten) => {
+        if (cancelled) {
+          nextUnlisten();
+          return;
+        }
+
+        unlisten = nextUnlisten;
+      })
+      .catch((error) => {
+        console.error(error);
+      });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   return (
     <div className="desktop-shell">

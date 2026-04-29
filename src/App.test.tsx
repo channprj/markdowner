@@ -23,6 +23,12 @@ const setModeMock = vi.fn();
 const setThemeMock = vi.fn();
 const openDialogMock = vi.fn();
 const saveDialogMock = vi.fn();
+const messageMock = vi.fn();
+const destroyWindowMock = vi.fn();
+const onCloseRequestedMock = vi.fn();
+let closeRequestedHandler:
+  | ((event: { preventDefault: () => void }) => Promise<void>)
+  | undefined;
 
 vi.mock('./lib/desktop', () => ({
   bootstrap: bootstrapMock,
@@ -41,6 +47,14 @@ vi.mock('./lib/desktop', () => ({
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: openDialogMock,
   save: saveDialogMock,
+  message: messageMock,
+}));
+
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => ({
+    destroy: destroyWindowMock,
+    onCloseRequested: onCloseRequestedMock,
+  }),
 }));
 
 vi.mock('@tiptap/react', () => ({
@@ -101,6 +115,14 @@ describe('App recent documents', () => {
     setThemeMock.mockReset();
     openDialogMock.mockReset();
     saveDialogMock.mockReset();
+    messageMock.mockReset();
+    destroyWindowMock.mockReset();
+    onCloseRequestedMock.mockReset();
+    closeRequestedHandler = undefined;
+    onCloseRequestedMock.mockImplementation(async (handler) => {
+      closeRequestedHandler = handler;
+      return vi.fn();
+    });
 
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
@@ -580,6 +602,138 @@ describe('App recent documents', () => {
 
     await waitFor(() => {
       expect(setModeMock).toHaveBeenCalledWith('Source');
+    });
+  });
+
+  it('prompts to save dirty changes before closing the window', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        activeDocumentDirty: true,
+        mode: 'Source',
+      }),
+    );
+    messageMock.mockResolvedValue('Save');
+    saveActiveDocumentMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes\n\nUnsaved edit',
+        mode: 'Source',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    fireEvent.change(editor, { target: { value: '# Meeting notes\n\nUnsaved edit' } });
+
+    await waitFor(() => {
+      expect(onCloseRequestedMock).toHaveBeenCalled();
+      expect(closeRequestedHandler).toBeTypeOf('function');
+    });
+
+    const preventDefault = vi.fn();
+    await closeRequestedHandler?.({ preventDefault });
+
+    await waitFor(() => {
+      expect(preventDefault).toHaveBeenCalled();
+      expect(messageMock).toHaveBeenCalledWith(
+        "Save changes to 'meeting-notes.md' before closing?",
+        {
+          buttons: {
+            yes: 'Save',
+            no: "Don't Save",
+            cancel: 'Cancel',
+          },
+          kind: 'warning',
+          title: 'Markdowner',
+        },
+      );
+      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith(
+        '# Meeting notes\n\nUnsaved edit',
+      );
+      expect(saveActiveDocumentMock).toHaveBeenCalled();
+      expect(destroyWindowMock).toHaveBeenCalled();
+    });
+  });
+
+  it('keeps the dirty window open when close confirmation is cancelled', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        activeDocumentDirty: true,
+      }),
+    );
+    messageMock.mockResolvedValue('Cancel');
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(onCloseRequestedMock).toHaveBeenCalled();
+      expect(closeRequestedHandler).toBeTypeOf('function');
+    });
+
+    const preventDefault = vi.fn();
+    await closeRequestedHandler?.({ preventDefault });
+
+    await waitFor(() => {
+      expect(preventDefault).toHaveBeenCalled();
+      expect(messageMock).toHaveBeenCalled();
+    });
+
+    expect(saveActiveDocumentMock).not.toHaveBeenCalled();
+    expect(saveActiveDocumentAsMock).not.toHaveBeenCalled();
+    expect(destroyWindowMock).not.toHaveBeenCalled();
+  });
+
+  it('runs Save As before closing an untitled dirty draft', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'Untitled.md',
+        activeDocumentPath: null,
+        activeDocumentSource: '',
+        activeDocumentDirty: true,
+      }),
+    );
+    messageMock.mockResolvedValue('Save');
+    saveDialogMock.mockResolvedValue('/tmp/project/notes/untitled.md');
+    saveActiveDocumentAsMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'untitled.md',
+        activeDocumentPath: '/tmp/project/notes/untitled.md',
+        activeDocumentSource: '',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(onCloseRequestedMock).toHaveBeenCalled();
+      expect(closeRequestedHandler).toBeTypeOf('function');
+    });
+
+    const preventDefault = vi.fn();
+    await closeRequestedHandler?.({ preventDefault });
+
+    await waitFor(() => {
+      expect(preventDefault).toHaveBeenCalled();
+      expect(saveDialogMock).toHaveBeenCalledWith({
+        defaultPath: 'Untitled.md',
+        filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd'] }],
+      });
+      expect(saveActiveDocumentAsMock).toHaveBeenCalledWith('/tmp/project/notes/untitled.md');
+      expect(destroyWindowMock).toHaveBeenCalled();
     });
   });
 });
