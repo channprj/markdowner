@@ -110,6 +110,50 @@ textarea {
   color: var(--fg-muted);
 }
 
+.sidebar-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sidebar-field-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.sidebar-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.04);
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.sidebar-input::placeholder {
+  color: var(--fg-muted);
+}
+
+.sidebar-input:hover:enabled,
+.sidebar-input:focus-visible {
+  border-color: rgba(127, 176, 255, 0.4);
+}
+
+.sidebar-input:focus-visible {
+  outline: none;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.sidebar-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .primary-button,
 .secondary-button,
 .segment,

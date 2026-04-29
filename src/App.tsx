@@ -164,6 +164,35 @@ function buildWorkspaceTree(paths: string[], rootDir: string | null): WorkspaceT
   return root;
 }
 
+function filterWorkspaceTree(nodes: WorkspaceTreeNode[], query: string): WorkspaceTreeNode[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return nodes;
+  }
+
+  const filteredNodes: WorkspaceTreeNode[] = [];
+
+  for (const node of nodes) {
+    if (node.kind === 'file') {
+      const haystack = `${node.name}\u0000${node.relativePath}`.toLowerCase();
+      if (haystack.includes(normalizedQuery)) {
+        filteredNodes.push(node);
+      }
+      continue;
+    }
+
+    const filteredChildren = filterWorkspaceTree(node.children, normalizedQuery);
+    if (filteredChildren.length > 0) {
+      filteredNodes.push({
+        ...node,
+        children: filteredChildren,
+      });
+    }
+  }
+
+  return filteredNodes;
+}
+
 function collectWorkspaceFolderKeys(nodes: WorkspaceTreeNode[], folderKeys: Set<string>) {
   for (const node of nodes) {
     if (node.kind !== 'folder') {
@@ -208,12 +237,15 @@ export default function App() {
   const [localDraft, setLocalDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [collapsedFolderKeys, setCollapsedFolderKeys] = useState<string[]>([]);
+  const [workspaceFilter, setWorkspaceFilter] = useState('');
 
   const currentMode = snapshot.mode;
   const activeDocumentOpen = snapshot.activeDocumentSource !== null;
   const errorMessage = snapshot.lastError;
   const activeDocumentName = snapshot.activeDocumentName ?? 'No document open';
   const workspaceTree = buildWorkspaceTree(snapshot.workspaceDocuments, snapshot.rootDir);
+  const filteredWorkspaceTree = filterWorkspaceTree(workspaceTree, workspaceFilter);
+  const filteringWorkspace = workspaceFilter.trim().length > 0;
   const workspaceTreeSignature = `${snapshot.rootDir ?? ''}\u0000${snapshot.workspaceDocuments.join('\u0000')}`;
 
   const applySnapshot = (next: AppSnapshot, preserveDraft = false) => {
@@ -259,6 +291,10 @@ export default function App() {
     collectWorkspaceFolderKeys(workspaceTree, nextFolderKeys);
     setCollapsedFolderKeys((current) => current.filter((key) => nextFolderKeys.has(key)));
   }, [workspaceTreeSignature]);
+
+  useEffect(() => {
+    setWorkspaceFilter('');
+  }, [snapshot.rootDir]);
 
   useEffect(() => {
     if (snapshot.activeDocumentSource === null) {
@@ -481,7 +517,7 @@ export default function App() {
 
   const renderWorkspaceTreeNode = (node: WorkspaceTreeNode, depth = 0) => {
     if (node.kind === 'folder') {
-      const collapsed = collapsedFolderKeys.includes(node.key);
+      const collapsed = !filteringWorkspace && collapsedFolderKeys.includes(node.key);
 
       return (
         <div key={node.key} className="tree-folder">
@@ -612,7 +648,27 @@ export default function App() {
           {workspaceTree.length === 0 ? (
             <div className="empty-hint">Open a folder to populate the file tree.</div>
           ) : (
-            <div className="tree-list">{workspaceTree.map((node) => renderWorkspaceTreeNode(node))}</div>
+            <>
+              <label className="sidebar-field">
+                <span className="sidebar-field-label">Filter files</span>
+                <input
+                  type="text"
+                  className="sidebar-input"
+                  value={workspaceFilter}
+                  onChange={(event) => setWorkspaceFilter(event.target.value)}
+                  placeholder="Search this workspace"
+                  disabled={busy}
+                  aria-label="Filter files"
+                />
+              </label>
+              {filteredWorkspaceTree.length === 0 ? (
+                <div className="empty-hint">No files match this filter.</div>
+              ) : (
+                <div className="tree-list">
+                  {filteredWorkspaceTree.map((node) => renderWorkspaceTreeNode(node))}
+                </div>
+              )}
+            </>
           )}
         </div>
 
