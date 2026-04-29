@@ -256,6 +256,10 @@ pub(crate) fn validate_stylesheet(stylesheet: &str) -> Result<(), String> {
         return Err("CSS theme cannot use remote url() references".to_string());
     }
 
+    if let Some(position_value) = contains_disallowed_position_value(&normalized) {
+        return Err(format!("CSS theme cannot use position: {position_value}"));
+    }
+
     let mut depth = 0usize;
     for character in trimmed.chars() {
         match character {
@@ -320,6 +324,61 @@ fn contains_remote_url_reference(stylesheet: &str) -> bool {
     }
 
     false
+}
+
+fn contains_disallowed_position_value(stylesheet: &str) -> Option<&'static str> {
+    let bytes = stylesheet.as_bytes();
+    let mut index = 0usize;
+
+    while index + 8 <= bytes.len() {
+        if &bytes[index..index + 8] != b"position" {
+            index += 1;
+            continue;
+        }
+
+        if index > 0 {
+            let previous = bytes[index - 1];
+            if previous.is_ascii_alphanumeric() || previous == b'-' || previous == b'_' {
+                index += 1;
+                continue;
+            }
+        }
+
+        let mut cursor = index + 8;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+
+        if cursor >= bytes.len() || bytes[cursor] != b':' {
+            index += 1;
+            continue;
+        }
+
+        cursor += 1;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+
+        let value_start = cursor;
+        while cursor < bytes.len() && !matches!(bytes[cursor], b';' | b'}' | b'!') {
+            cursor += 1;
+        }
+
+        if cursor > value_start {
+            let value = stylesheet[value_start..cursor].trim();
+            if value.starts_with("fixed") {
+                return Some("fixed");
+            }
+
+            if value.starts_with("sticky") {
+                return Some("sticky");
+            }
+        }
+
+        index = cursor.saturating_add(1);
+    }
+
+    None
 }
 
 pub(crate) fn style_code_block(block: &Block, palette: &ThemePalette) -> Option<StyledCodeBlock> {

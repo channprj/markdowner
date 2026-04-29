@@ -1048,6 +1048,64 @@ fn runtime_rejects_custom_css_theme_imports_with_remote_urls() {
 }
 
 #[test]
+fn runtime_rejects_custom_css_theme_imports_with_fixed_positioning() {
+    let temp = tempdir().unwrap();
+    let document_path = temp.path().join("theme.md");
+    let css_path = temp.path().join("fixed-position.css");
+    fs::write(&document_path, "# Theme").unwrap();
+    fs::write(
+        &css_path,
+        ".markdowner-content .overlay { position: fixed; inset: 0; }",
+    )
+    .unwrap();
+
+    let mut runtime = EditorRuntime::default();
+    runtime
+        .workspace_mut()
+        .set_theme(ThemeSelection::new(ThemeKind::BuiltInDark, None));
+    runtime.open_document(&document_path).unwrap();
+
+    let error = runtime.import_theme_from_path(&css_path).unwrap_err();
+
+    assert!(error.to_string().contains("fixed-position.css"));
+    assert!(error.to_string().contains("position: fixed"));
+    assert_eq!(runtime.workspace().theme(), &ThemeSelection::default());
+    assert_eq!(
+        runtime.workspace().active_document().unwrap().source(),
+        "# Theme"
+    );
+}
+
+#[test]
+fn runtime_rejects_custom_css_theme_imports_with_sticky_positioning() {
+    let temp = tempdir().unwrap();
+    let document_path = temp.path().join("theme.md");
+    let css_path = temp.path().join("sticky-position.css");
+    fs::write(&document_path, "# Theme").unwrap();
+    fs::write(
+        &css_path,
+        ".markdowner-content .toolbar { position: sticky; top: 0; }",
+    )
+    .unwrap();
+
+    let mut runtime = EditorRuntime::default();
+    runtime
+        .workspace_mut()
+        .set_theme(ThemeSelection::new(ThemeKind::BuiltInDark, None));
+    runtime.open_document(&document_path).unwrap();
+
+    let error = runtime.import_theme_from_path(&css_path).unwrap_err();
+
+    assert!(error.to_string().contains("sticky-position.css"));
+    assert!(error.to_string().contains("position: sticky"));
+    assert_eq!(runtime.workspace().theme(), &ThemeSelection::default());
+    assert_eq!(
+        runtime.workspace().active_document().unwrap().source(),
+        "# Theme"
+    );
+}
+
+#[test]
 fn runtime_reports_error_when_recent_document_is_missing() {
     let temp = tempdir().unwrap();
     let missing_path = temp.path().join("missing.md");
