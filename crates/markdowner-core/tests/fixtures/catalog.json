@@ -1,0 +1,79 @@
+[
+  {
+    "id": "MD-FIX-HDG-001",
+    "category": "headings-and-paragraphs",
+    "source": "headings/basic-structure.md",
+    "expected": "headings/basic-structure.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["heading", "paragraph"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Baseline heading and paragraph round trip."
+  },
+  {
+    "id": "MD-FIX-INL-001",
+    "category": "inline-formatting",
+    "source": "inline/emphasis-links-code.md",
+    "expected": "inline/emphasis-links-code.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["bold", "italic", "link", "inline-code"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Common inline markdown should round-trip without drift."
+  },
+  {
+    "id": "MD-FIX-LST-001",
+    "category": "lists-and-checklists",
+    "source": "lists/bullets-and-checklists.md",
+    "expected": "lists/bullets-and-checklists.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["bullet-list", "checklist"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Supported list primitives should survive no-op saves."
+  },
+  {
+    "id": "MD-FIX-TBL-001",
+    "category": "tables",
+    "source": "tables/alignment.md",
+    "expected": "tables/alignment.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["table", "alignment"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "GFM table alignment markers are preserved."
+  },
+  {
+    "id": "MD-FIX-CODE-001",
+    "category": "code-fences",
+    "source": "code-fences/rust-and-plain.md",
+    "expected": "code-fences/rust-and-plain.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["code-fence", "language-tag"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Language-tagged and plain fences should round-trip."
+  },
+  {
+    "id": "MD-FIX-RAW-001",
+    "category": "unsupported",
+    "source": "unsupported/strikethrough.md",
+    "expected": "unsupported/strikethrough.expected.md",
+    "policy": "raw-preserved",
+    "features": ["strikethrough"],
+    "unsupported_behavior": "raw-fallback",
+    "release_gate": ["v0.2"],
+    "notes": "Unsupported strikethrough stays intact and surfaces as raw fallback."
+  },
+  {
+    "id": "MD-FIX-RAW-002",
+    "category": "unsupported",
+    "source": "unsupported/html-block.md",
+    "expected": "unsupported/html-block.expected.md",
+    "policy": "raw-preserved",
+    "features": ["html-block"],
+    "unsupported_behavior": "raw-fallback",
+    "release_gate": ["v0.2"],
+    "notes": "HTML blocks are preserved without semantic parsing."
+  }
+]
