@@ -51,6 +51,7 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 };
 
 const MARKDOWN_FILE_EXTENSIONS = ['md', 'markdown', 'mdown', 'mkd'];
+const WINDOW_TITLE = 'Markdowner';
 
 function normalizeDisplayPath(path: string) {
   return path.replace(/\\/g, '/');
@@ -97,6 +98,15 @@ function applyImportedStylesheet(snapshot: AppSnapshot) {
   }
 }
 
+function buildWindowTitle(snapshot: AppSnapshot) {
+  if (snapshot.activeDocumentSource === null || !snapshot.activeDocumentName) {
+    return WINDOW_TITLE;
+  }
+
+  const prefix = snapshot.activeDocumentDirty ? '● ' : '';
+  return `${prefix}${snapshot.activeDocumentName} — ${WINDOW_TITLE}`;
+}
+
 export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(EMPTY_SNAPSHOT);
   const [localDraft, setLocalDraft] = useState('');
@@ -139,6 +149,10 @@ export default function App() {
   useEffect(() => {
     applyThemeSelection(snapshot.theme.kind);
     applyImportedStylesheet(snapshot);
+  }, [snapshot]);
+
+  useEffect(() => {
+    document.title = buildWindowTitle(snapshot);
   }, [snapshot]);
 
   useEffect(() => {

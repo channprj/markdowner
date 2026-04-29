@@ -163,6 +163,26 @@ describe('App recent documents', () => {
     expect(screen.getAllByText('guides/draft.md')).toHaveLength(3);
   });
 
+  it('reflects the active document dirty state in the window title', async () => {
+    document.title = 'Markdowner';
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        activeDocumentDirty: true,
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByText('meeting-notes.md');
+
+    expect(document.title).toBe('● meeting-notes.md — Markdowner');
+  });
+
   it('saves the active document to a new path from the shell', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
