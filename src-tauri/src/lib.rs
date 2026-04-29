@@ -203,6 +203,12 @@ impl DesktopBackend {
             .map_err(|error| error.to_string())
     }
 
+    pub fn active_document_disk_source(&mut self) -> Result<String, String> {
+        self.runtime
+            .active_document_disk_source()
+            .map_err(|error| error.to_string())
+    }
+
     pub fn set_mode(&mut self, mode: EditorMode) -> AppSnapshot {
         self.runtime.set_mode(mode);
         self.snapshot()
@@ -354,6 +360,11 @@ fn has_active_document_external_changes(state: State<'_, DesktopAppState>) -> Re
 }
 
 #[tauri::command]
+fn active_document_disk_source(state: State<'_, DesktopAppState>) -> Result<String, String> {
+    with_backend(state, DesktopBackend::active_document_disk_source)
+}
+
+#[tauri::command]
 fn set_mode(mode: EditorMode, state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
     with_backend(state, |backend| Ok(backend.set_mode(mode)))
 }
@@ -402,6 +413,7 @@ pub fn run() {
             save_active_document,
             save_active_document_as,
             has_active_document_external_changes,
+            active_document_disk_source,
             set_mode,
             set_theme,
             import_theme,
@@ -572,6 +584,24 @@ mod tests {
                 MENU_COMMAND_SET_MODE_PREVIEW,
             ]
         );
+    }
+
+    #[test]
+    fn backend_reads_active_document_disk_source_for_compare() {
+        let temp = tempdir().unwrap();
+        let original_path = temp.path().join("notes.md");
+        fs::write(&original_path, "# Initial\n").unwrap();
+
+        let mut backend = DesktopBackend::new(None);
+        backend.open_document(&original_path).unwrap();
+        backend
+            .replace_active_document_source("# Initial\nEdited by app")
+            .unwrap();
+
+        fs::write(&original_path, "# External update\n").unwrap();
+
+        let disk_source = backend.active_document_disk_source().unwrap();
+        assert_eq!(disk_source, "# External update\n");
     }
 
     #[test]

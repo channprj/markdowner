@@ -28,6 +28,7 @@ import {
   type ThemeKind,
   bootstrap,
   hasActiveDocumentExternalChanges,
+  activeDocumentDiskSource,
   importTheme,
   newDocument,
   openDocument,
@@ -246,6 +247,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [externalChangeMessage, setExternalChangeMessage] = useState<string | null>(null);
   const [showExternalChangeActions, setShowExternalChangeActions] = useState(false);
+  const [externalCompareSource, setExternalCompareSource] = useState<string | null>(null);
   const [collapsedFolderKeys, setCollapsedFolderKeys] = useState<string[]>([]);
   const [workspaceFilter, setWorkspaceFilter] = useState('');
 
@@ -267,6 +269,7 @@ export default function App() {
       setSnapshot(next);
       setExternalChangeMessage(null);
       setShowExternalChangeActions(false);
+      setExternalCompareSource(null);
       if (!preserveDraft) {
         setLocalDraft(next.activeDocumentSource ?? '');
       }
@@ -392,6 +395,7 @@ export default function App() {
     if (!activeDocumentOpen || !snapshot.activeDocumentPath) {
       setExternalChangeMessage(null);
       setShowExternalChangeActions(false);
+      setExternalCompareSource(null);
       return false;
     }
 
@@ -400,6 +404,7 @@ export default function App() {
       if (!changed) {
         setExternalChangeMessage(null);
         setShowExternalChangeActions(false);
+        setExternalCompareSource(null);
         return false;
       }
 
@@ -407,6 +412,7 @@ export default function App() {
         `Could not save '${snapshot.activeDocumentName ?? 'Untitled.md'}' because it changed on disk.`,
       );
       setShowExternalChangeActions(true);
+      setExternalCompareSource(null);
       return true;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -414,6 +420,7 @@ export default function App() {
         `Could not verify external changes for '${snapshot.activeDocumentName ?? 'Untitled.md'}': ${reason}`,
       );
       setShowExternalChangeActions(false);
+      setExternalCompareSource(null);
       return true;
     }
   };
@@ -533,6 +540,24 @@ export default function App() {
   const handleKeepLocalChanges = () => {
     setExternalChangeMessage(null);
     setShowExternalChangeActions(false);
+    setExternalCompareSource(null);
+  };
+
+  const handleCompareExternalChanges = async () => {
+    if (!activeDocumentOpen) {
+      return;
+    }
+
+    try {
+      const source = await activeDocumentDiskSource();
+      setExternalCompareSource(source);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      setExternalChangeMessage(
+        `Could not read disk version of '${snapshot.activeDocumentName ?? 'Untitled.md'}': ${reason}`,
+      );
+      setShowExternalChangeActions(false);
+    }
   };
 
   const handleImportTheme = async () => {
@@ -1015,8 +1040,42 @@ export default function App() {
                 >
                   Keep local
                 </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => void handleCompareExternalChanges()}
+                >
+                  Compare
+                </button>
               </div>
             ) : null}
+          </div>
+        ) : null}
+
+        {externalCompareSource !== null ? (
+          <div className="error-banner" style={{ whiteSpace: 'pre-wrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+              <strong>Disk vs local</strong>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => setExternalCompareSource(null)}
+              >
+                Hide comparison
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <h4>Disk</h4>
+                <pre>{externalCompareSource}</pre>
+              </div>
+              <div>
+                <h4>Local</h4>
+                <pre>{localDraft}</pre>
+              </div>
+            </div>
           </div>
         ) : null}
 

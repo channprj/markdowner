@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSnapshot } from './lib/desktop';
 
 const bootstrapMock = vi.fn();
+const activeDocumentDiskSourceMock = vi.fn();
 const importThemeMock = vi.fn();
 const hasActiveDocumentExternalChangesMock = vi.fn();
 const newDocumentMock = vi.fn();
@@ -37,6 +38,7 @@ let menuCommandHandler:
 
 vi.mock('./lib/desktop', () => ({
   bootstrap: bootstrapMock,
+  activeDocumentDiskSource: activeDocumentDiskSourceMock,
   importTheme: importThemeMock,
   hasActiveDocumentExternalChanges: hasActiveDocumentExternalChangesMock,
   newDocument: newDocumentMock,
@@ -113,6 +115,7 @@ describe('App recent documents', () => {
 
   beforeEach(() => {
     bootstrapMock.mockReset();
+    activeDocumentDiskSourceMock.mockReset();
     importThemeMock.mockReset();
     newDocumentMock.mockReset();
     openDocumentMock.mockReset();
@@ -137,6 +140,8 @@ describe('App recent documents', () => {
       return vi.fn();
     });
     hasActiveDocumentExternalChangesMock.mockResolvedValue(false);
+    activeDocumentDiskSourceMock.mockReset();
+    activeDocumentDiskSourceMock.mockRejectedValue(new Error('No active document'));
     listenMock.mockImplementation(async (eventName, handler) => {
       if (eventName === 'markdowner://menu-command') {
         menuCommandHandler = handler;
@@ -556,6 +561,42 @@ describe('App recent documents', () => {
       ).not.toBeInTheDocument();
     });
     expect(openDocumentMock).not.toHaveBeenCalled();
+  });
+
+  it('lets the user compare local and disk versions when external changes are detected', async () => {
+    hasActiveDocumentExternalChangesMock.mockResolvedValue(true);
+    activeDocumentDiskSourceMock.mockResolvedValue('# Meeting notes\n\nUpdated from disk');
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const saveButton = await screen.findByRole('button', { name: /^save$/i });
+    fireEvent.click(saveButton);
+
+    const compareButton = await screen.findByRole('button', { name: /compare/i });
+    fireEvent.click(compareButton);
+
+    await waitFor(() => {
+      expect(activeDocumentDiskSourceMock).toHaveBeenCalled();
+      expect(screen.getByText('Disk')).toBeInTheDocument();
+      expect(screen.getByText('Local')).toBeInTheDocument();
+      const preElements = document.querySelectorAll('pre');
+      expect(preElements.length).toBe(2);
+      expect(preElements[0]?.textContent).toContain('Updated from disk');
+    });
+
+    const hideButton = screen.getByRole('button', { name: /hide comparison/i });
+    fireEvent.click(hideButton);
+
+    expect(screen.queryByText('Disk')).not.toBeInTheDocument();
   });
 
   it('syncs the unsaved draft before creating a new document', async () => {

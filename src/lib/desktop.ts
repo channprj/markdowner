@@ -58,6 +58,10 @@ export async function hasActiveDocumentExternalChanges() {
   return invoke<boolean>('has_active_document_external_changes');
 }
 
+export async function activeDocumentDiskSource() {
+  return invoke<string>('active_document_disk_source');
+}
+
 export async function setMode(mode: EditorMode) {
   return invoke<AppSnapshot>('set_mode', { mode });
 }

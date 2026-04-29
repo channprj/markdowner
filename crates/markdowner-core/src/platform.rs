@@ -554,6 +554,29 @@ impl EditorRuntime {
         Ok(stale)
     }
 
+    pub fn active_document_disk_source(&mut self) -> Result<String, RuntimeError> {
+        let Some(active_document) = self.workspace.active_document() else {
+            self.workspace.clear_error();
+            return Err(RuntimeError::new("No active document".to_string()));
+        };
+
+        let Some(path) = active_document.backing_path() else {
+            self.workspace.clear_error();
+            return Err(RuntimeError::new("Active document has no path".to_string()));
+        };
+
+        let source = match read_document_source(path) {
+            Ok(source) => source,
+            Err(error) => {
+                self.workspace.set_last_error(error.to_string());
+                return Err(error.into());
+            }
+        };
+
+        self.workspace.clear_error();
+        Ok(source)
+    }
+
     fn recover_theme<T>(
         &mut self,
         theme: crate::ThemeSelection,
