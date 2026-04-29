@@ -37,7 +37,9 @@ impl DesktopBackend {
     }
 
     pub fn restore_session(&mut self) -> Result<(), String> {
-        self.runtime.restore_session().map_err(|error| error.to_string())
+        self.runtime
+            .restore_session()
+            .map_err(|error| error.to_string())
     }
 
     pub fn snapshot(&self) -> AppSnapshot {
@@ -172,7 +174,9 @@ fn open_workspace_document(
     path: String,
     state: State<'_, DesktopAppState>,
 ) -> Result<AppSnapshot, String> {
-    with_backend(state, |backend| backend.open_workspace_document(Path::new(&path)))
+    with_backend(state, |backend| {
+        backend.open_workspace_document(Path::new(&path))
+    })
 }
 
 #[tauri::command]
@@ -180,7 +184,9 @@ fn replace_active_document_source(
     source: String,
     state: State<'_, DesktopAppState>,
 ) -> Result<AppSnapshot, String> {
-    with_backend(state, |backend| backend.replace_active_document_source(source))
+    with_backend(state, |backend| {
+        backend.replace_active_document_source(source)
+    })
 }
 
 #[tauri::command]
@@ -261,7 +267,10 @@ mod tests {
             snapshot.active_document_path.as_deref(),
             Some(document_path.to_string_lossy().as_ref())
         );
-        assert_eq!(snapshot.active_document_source.as_deref(), Some("# Hello\n\nworld"));
+        assert_eq!(
+            snapshot.active_document_source.as_deref(),
+            Some("# Hello\n\nworld")
+        );
         assert_eq!(snapshot.mode, markdowner_core::EditorMode::Preview);
         assert_eq!(snapshot.theme.kind(), ThemeKind::BuiltInDark);
     }
@@ -271,17 +280,29 @@ mod tests {
         let temp = tempdir().unwrap();
         let workspace_path = temp.path().join("workspace");
         let nested_path = workspace_path.join("nested");
+        let git_path = workspace_path.join(".git");
+        let node_modules_path = workspace_path.join("node_modules");
+        let dist_path = workspace_path.join("dist");
         fs::create_dir_all(&nested_path).unwrap();
+        fs::create_dir_all(&git_path).unwrap();
+        fs::create_dir_all(&node_modules_path).unwrap();
+        fs::create_dir_all(&dist_path).unwrap();
         let a = workspace_path.join("a.md");
         let b = nested_path.join("b.markdown");
         let c = nested_path.join("c.mdown");
         let d = nested_path.join("d.MKD");
         let ignored = nested_path.join("notes.txt");
+        let git_doc = git_path.join("config.md");
+        let dependency_doc = node_modules_path.join("package.md");
+        let build_doc = dist_path.join("bundle.md");
         fs::write(&a, "# A").unwrap();
         fs::write(&b, "# B").unwrap();
         fs::write(&c, "# C").unwrap();
         fs::write(&d, "# D").unwrap();
         fs::write(&ignored, "ignore me").unwrap();
+        fs::write(&git_doc, "# hidden").unwrap();
+        fs::write(&dependency_doc, "# dependency").unwrap();
+        fs::write(&build_doc, "# build").unwrap();
 
         let mut backend = DesktopBackend::new(None);
         backend.open_workspace(&workspace_path).unwrap();

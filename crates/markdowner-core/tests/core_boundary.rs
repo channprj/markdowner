@@ -1,10 +1,10 @@
 use std::{fs, path::PathBuf};
 
 use markdowner_core::{
-    Block, CodeBlockStyleKind, CodeTokenKind, Document, EditorMode, EditorRuntime,
-    FileDialogOptions, Inline, InlineRevealRange, InlineRevealSelection, MenuDescriptor, MenuItem,
-    PlatformAdapter, TableAlignment, TableRow, ThemeKind, ThemeSelection, WindowDescriptor,
-    WorkspaceState, WysiwygBlockPresentation, apply_theme, parse_markdown, serialize_markdown,
+    apply_theme, parse_markdown, serialize_markdown, Block, CodeBlockStyleKind, CodeTokenKind,
+    Document, EditorMode, EditorRuntime, FileDialogOptions, Inline, InlineRevealRange,
+    InlineRevealSelection, MenuDescriptor, MenuItem, PlatformAdapter, TableAlignment, TableRow,
+    ThemeKind, ThemeSelection, WindowDescriptor, WorkspaceState, WysiwygBlockPresentation,
 };
 use tempfile::tempdir;
 
@@ -249,23 +249,17 @@ fn theme_application_highlights_known_code_fences_and_falls_back_to_plain_style(
     let unknown = styled.code_block_style(2).unwrap();
 
     assert_eq!(rust.style_kind(), CodeBlockStyleKind::SyntaxHighlighted);
-    assert!(
-        rust.lines()[0]
-            .iter()
-            .any(|token| token.kind() == CodeTokenKind::Keyword && token.text() == "fn")
-    );
+    assert!(rust.lines()[0]
+        .iter()
+        .any(|token| token.kind() == CodeTokenKind::Keyword && token.text() == "fn"));
     assert_eq!(plain.style_kind(), CodeBlockStyleKind::Plain);
-    assert!(
-        plain.lines()[0]
-            .iter()
-            .all(|token| token.kind() == CodeTokenKind::Plain)
-    );
+    assert!(plain.lines()[0]
+        .iter()
+        .all(|token| token.kind() == CodeTokenKind::Plain));
     assert_eq!(unknown.style_kind(), CodeBlockStyleKind::Plain);
-    assert!(
-        unknown.lines()[0]
-            .iter()
-            .all(|token| token.kind() == CodeTokenKind::Plain)
-    );
+    assert!(unknown.lines()[0]
+        .iter()
+        .all(|token| token.kind() == CodeTokenKind::Plain));
 }
 
 #[test]
@@ -307,7 +301,12 @@ fn runtime_uses_platform_adapter_boundary_for_native_capabilities() {
         adapter.file_requests,
         vec![FileDialogOptions::new(
             "Open Markdown",
-            vec!["md".to_string()]
+            vec![
+                "md".to_string(),
+                "markdown".to_string(),
+                "mdown".to_string(),
+                "mkd".to_string(),
+            ]
         )]
     );
 }
@@ -367,7 +366,10 @@ fn runtime_opens_workspace_from_explicit_path_without_platform_adapter() {
     let opened = runtime.open_workspace(&workspace_path).unwrap();
 
     assert_eq!(opened, workspace_path);
-    assert_eq!(runtime.workspace().root_dir(), Some(workspace_path.as_path()));
+    assert_eq!(
+        runtime.workspace().root_dir(),
+        Some(workspace_path.as_path())
+    );
     assert_eq!(
         runtime.workspace().workspace_documents(),
         &[nested_document, root_document]
@@ -836,13 +838,11 @@ fn runtime_recovers_to_default_theme_when_imported_css_is_invalid() {
         runtime.workspace().active_document().unwrap().source(),
         "# Theme"
     );
-    assert!(
-        runtime
-            .workspace()
-            .last_error()
-            .unwrap()
-            .contains("broken.css")
-    );
+    assert!(runtime
+        .workspace()
+        .last_error()
+        .unwrap()
+        .contains("broken.css"));
 }
 
 #[test]
@@ -860,13 +860,11 @@ fn runtime_reports_error_when_recent_document_is_missing() {
     let error = runtime.open_recent_document(&missing_path).unwrap_err();
 
     assert!(error.to_string().contains("missing.md"));
-    assert!(
-        runtime
-            .workspace()
-            .last_error()
-            .unwrap()
-            .contains("missing.md")
-    );
+    assert!(runtime
+        .workspace()
+        .last_error()
+        .unwrap()
+        .contains("missing.md"));
 }
 
 #[derive(Debug, Default)]

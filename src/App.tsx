@@ -47,6 +47,34 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
   lastError: null,
 };
 
+const MARKDOWN_FILE_EXTENSIONS = ['md', 'markdown', 'mdown', 'mkd'];
+
+function normalizeDisplayPath(path: string) {
+  return path.replace(/\\/g, '/');
+}
+
+function displayFileName(path: string) {
+  const normalizedPath = normalizeDisplayPath(path);
+  const segments = normalizedPath.split('/').filter(Boolean);
+  return segments[segments.length - 1] ?? path;
+}
+
+function displayWorkspacePath(path: string, rootDir: string | null) {
+  const normalizedPath = normalizeDisplayPath(path);
+  if (!rootDir) {
+    return normalizedPath;
+  }
+
+  const normalizedRoot = normalizeDisplayPath(rootDir).replace(/\/+$/, '');
+  const pathPrefix = `${normalizedRoot}/`;
+
+  if (normalizedPath.toLowerCase().startsWith(pathPrefix.toLowerCase())) {
+    return normalizedPath.slice(pathPrefix.length);
+  }
+
+  return normalizedPath;
+}
+
 function applyThemeSelection(themeKind: ThemeKind) {
   document.documentElement.dataset.theme = themeKind;
 }
@@ -187,7 +215,7 @@ export default function App() {
     const selected = await openDialog({
       multiple: false,
       directory: false,
-      filters: [{ name: 'Markdown', extensions: ['md'] }],
+      filters: [{ name: 'Markdown', extensions: MARKDOWN_FILE_EXTENSIONS }],
     });
 
     if (typeof selected !== 'string') {
@@ -277,6 +305,18 @@ export default function App() {
     });
   };
 
+  const handleOpenRecentDocument = async (path: string) => {
+    await withBusy(async () => {
+      if (snapshot.activeDocumentPath) {
+        const synced = await replaceActiveDocumentSource(localDraft);
+        applySnapshot(synced, true);
+      }
+
+      const next = await openDocument(path);
+      applySnapshot(next);
+    });
+  };
+
   return (
     <div className="desktop-shell">
       <aside className="left-rail">
@@ -315,8 +355,10 @@ export default function App() {
                   }
                   onClick={() => handleOpenWorkspaceDocument(path)}
                 >
-                  <span className="tree-name">{path.split('/').pop()}</span>
-                  <span className="tree-path">{path.replace(`${snapshot.rootDir}/`, '')}</span>
+                  <span className="tree-name">{displayFileName(path)}</span>
+                  <span className="tree-path">
+                    {displayWorkspacePath(path, snapshot.rootDir)}
+                  </span>
                 </button>
               ))}
             </div>
@@ -330,9 +372,22 @@ export default function App() {
           ) : (
             <div className="recent-list">
               {snapshot.recentDocuments.slice(0, 5).map((path) => (
-                <div key={path} className="recent-item">
-                  {path.split('/').pop()}
-                </div>
+                <button
+                  key={path}
+                  className={
+                    path === snapshot.activeDocumentPath
+                      ? 'tree-item tree-item-active recent-item-button'
+                      : 'tree-item recent-item-button'
+                  }
+                  onClick={() => handleOpenRecentDocument(path)}
+                  disabled={busy}
+                  title={path}
+                >
+                  <span className="tree-name">{displayFileName(path)}</span>
+                  <span className="tree-path">
+                    {displayWorkspacePath(path, snapshot.rootDir)}
+                  </span>
+                </button>
               ))}
             </div>
           )}
@@ -383,7 +438,9 @@ export default function App() {
         <section className="document-header">
           <div>
             <div className="document-title">
-              {snapshot.activeDocumentPath?.split('/').pop() ?? 'No document open'}
+              {snapshot.activeDocumentPath
+                ? displayFileName(snapshot.activeDocumentPath)
+                : 'No document open'}
             </div>
             <div className="document-meta">
               {snapshot.rootDir ?? 'Open a workspace or a Markdown file to begin.'}

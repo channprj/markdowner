@@ -155,6 +155,10 @@ fn collect_markdown_files(root: &Path, documents: &mut Vec<PathBuf>) -> Result<(
         };
 
         if file_type.is_dir() {
+            if is_ignored_directory(&path) {
+                continue;
+            }
+
             collect_markdown_files(&path, documents)?;
             continue;
         }
@@ -174,6 +178,24 @@ fn is_markdown_file(path: &Path) -> bool {
             matches!(
                 extension.to_ascii_lowercase().as_str(),
                 "md" | "markdown" | "mdown" | "mkd"
+            )
+        })
+}
+
+fn is_ignored_directory(path: &Path) -> bool {
+    path.file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(|name| {
+            matches!(
+                name,
+                ".git"
+                    | "node_modules"
+                    | "target"
+                    | "dist"
+                    | "build"
+                    | ".idea"
+                    | ".vscode"
+                    | ".next"
             )
         })
 }

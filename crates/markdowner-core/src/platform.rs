@@ -5,13 +5,15 @@ use std::{
 };
 
 use crate::{
-    Document, Inline, InlineRevealSelection, WorkspaceState,
     storage::{
         list_markdown_files, load_workspace_session, persist_workspace_session,
         read_document_source, read_stylesheet_source, write_document_source,
     },
     theme::validate_stylesheet,
+    Document, Inline, InlineRevealSelection, WorkspaceState,
 };
+
+const MARKDOWN_FILE_EXTENSIONS: [&str; 4] = ["md", "markdown", "mdown", "mkd"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileDialogOptions {
@@ -212,7 +214,10 @@ impl EditorRuntime {
     ) -> Result<Option<PathBuf>, RuntimeError> {
         let Some(path) = adapter.open_file(&FileDialogOptions::new(
             "Open Markdown",
-            vec!["md".to_string()],
+            MARKDOWN_FILE_EXTENSIONS
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
         )) else {
             return Ok(None);
         };
