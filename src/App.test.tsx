@@ -1,5 +1,12 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AppSnapshot } from './lib/desktop';
 
@@ -10,8 +17,10 @@ const openWorkspaceMock = vi.fn();
 const openWorkspaceDocumentMock = vi.fn();
 const replaceActiveDocumentSourceMock = vi.fn();
 const saveActiveDocumentMock = vi.fn();
+const saveActiveDocumentAsMock = vi.fn();
 const setModeMock = vi.fn();
 const setThemeMock = vi.fn();
+const saveDialogMock = vi.fn();
 
 vi.mock('./lib/desktop', () => ({
   bootstrap: bootstrapMock,
@@ -21,12 +30,14 @@ vi.mock('./lib/desktop', () => ({
   openWorkspaceDocument: openWorkspaceDocumentMock,
   replaceActiveDocumentSource: replaceActiveDocumentSourceMock,
   saveActiveDocument: saveActiveDocumentMock,
+  saveActiveDocumentAs: saveActiveDocumentAsMock,
   setMode: setModeMock,
   setTheme: setThemeMock,
 }));
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: vi.fn(),
+  save: saveDialogMock,
 }));
 
 vi.mock('@tiptap/react', () => ({
@@ -56,6 +67,10 @@ const baseSnapshot = (overrides: Partial<AppSnapshot> = {}): AppSnapshot => ({
 });
 
 describe('App recent documents', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     bootstrapMock.mockReset();
     importThemeMock.mockReset();
@@ -64,8 +79,10 @@ describe('App recent documents', () => {
     openWorkspaceDocumentMock.mockReset();
     replaceActiveDocumentSourceMock.mockReset();
     saveActiveDocumentMock.mockReset();
+    saveActiveDocumentAsMock.mockReset();
     setModeMock.mockReset();
     setThemeMock.mockReset();
+    saveDialogMock.mockReset();
 
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
@@ -77,6 +94,15 @@ describe('App recent documents', () => {
       baseSnapshot({
         activeDocumentPath: '/tmp/project/meeting-notes.md',
         activeDocumentSource: '# Meeting notes',
+      }),
+    );
+
+    replaceActiveDocumentSourceMock.mockImplementation(async (source: string) =>
+      baseSnapshot({
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: source,
+        activeDocumentDirty: true,
+        recentDocuments: ['/tmp/project/meeting-notes.md'],
       }),
     );
   });
@@ -114,5 +140,50 @@ describe('App recent documents', () => {
 
     expect(await screen.findAllByText('draft.md')).toHaveLength(3);
     expect(screen.getAllByText('guides/draft.md')).toHaveLength(2);
+  });
+
+  it('saves the active document to a new path from the shell', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        recentDocuments: ['/tmp/project/meeting-notes.md'],
+      }),
+    );
+    saveDialogMock.mockResolvedValue('/tmp/project/archive/meeting-notes-copy.md');
+    saveActiveDocumentAsMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentPath: '/tmp/project/archive/meeting-notes-copy.md',
+        activeDocumentSource: '# Meeting notes',
+        recentDocuments: [
+          '/tmp/project/archive/meeting-notes-copy.md',
+          '/tmp/project/meeting-notes.md',
+        ],
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    const view = render(<App />);
+
+    const saveAsButton = within(view.container).getByRole('button', {
+      name: /save as/i,
+    });
+
+    await waitFor(() => {
+      expect(saveAsButton).not.toHaveAttribute('disabled');
+    });
+
+    fireEvent.click(saveAsButton);
+
+    await waitFor(() => {
+      expect(saveDialogMock).toHaveBeenCalledWith({
+        defaultPath: '/tmp/project/meeting-notes.md',
+        filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd'] }],
+      });
+      expect(saveActiveDocumentAsMock).toHaveBeenCalledWith(
+        '/tmp/project/archive/meeting-notes-copy.md',
+      );
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { markdown } from '@codemirror/lang-markdown';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import Image from '@tiptap/extension-image';
 import Link from '@tiptap/extension-link';
 import { Table } from '@tiptap/extension-table';
@@ -27,6 +27,7 @@ import {
   openWorkspaceDocument,
   replaceActiveDocumentSource,
   saveActiveDocument,
+  saveActiveDocumentAs,
   setMode,
   setTheme,
 } from './lib/desktop';
@@ -274,6 +275,28 @@ export default function App() {
     });
   };
 
+  const handleSaveAs = async () => {
+    if (!snapshot.activeDocumentPath) {
+      return;
+    }
+
+    const selected = await saveDialog({
+      defaultPath: snapshot.activeDocumentPath,
+      filters: [{ name: 'Markdown', extensions: MARKDOWN_FILE_EXTENSIONS }],
+    });
+
+    if (typeof selected !== 'string') {
+      return;
+    }
+
+    await withBusy(async () => {
+      const synced = await replaceActiveDocumentSource(localDraft);
+      applySnapshot(synced, true);
+      const next = await saveActiveDocumentAs(selected);
+      applySnapshot(next, true);
+    });
+  };
+
   const handleSetMode = async (nextMode: EditorMode) => {
     await withBusy(async () => {
       if (snapshot.activeDocumentPath) {
@@ -399,6 +422,13 @@ export default function App() {
           <div className="topbar-actions">
             <button className="primary-button" onClick={handleSave} disabled={!activeDocumentOpen || busy}>
               Save
+            </button>
+            <button
+              className="secondary-button"
+              onClick={handleSaveAs}
+              disabled={!activeDocumentOpen || busy}
+            >
+              Save As…
             </button>
             <button className="secondary-button" onClick={handleImportTheme} disabled={busy}>
               Import CSS Theme…

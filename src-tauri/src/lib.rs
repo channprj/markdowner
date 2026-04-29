@@ -108,6 +108,13 @@ impl DesktopBackend {
         Ok(self.snapshot())
     }
 
+    pub fn save_active_document_as(&mut self, path: &Path) -> Result<AppSnapshot, String> {
+        self.runtime
+            .save_active_document_as(path)
+            .map_err(|error| error.to_string())?;
+        Ok(self.snapshot())
+    }
+
     pub fn set_mode(&mut self, mode: EditorMode) -> AppSnapshot {
         self.runtime.set_mode(mode);
         self.snapshot()
@@ -195,6 +202,16 @@ fn save_active_document(state: State<'_, DesktopAppState>) -> Result<AppSnapshot
 }
 
 #[tauri::command]
+fn save_active_document_as(
+    path: String,
+    state: State<'_, DesktopAppState>,
+) -> Result<AppSnapshot, String> {
+    with_backend(state, |backend| {
+        backend.save_active_document_as(Path::new(&path))
+    })
+}
+
+#[tauri::command]
 fn set_mode(mode: EditorMode, state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
     with_backend(state, |backend| Ok(backend.set_mode(mode)))
 }
@@ -233,6 +250,7 @@ pub fn run() {
             open_workspace_document,
             replace_active_document_source,
             save_active_document,
+            save_active_document_as,
             set_mode,
             set_theme,
             import_theme,
@@ -316,6 +334,41 @@ mod tests {
                 c.to_string_lossy().into_owned(),
                 d.to_string_lossy().into_owned()
             ]
+        );
+    }
+
+    #[test]
+    fn backend_save_as_retargets_the_snapshot_to_the_new_path() {
+        let temp = tempdir().unwrap();
+        let original_path = temp.path().join("notes.md");
+        let copied_path = temp.path().join("archive").join("notes-copy.md");
+        fs::write(&original_path, "# Notes\n\nOriginal").unwrap();
+
+        let mut backend = DesktopBackend::new(None);
+        backend.open_document(&original_path).unwrap();
+        backend
+            .replace_active_document_source("# Notes\n\nCopied")
+            .unwrap();
+        let snapshot = backend.save_active_document_as(&copied_path).unwrap();
+
+        assert_eq!(
+            snapshot.active_document_path.as_deref(),
+            Some(copied_path.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            snapshot.recent_documents,
+            vec![
+                copied_path.to_string_lossy().into_owned(),
+                original_path.to_string_lossy().into_owned(),
+            ]
+        );
+        assert_eq!(
+            fs::read_to_string(&copied_path).unwrap(),
+            "# Notes\n\nCopied"
+        );
+        assert_eq!(
+            fs::read_to_string(&original_path).unwrap(),
+            "# Notes\n\nOriginal"
         );
     }
 }

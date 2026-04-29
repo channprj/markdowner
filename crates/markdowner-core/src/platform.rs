@@ -5,12 +5,12 @@ use std::{
 };
 
 use crate::{
+    Document, Inline, InlineRevealSelection, WorkspaceState,
     storage::{
         list_markdown_files, load_workspace_session, persist_workspace_session,
         read_document_source, read_stylesheet_source, write_document_source,
     },
     theme::validate_stylesheet,
-    Document, Inline, InlineRevealSelection, WorkspaceState,
 };
 
 const MARKDOWN_FILE_EXTENSIONS: [&str; 4] = ["md", "markdown", "mdown", "mkd"];
@@ -292,6 +292,30 @@ impl EditorRuntime {
 
         self.workspace.clear_error();
         Ok(path)
+    }
+
+    pub fn save_active_document_as(&mut self, path: &Path) -> Result<PathBuf, RuntimeError> {
+        let Some(active_document) = self.workspace.active_document() else {
+            return self.fail(RuntimeError::new(
+                "Could not save document because no document is open",
+            ));
+        };
+        let source = active_document.source().to_string();
+
+        if let Err(error) = write_document_source(path, &source) {
+            return self.fail(error);
+        }
+        if !self.workspace.save_active_document_as(path.to_path_buf()) {
+            return self.fail(RuntimeError::new(
+                "Could not update save state because the active document disappeared",
+            ));
+        }
+        if let Err(error) = self.persist_session() {
+            return self.fail(error);
+        }
+
+        self.workspace.clear_error();
+        Ok(path.to_path_buf())
     }
 
     pub fn replace_active_document(&mut self, document: Document) -> Result<(), RuntimeError> {

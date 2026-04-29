@@ -6,6 +6,7 @@ use crate::{
     Block, Document, Inline, StyledCodeBlock, StyledDocument, ThemeSelection, apply_theme,
     markdown::{serialize_block, split_markdown_blocks},
     parse_markdown, serialize_markdown,
+    storage::is_markdown_file,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -196,6 +197,11 @@ impl OpenDocument {
     }
 
     fn mark_saved(&mut self) {
+        self.dirty = false;
+    }
+
+    fn save_as(&mut self, path: PathBuf) {
+        self.path = path;
         self.dirty = false;
     }
 }
@@ -450,6 +456,52 @@ impl WorkspaceState {
         };
 
         active_document.mark_saved();
+        true
+    }
+
+    pub fn save_active_document_as(&mut self, path: PathBuf) -> bool {
+        let Some(active_path) = self.active_document.clone() else {
+            return false;
+        };
+        let Some(mut active_index) = self
+            .open_documents
+            .iter()
+            .position(|document| document.path() == active_path.as_path())
+        else {
+            return false;
+        };
+
+        if let Some(existing_index) = self
+            .open_documents
+            .iter()
+            .position(|document| document.path() == path.as_path())
+        {
+            if existing_index != active_index {
+                self.open_documents.remove(existing_index);
+                if existing_index < active_index {
+                    active_index -= 1;
+                }
+            }
+        }
+
+        self.open_documents[active_index].save_as(path.clone());
+        self.active_document = Some(path.clone());
+
+        if self
+            .root_dir
+            .as_ref()
+            .is_some_and(|root_dir| path.starts_with(root_dir) && is_markdown_file(path.as_path()))
+            && self
+                .workspace_documents
+                .iter()
+                .all(|document| document != &path)
+        {
+            self.workspace_documents.push(path.clone());
+            self.workspace_documents.sort();
+        }
+
+        self.remember_recent(path);
+        self.clear_error();
         true
     }
 

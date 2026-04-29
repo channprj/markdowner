@@ -171,7 +171,7 @@ fn collect_markdown_files(root: &Path, documents: &mut Vec<PathBuf>) -> Result<(
     Ok(())
 }
 
-fn is_markdown_file(path: &Path) -> bool {
+pub(crate) fn is_markdown_file(path: &Path) -> bool {
     path.extension()
         .and_then(OsStr::to_str)
         .is_some_and(|extension| {

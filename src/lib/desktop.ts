@@ -45,6 +45,10 @@ export async function saveActiveDocument() {
   return invoke<AppSnapshot>('save_active_document');
 }
 
+export async function saveActiveDocumentAs(path: string) {
+  return invoke<AppSnapshot>('save_active_document_as', { path });
+}
+
 export async function setMode(mode: EditorMode) {
   return invoke<AppSnapshot>('set_mode', { mode });
 }

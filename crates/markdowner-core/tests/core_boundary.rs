@@ -1,10 +1,10 @@
 use std::{fs, path::PathBuf};
 
 use markdowner_core::{
-    apply_theme, parse_markdown, serialize_markdown, Block, CodeBlockStyleKind, CodeTokenKind,
-    Document, EditorMode, EditorRuntime, FileDialogOptions, Inline, InlineRevealRange,
-    InlineRevealSelection, MenuDescriptor, MenuItem, PlatformAdapter, TableAlignment, TableRow,
-    ThemeKind, ThemeSelection, WindowDescriptor, WorkspaceState, WysiwygBlockPresentation,
+    Block, CodeBlockStyleKind, CodeTokenKind, Document, EditorMode, EditorRuntime,
+    FileDialogOptions, Inline, InlineRevealRange, InlineRevealSelection, MenuDescriptor, MenuItem,
+    PlatformAdapter, TableAlignment, TableRow, ThemeKind, ThemeSelection, WindowDescriptor,
+    WorkspaceState, WysiwygBlockPresentation, apply_theme, parse_markdown, serialize_markdown,
 };
 use tempfile::tempdir;
 
@@ -249,17 +249,23 @@ fn theme_application_highlights_known_code_fences_and_falls_back_to_plain_style(
     let unknown = styled.code_block_style(2).unwrap();
 
     assert_eq!(rust.style_kind(), CodeBlockStyleKind::SyntaxHighlighted);
-    assert!(rust.lines()[0]
-        .iter()
-        .any(|token| token.kind() == CodeTokenKind::Keyword && token.text() == "fn"));
+    assert!(
+        rust.lines()[0]
+            .iter()
+            .any(|token| token.kind() == CodeTokenKind::Keyword && token.text() == "fn")
+    );
     assert_eq!(plain.style_kind(), CodeBlockStyleKind::Plain);
-    assert!(plain.lines()[0]
-        .iter()
-        .all(|token| token.kind() == CodeTokenKind::Plain));
+    assert!(
+        plain.lines()[0]
+            .iter()
+            .all(|token| token.kind() == CodeTokenKind::Plain)
+    );
     assert_eq!(unknown.style_kind(), CodeBlockStyleKind::Plain);
-    assert!(unknown.lines()[0]
-        .iter()
-        .all(|token| token.kind() == CodeTokenKind::Plain));
+    assert!(
+        unknown.lines()[0]
+            .iter()
+            .all(|token| token.kind() == CodeTokenKind::Plain)
+    );
 }
 
 #[test]
@@ -347,6 +353,45 @@ fn runtime_loads_markdown_contents_and_saves_active_document() {
     assert_eq!(
         fs::read_to_string(&document_path).unwrap(),
         "# Updated\n\nSaved back to disk"
+    );
+}
+
+#[test]
+fn runtime_save_as_writes_to_a_new_path_and_retargets_the_active_document() {
+    let temp = tempdir().unwrap();
+    let original_path = temp.path().join("draft.md");
+    let copied_path = temp.path().join("copies").join("draft-copy.md");
+    let session_path = temp.path().join("session.json");
+    fs::write(&original_path, "# Draft\n\nOriginal").unwrap();
+
+    let mut runtime = EditorRuntime::default().with_session_store(session_path);
+    runtime.open_document(&original_path).unwrap();
+    runtime
+        .replace_active_document_source("# Draft\n\nCopied")
+        .unwrap();
+
+    runtime.save_active_document_as(&copied_path).unwrap();
+
+    assert_eq!(
+        fs::read_to_string(&original_path).unwrap(),
+        "# Draft\n\nOriginal"
+    );
+    assert_eq!(
+        fs::read_to_string(&copied_path).unwrap(),
+        "# Draft\n\nCopied"
+    );
+    assert_eq!(
+        runtime.workspace().active_document_path(),
+        Some(copied_path.as_path())
+    );
+    assert_eq!(
+        runtime.workspace().active_document().unwrap().source(),
+        "# Draft\n\nCopied"
+    );
+    assert!(!runtime.workspace().active_document().unwrap().is_dirty());
+    assert_eq!(
+        runtime.workspace().recent_documents(),
+        &[copied_path, original_path]
     );
 }
 
@@ -838,11 +883,13 @@ fn runtime_recovers_to_default_theme_when_imported_css_is_invalid() {
         runtime.workspace().active_document().unwrap().source(),
         "# Theme"
     );
-    assert!(runtime
-        .workspace()
-        .last_error()
-        .unwrap()
-        .contains("broken.css"));
+    assert!(
+        runtime
+            .workspace()
+            .last_error()
+            .unwrap()
+            .contains("broken.css")
+    );
 }
 
 #[test]
@@ -860,11 +907,13 @@ fn runtime_reports_error_when_recent_document_is_missing() {
     let error = runtime.open_recent_document(&missing_path).unwrap_err();
 
     assert!(error.to_string().contains("missing.md"));
-    assert!(runtime
-        .workspace()
-        .last_error()
-        .unwrap()
-        .contains("missing.md"));
+    assert!(
+        runtime
+            .workspace()
+            .last_error()
+            .unwrap()
+            .contains("missing.md")
+    );
 }
 
 #[derive(Debug, Default)]
