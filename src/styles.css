@@ -165,6 +165,22 @@ textarea {
   gap: 8px;
 }
 
+.tree-folder,
+.tree-folder-children {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tree-folder-label {
+  padding: 4px 14px 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
 .tree-item {
   width: 100%;
   padding: 12px 14px;

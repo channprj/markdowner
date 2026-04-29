@@ -143,6 +143,31 @@ describe('App recent documents', () => {
     });
   });
 
+  it('renders workspace documents in a nested folder tree', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'draft.md',
+        rootDir: '/tmp/project',
+        workspaceDocuments: [
+          '/tmp/project/README.md',
+          '/tmp/project/guides/draft.md',
+          '/tmp/project/guides/reference/api.md',
+        ],
+        activeDocumentPath: '/tmp/project/guides/draft.md',
+        activeDocumentSource: '# Draft',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    expect(await screen.findByText('guides')).toBeInTheDocument();
+    expect(screen.getByText('reference')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /draft\.md/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /api\.md/i })).toBeInTheDocument();
+  });
+
   it('renders Windows-style paths with file basenames and workspace-relative labels', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({

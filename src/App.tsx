@@ -99,6 +99,71 @@ function displayWorkspacePath(path: string, rootDir: string | null) {
   return normalizedPath;
 }
 
+type WorkspaceTreeFileNode = {
+  kind: 'file';
+  key: string;
+  path: string;
+  name: string;
+  relativePath: string;
+};
+
+type WorkspaceTreeFolderNode = {
+  kind: 'folder';
+  key: string;
+  name: string;
+  children: WorkspaceTreeNode[];
+};
+
+type WorkspaceTreeNode = WorkspaceTreeFileNode | WorkspaceTreeFolderNode;
+
+function buildWorkspaceTree(paths: string[], rootDir: string | null): WorkspaceTreeNode[] {
+  const root: WorkspaceTreeNode[] = [];
+
+  for (const path of paths) {
+    const relativePath = displayWorkspacePath(path, rootDir);
+    const segments = normalizeDisplayPath(relativePath).split('/').filter(Boolean);
+    let level = root;
+    let folderKey = '';
+
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index] ?? '';
+      const isFile = index === segments.length - 1;
+
+      if (isFile) {
+        level.push({
+          kind: 'file',
+          key: path,
+          path,
+          name: segment || displayFileName(path),
+          relativePath,
+        });
+        continue;
+      }
+
+      folderKey = folderKey ? `${folderKey}/${segment}` : segment;
+
+      let folderNode = level.find(
+        (node): node is WorkspaceTreeFolderNode =>
+          node.kind === 'folder' && node.key === folderKey,
+      );
+
+      if (!folderNode) {
+        folderNode = {
+          kind: 'folder',
+          key: folderKey,
+          name: segment,
+          children: [],
+        };
+        level.push(folderNode);
+      }
+
+      level = folderNode.children;
+    }
+  }
+
+  return root;
+}
+
 function applyThemeSelection(themeKind: ThemeKind) {
   document.documentElement.dataset.theme = themeKind;
 }
@@ -136,6 +201,7 @@ export default function App() {
   const activeDocumentOpen = snapshot.activeDocumentSource !== null;
   const errorMessage = snapshot.lastError;
   const activeDocumentName = snapshot.activeDocumentName ?? 'No document open';
+  const workspaceTree = buildWorkspaceTree(snapshot.workspaceDocuments, snapshot.rootDir);
 
   const applySnapshot = (next: AppSnapshot, preserveDraft = false) => {
     startTransition(() => {
@@ -388,6 +454,35 @@ export default function App() {
     });
   };
 
+  const renderWorkspaceTreeNode = (node: WorkspaceTreeNode, depth = 0) => {
+    if (node.kind === 'folder') {
+      return (
+        <div key={node.key} className="tree-folder">
+          <div className="tree-folder-label" style={{ paddingLeft: `${depth * 18}px` }}>
+            {node.name}
+          </div>
+          <div className="tree-folder-children">
+            {node.children.map((child) => renderWorkspaceTreeNode(child, depth + 1))}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <button
+        key={node.key}
+        className={
+          node.path === snapshot.activeDocumentPath ? 'tree-item tree-item-active' : 'tree-item'
+        }
+        onClick={() => handleOpenWorkspaceDocument(node.path)}
+        style={{ paddingLeft: `${14 + depth * 18}px` }}
+      >
+        <span className="tree-name">{node.name}</span>
+        <span className="tree-path">{node.relativePath}</span>
+      </button>
+    );
+  };
+
   useEffect(() => {
     const handleKeyboardShortcut = (event: KeyboardEvent) => {
       if (busy) {
@@ -476,27 +571,10 @@ export default function App() {
 
         <div className="sidebar-group">
           <div className="sidebar-group-header">Files</div>
-          {snapshot.workspaceDocuments.length === 0 ? (
+          {workspaceTree.length === 0 ? (
             <div className="empty-hint">Open a folder to populate the file tree.</div>
           ) : (
-            <div className="tree-list">
-              {snapshot.workspaceDocuments.map((path) => (
-                <button
-                  key={path}
-                  className={
-                    path === snapshot.activeDocumentPath
-                      ? 'tree-item tree-item-active'
-                      : 'tree-item'
-                  }
-                  onClick={() => handleOpenWorkspaceDocument(path)}
-                >
-                  <span className="tree-name">{displayFileName(path)}</span>
-                  <span className="tree-path">
-                    {displayWorkspacePath(path, snapshot.rootDir)}
-                  </span>
-                </button>
-              ))}
-            </div>
+            <div className="tree-list">{workspaceTree.map((node) => renderWorkspaceTreeNode(node))}</div>
           )}
         </div>
 
