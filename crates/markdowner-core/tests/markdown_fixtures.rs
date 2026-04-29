@@ -3,7 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use markdowner_core::{EditorRuntime, WysiwygBlockPresentation};
+use markdowner_core::{
+    EditorMode, EditorRuntime, ThemeKind, ThemeSelection, WysiwygBlockPresentation,
+};
 use serde::Deserialize;
 use tempfile::tempdir;
 
@@ -14,6 +16,8 @@ struct FixtureSpec {
     source: String,
     expected: String,
     policy: FixturePolicy,
+    #[serde(default)]
+    session: Option<SessionExpectations>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -22,6 +26,24 @@ enum FixturePolicy {
     ByteForByte,
     #[serde(rename = "raw-preserved")]
     RawPreserved,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+struct SessionExpectations {
+    restore_recent_documents: bool,
+    restored_mode: Option<EditorMode>,
+    restored_theme_kind: Option<ThemeKind>,
+}
+
+impl Default for SessionExpectations {
+    fn default() -> Self {
+        Self {
+            restore_recent_documents: false,
+            restored_mode: None,
+            restored_theme_kind: None,
+        }
+    }
 }
 
 #[test]
@@ -69,6 +91,10 @@ fn markdown_fixtures_include_v0_code_fence_image_and_unsupported_seed_coverage()
         .iter()
         .filter(|fixture| fixture.category == "unsupported")
         .count();
+    let workspace_session_fixtures = fixtures
+        .iter()
+        .filter(|fixture| fixture.category == "workspace-and-session")
+        .count();
 
     assert!(
         heading_fixtures >= 4,
@@ -104,6 +130,11 @@ fn markdown_fixtures_include_v0_code_fence_image_and_unsupported_seed_coverage()
         unsupported_fixtures >= 4,
         "expected at least four v0.2 unsupported/raw-preserved fixtures, found {}",
         unsupported_fixtures
+    );
+    assert!(
+        workspace_session_fixtures >= 2,
+        "expected at least two v0.2 workspace/session fixtures, found {}",
+        workspace_session_fixtures
     );
 }
 
@@ -150,6 +181,10 @@ fn run_fixture(fixture: &FixtureSpec) {
         "fixture {} was not preserved by open/save without edits",
         fixture.id
     );
+
+    if let Some(session) = fixture.session.as_ref() {
+        verify_session_expectations(&fixture.id, &source, session);
+    }
 }
 
 fn save_without_edits(fixture_id: &str, source: &str) -> String {
@@ -184,4 +219,49 @@ fn open_wysiwyg_view(fixture_id: &str, source: &str) -> Vec<markdowner_core::Wys
     let mut runtime = EditorRuntime::default();
     runtime.open_document(&document_path).unwrap();
     runtime.workspace().active_wysiwyg_view().unwrap()
+}
+
+fn verify_session_expectations(fixture_id: &str, source: &str, session: &SessionExpectations) {
+    let temp = tempdir().unwrap();
+    let document_path = temp.path().join(format!("{fixture_id}.md"));
+    let session_path = temp.path().join("session.json");
+    fs::write(&document_path, source).unwrap();
+
+    let mut first_runtime = EditorRuntime::default().with_session_store(session_path.clone());
+    first_runtime.open_document(&document_path).unwrap();
+
+    if let Some(mode) = session.restored_mode {
+        first_runtime.set_mode(mode);
+    }
+
+    if let Some(theme_kind) = session.restored_theme_kind {
+        first_runtime.set_theme(ThemeSelection::new(theme_kind, None));
+    }
+
+    let mut restored_runtime = EditorRuntime::default().with_session_store(session_path);
+    restored_runtime.restore_session().unwrap();
+
+    if session.restore_recent_documents {
+        assert_eq!(
+            restored_runtime.workspace().recent_documents(),
+            std::slice::from_ref(&document_path),
+            "fixture {fixture_id} did not restore its recent document entry"
+        );
+    }
+
+    if let Some(mode) = session.restored_mode {
+        assert_eq!(
+            restored_runtime.workspace().mode(),
+            mode,
+            "fixture {fixture_id} did not restore its editor mode"
+        );
+    }
+
+    if let Some(theme_kind) = session.restored_theme_kind {
+        assert_eq!(
+            restored_runtime.workspace().theme(),
+            &ThemeSelection::new(theme_kind, None),
+            "fixture {fixture_id} did not restore its theme selection"
+        );
+    }
 }

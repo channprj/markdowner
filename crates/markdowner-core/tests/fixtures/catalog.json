@@ -264,6 +264,35 @@
     "notes": "Parent-relative image paths remain stable across no-op saves."
   },
   {
+    "id": "MD-FIX-SES-001",
+    "category": "workspace-and-session",
+    "source": "session/recent-document.md",
+    "expected": "session/recent-document.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["session", "recent-documents"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "session": {
+      "restore_recent_documents": true
+    },
+    "notes": "Opening a document with a session store should restore it into the recent-documents list after relaunch."
+  },
+  {
+    "id": "MD-FIX-SES-002",
+    "category": "workspace-and-session",
+    "source": "session/mode-and-theme.md",
+    "expected": "session/mode-and-theme.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["session", "editor-mode", "theme-selection"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "session": {
+      "restored_mode": "Preview",
+      "restored_theme_kind": "BuiltInDark"
+    },
+    "notes": "Persisted editor mode and built-in theme selection should come back after a fresh runtime restore."
+  },
+  {
     "id": "MD-FIX-RAW-001",
     "category": "unsupported",
     "source": "unsupported/strikethrough.md",
