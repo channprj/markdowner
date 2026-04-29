@@ -217,8 +217,18 @@ export default function App() {
     }
   };
 
+  const syncActiveDraft = async () => {
+    if (!activeDocumentOpen) {
+      return;
+    }
+
+    const synced = await replaceActiveDocumentSource(localDraft);
+    applySnapshot(synced, true);
+  };
+
   const handleNewDocument = async () => {
     await withBusy(async () => {
+      await syncActiveDraft();
       const next = await newDocument();
       applySnapshot(next);
     });
@@ -236,11 +246,7 @@ export default function App() {
     }
 
     await withBusy(async () => {
-      if (activeDocumentOpen) {
-        const synced = await replaceActiveDocumentSource(localDraft);
-        applySnapshot(synced, true);
-      }
-
+      await syncActiveDraft();
       const next = await openDocument(selected);
       applySnapshot(next);
     });
@@ -257,8 +263,9 @@ export default function App() {
     }
 
     await withBusy(async () => {
+      await syncActiveDraft();
       const next = await openWorkspace(selected);
-      applySnapshot(next);
+      applySnapshot(next, true);
     });
   };
 
@@ -272,8 +279,7 @@ export default function App() {
     }
 
     await withBusy(async () => {
-      const synced = await replaceActiveDocumentSource(localDraft);
-      applySnapshot(synced, true);
+      await syncActiveDraft();
       const next = await saveActiveDocument();
       applySnapshot(next, true);
     });
@@ -311,8 +317,7 @@ export default function App() {
     }
 
     await withBusy(async () => {
-      const synced = await replaceActiveDocumentSource(localDraft);
-      applySnapshot(synced, true);
+      await syncActiveDraft();
       const next = await saveActiveDocumentAs(selected);
       applySnapshot(next, true);
     });
@@ -320,11 +325,7 @@ export default function App() {
 
   const handleSetMode = async (nextMode: EditorMode) => {
     await withBusy(async () => {
-      if (activeDocumentOpen) {
-        const synced = await replaceActiveDocumentSource(localDraft);
-        applySnapshot(synced, true);
-      }
-
+      await syncActiveDraft();
       const next = await setMode(nextMode);
       applySnapshot(next, true);
     });
@@ -339,11 +340,7 @@ export default function App() {
 
   const handleOpenWorkspaceDocument = async (path: string) => {
     await withBusy(async () => {
-      if (activeDocumentOpen) {
-        const synced = await replaceActiveDocumentSource(localDraft);
-        applySnapshot(synced, true);
-      }
-
+      await syncActiveDraft();
       const next = await openWorkspaceDocument(path);
       applySnapshot(next);
     });
@@ -351,11 +348,7 @@ export default function App() {
 
   const handleOpenRecentDocument = async (path: string) => {
     await withBusy(async () => {
-      if (activeDocumentOpen) {
-        const synced = await replaceActiveDocumentSource(localDraft);
-        applySnapshot(synced, true);
-      }
-
+      await syncActiveDraft();
       const next = await openDocument(path);
       applySnapshot(next);
     });

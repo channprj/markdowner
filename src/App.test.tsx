@@ -21,6 +21,7 @@ const saveActiveDocumentMock = vi.fn();
 const saveActiveDocumentAsMock = vi.fn();
 const setModeMock = vi.fn();
 const setThemeMock = vi.fn();
+const openDialogMock = vi.fn();
 const saveDialogMock = vi.fn();
 
 vi.mock('./lib/desktop', () => ({
@@ -38,7 +39,7 @@ vi.mock('./lib/desktop', () => ({
 }));
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({
-  open: vi.fn(),
+  open: openDialogMock,
   save: saveDialogMock,
 }));
 
@@ -48,7 +49,19 @@ vi.mock('@tiptap/react', () => ({
 }));
 
 vi.mock('@uiw/react-codemirror', () => ({
-  default: () => null,
+  default: ({
+    value,
+    onChange,
+  }: {
+    value: string;
+    onChange: (value: string) => void;
+  }) => (
+    <textarea
+      aria-label="Source editor"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
 }));
 
 const baseSnapshot = (overrides: Partial<AppSnapshot> = {}): AppSnapshot => ({
@@ -86,6 +99,7 @@ describe('App recent documents', () => {
     saveActiveDocumentAsMock.mockReset();
     setModeMock.mockReset();
     setThemeMock.mockReset();
+    openDialogMock.mockReset();
     saveDialogMock.mockReset();
 
     bootstrapMock.mockResolvedValue(
@@ -241,6 +255,96 @@ describe('App recent documents', () => {
       expect(saveActiveDocumentMock).not.toHaveBeenCalled();
       expect(saveActiveDocumentAsMock).toHaveBeenCalledWith(
         '/tmp/project/notes/untitled.md',
+      );
+    });
+  });
+
+  it('syncs the unsaved draft before creating a new document', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Source',
+      }),
+    );
+    newDocumentMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'Untitled.md',
+        activeDocumentPath: null,
+        activeDocumentSource: '',
+        activeDocumentDirty: true,
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    fireEvent.change(editor, { target: { value: '# Meeting notes\n\nUnsaved edit' } });
+
+    const newDocumentButton = await screen.findByRole('button', {
+      name: /new document/i,
+    });
+    fireEvent.click(newDocumentButton);
+
+    await waitFor(() => {
+      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith(
+        '# Meeting notes\n\nUnsaved edit',
+      );
+      expect(newDocumentMock).toHaveBeenCalled();
+    });
+
+    expect(
+      replaceActiveDocumentSourceMock.mock.invocationCallOrder[0],
+    ).toBeLessThan(newDocumentMock.mock.invocationCallOrder[0]);
+  });
+
+  it('preserves the unsaved draft when opening a workspace', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Source',
+      }),
+    );
+    openDialogMock.mockResolvedValue('/tmp/project');
+    openWorkspaceMock.mockImplementation(async () =>
+      baseSnapshot({
+        rootDir: '/tmp/project',
+        workspaceDocuments: ['/tmp/project/README.md'],
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource:
+          replaceActiveDocumentSourceMock.mock.calls.length > 0
+            ? '# Meeting notes\n\nUnsaved edit'
+            : '# Meeting notes',
+        activeDocumentDirty: true,
+        mode: 'Source',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    fireEvent.change(editor, { target: { value: '# Meeting notes\n\nUnsaved edit' } });
+
+    const openWorkspaceButton = await screen.findByRole('button', {
+      name: /open folder/i,
+    });
+    fireEvent.click(openWorkspaceButton);
+
+    await waitFor(() => {
+      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith(
+        '# Meeting notes\n\nUnsaved edit',
+      );
+      expect(openWorkspaceMock).toHaveBeenCalledWith('/tmp/project');
+      expect(screen.getByRole('textbox', { name: /source editor/i })).toHaveValue(
+        '# Meeting notes\n\nUnsaved edit',
       );
     });
   });
