@@ -110,6 +110,39 @@
     "notes": "GFM table alignment markers are preserved."
   },
   {
+    "id": "MD-FIX-TBL-002",
+    "category": "tables",
+    "source": "tables/basic-multi-row.md",
+    "expected": "tables/basic-multi-row.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["table", "multi-row"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Simple multi-row tables should remain rendered and source-stable."
+  },
+  {
+    "id": "MD-FIX-TBL-003",
+    "category": "tables",
+    "source": "tables/inline-formatting.md",
+    "expected": "tables/inline-formatting.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["table", "bold", "italic", "link", "inline-code"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Inline emphasis, links, and code spans inside table cells should round-trip cleanly."
+  },
+  {
+    "id": "MD-FIX-TBL-004",
+    "category": "tables",
+    "source": "tables/uneven-columns.md",
+    "expected": "tables/uneven-columns.expected.md",
+    "policy": "raw-preserved",
+    "features": ["table", "uneven-columns"],
+    "unsupported_behavior": "raw-fallback",
+    "release_gate": ["v0.2"],
+    "notes": "Malformed tables with uneven column counts should stay source-preserved as raw fallback."
+  },
+  {
     "id": "MD-FIX-CODE-001",
     "category": "code-fences",
     "source": "code-fences/rust-and-plain.md",
