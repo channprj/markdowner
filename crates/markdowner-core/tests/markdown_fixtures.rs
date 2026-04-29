@@ -49,6 +49,10 @@ fn markdown_fixtures_include_v0_code_fence_image_and_unsupported_seed_coverage()
         .iter()
         .filter(|fixture| fixture.category == "images")
         .count();
+    let list_fixtures = fixtures
+        .iter()
+        .filter(|fixture| fixture.category == "lists-and-checklists")
+        .count();
     let unsupported_fixtures = fixtures
         .iter()
         .filter(|fixture| fixture.category == "unsupported")
@@ -63,6 +67,11 @@ fn markdown_fixtures_include_v0_code_fence_image_and_unsupported_seed_coverage()
         image_fixtures >= 3,
         "expected at least three v0.2 image fixtures, found {}",
         image_fixtures
+    );
+    assert!(
+        list_fixtures >= 4,
+        "expected at least four v0.2 list/checklist fixtures, found {}",
+        list_fixtures
     );
     assert!(
         unsupported_fixtures >= 4,

@@ -1,0 +1,3 @@
+- [ ] Confirm `cargo test`
+- [x] Ship docs
+- [ ] Announce build

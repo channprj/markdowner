@@ -33,6 +33,39 @@
     "notes": "Supported list primitives should survive no-op saves."
   },
   {
+    "id": "MD-FIX-LST-002",
+    "category": "lists-and-checklists",
+    "source": "lists/bullets-inline-sequence.md",
+    "expected": "lists/bullets-inline-sequence.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["bullet-list", "bold", "italic", "link"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Adjacent bullet items with inline formatting stay rendered and byte-stable."
+  },
+  {
+    "id": "MD-FIX-LST-003",
+    "category": "lists-and-checklists",
+    "source": "lists/checklists-inline-sequence.md",
+    "expected": "lists/checklists-inline-sequence.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["checklist", "inline-code", "checked", "unchecked"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Consecutive checklist items preserve state markers and inline code."
+  },
+  {
+    "id": "MD-FIX-LST-004",
+    "category": "lists-and-checklists",
+    "source": "lists/mixed-list-lines.md",
+    "expected": "lists/mixed-list-lines.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["bullet-list", "checklist", "escaped-punctuation"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Mixed supported list line types keep escaping intact without falling back."
+  },
+  {
     "id": "MD-FIX-TBL-001",
     "category": "tables",
     "source": "tables/alignment.md",

@@ -1,0 +1,3 @@
+- Kickoff item
+- [ ] Verify parser output
+- [x] Preserve escaped \*stars\*
