@@ -168,6 +168,46 @@ describe('App recent documents', () => {
     expect(screen.getByRole('button', { name: /api\.md/i })).toBeInTheDocument();
   });
 
+  it('collapses and re-expands workspace folders from the sidebar', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'draft.md',
+        rootDir: '/tmp/project',
+        workspaceDocuments: [
+          '/tmp/project/guides/draft.md',
+          '/tmp/project/guides/reference/api.md',
+        ],
+        activeDocumentPath: '/tmp/project/guides/draft.md',
+        activeDocumentSource: '# Draft',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const guidesFolderButton = await screen.findByRole('button', { name: 'guides' });
+    expect(guidesFolderButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /draft\.md/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /api\.md/i })).toBeInTheDocument();
+
+    fireEvent.click(guidesFolderButton);
+
+    await waitFor(() => {
+      expect(guidesFolderButton).toHaveAttribute('aria-expanded', 'false');
+    });
+    expect(screen.queryByRole('button', { name: /draft\.md/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /api\.md/i })).not.toBeInTheDocument();
+
+    fireEvent.click(guidesFolderButton);
+
+    await waitFor(() => {
+      expect(guidesFolderButton).toHaveAttribute('aria-expanded', 'true');
+    });
+    expect(screen.getByRole('button', { name: /draft\.md/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /api\.md/i })).toBeInTheDocument();
+  });
+
   it('renders Windows-style paths with file basenames and workspace-relative labels', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({

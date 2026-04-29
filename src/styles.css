@@ -172,13 +172,30 @@ textarea {
   gap: 8px;
 }
 
-.tree-folder-label {
+.tree-folder-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
   padding: 4px 14px 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--fg-muted);
+}
+
+.tree-folder-toggle:hover {
+  color: var(--fg);
+}
+
+.tree-folder-caret {
+  width: 12px;
+  flex: 0 0 12px;
 }
 
 .tree-item {

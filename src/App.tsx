@@ -164,6 +164,17 @@ function buildWorkspaceTree(paths: string[], rootDir: string | null): WorkspaceT
   return root;
 }
 
+function collectWorkspaceFolderKeys(nodes: WorkspaceTreeNode[], folderKeys: Set<string>) {
+  for (const node of nodes) {
+    if (node.kind !== 'folder') {
+      continue;
+    }
+
+    folderKeys.add(node.key);
+    collectWorkspaceFolderKeys(node.children, folderKeys);
+  }
+}
+
 function applyThemeSelection(themeKind: ThemeKind) {
   document.documentElement.dataset.theme = themeKind;
 }
@@ -196,12 +207,14 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(EMPTY_SNAPSHOT);
   const [localDraft, setLocalDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [collapsedFolderKeys, setCollapsedFolderKeys] = useState<string[]>([]);
 
   const currentMode = snapshot.mode;
   const activeDocumentOpen = snapshot.activeDocumentSource !== null;
   const errorMessage = snapshot.lastError;
   const activeDocumentName = snapshot.activeDocumentName ?? 'No document open';
   const workspaceTree = buildWorkspaceTree(snapshot.workspaceDocuments, snapshot.rootDir);
+  const workspaceTreeSignature = `${snapshot.rootDir ?? ''}\u0000${snapshot.workspaceDocuments.join('\u0000')}`;
 
   const applySnapshot = (next: AppSnapshot, preserveDraft = false) => {
     startTransition(() => {
@@ -240,6 +253,12 @@ export default function App() {
   useEffect(() => {
     document.title = buildWindowTitle(snapshot);
   }, [snapshot]);
+
+  useEffect(() => {
+    const nextFolderKeys = new Set<string>();
+    collectWorkspaceFolderKeys(workspaceTree, nextFolderKeys);
+    setCollapsedFolderKeys((current) => current.filter((key) => nextFolderKeys.has(key)));
+  }, [workspaceTreeSignature]);
 
   useEffect(() => {
     if (snapshot.activeDocumentSource === null) {
@@ -454,16 +473,35 @@ export default function App() {
     });
   };
 
+  const handleToggleWorkspaceFolder = (key: string) => {
+    setCollapsedFolderKeys((current) =>
+      current.includes(key) ? current.filter((entry) => entry !== key) : [...current, key],
+    );
+  };
+
   const renderWorkspaceTreeNode = (node: WorkspaceTreeNode, depth = 0) => {
     if (node.kind === 'folder') {
+      const collapsed = collapsedFolderKeys.includes(node.key);
+
       return (
         <div key={node.key} className="tree-folder">
-          <div className="tree-folder-label" style={{ paddingLeft: `${depth * 18}px` }}>
-            {node.name}
-          </div>
-          <div className="tree-folder-children">
-            {node.children.map((child) => renderWorkspaceTreeNode(child, depth + 1))}
-          </div>
+          <button
+            type="button"
+            className="tree-folder-toggle"
+            aria-expanded={!collapsed}
+            onClick={() => handleToggleWorkspaceFolder(node.key)}
+            style={{ paddingLeft: `${depth * 18}px` }}
+          >
+            <span className="tree-folder-caret" aria-hidden="true">
+              {collapsed ? '▸' : '▾'}
+            </span>
+            <span>{node.name}</span>
+          </button>
+          {!collapsed ? (
+            <div className="tree-folder-children">
+              {node.children.map((child) => renderWorkspaceTreeNode(child, depth + 1))}
+            </div>
+          ) : null}
         </div>
       );
     }
