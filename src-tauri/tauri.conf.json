@@ -31,8 +31,8 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": "all",
+    "active": true,
+    "targets": "app",
     "macOS": {
       "minimumSystemVersion": "13.0"
     }

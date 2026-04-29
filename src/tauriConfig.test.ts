@@ -11,4 +11,12 @@ describe('tauri security config', () => {
       'style-src': expect.stringContaining("'unsafe-inline'"),
     });
   });
+
+  it('keeps bundled app artifacts enabled for desktop builds', () => {
+    expect(tauriConfig.bundle?.active).toBe(true);
+  });
+
+  it('targets the macOS app bundle until dmg packaging is configured', () => {
+    expect(tauriConfig.bundle?.targets).toBe('app');
+  });
 });
