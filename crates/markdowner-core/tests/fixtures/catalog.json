@@ -44,6 +44,28 @@
     "notes": "Blank-line-separated sections should preserve spacing without forcing raw fallback."
   },
   {
+    "id": "MD-FIX-QTE-001",
+    "category": "quotes",
+    "source": "quotes/single-line.md",
+    "expected": "quotes/single-line.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["quote", "inline-formatting", "inline-code"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Single-line quotes should round-trip without falling back to raw."
+  },
+  {
+    "id": "MD-FIX-QTE-002",
+    "category": "quotes",
+    "source": "quotes/multi-line.md",
+    "expected": "quotes/multi-line.expected.md",
+    "policy": "byte-for-byte",
+    "features": ["quote", "multi-line"],
+    "unsupported_behavior": "none",
+    "release_gate": ["v0.2"],
+    "notes": "Multi-line quote blocks should stay source-preserved on no-op saves."
+  },
+  {
     "id": "MD-FIX-INL-001",
     "category": "inline-formatting",
     "source": "inline/emphasis-links-code.md",
