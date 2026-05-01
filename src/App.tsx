@@ -892,10 +892,10 @@ export default function App() {
       <aside className="left-rail">
         <div className="brand-block">
           <div className="eyebrow">Markdowner</div>
-          <h1>Desktop editor foundation</h1>
+          <h1>Write Markdown with confidence</h1>
           <p>
-            Tauri shell, Rust core bridge, and three editing surfaces are now wired
-            through one desktop app skeleton.
+            Work locally, keep your files intact, and switch between WYSIWYG, Source,
+            and Preview without losing your place.
           </p>
         </div>
 
@@ -1101,10 +1101,9 @@ export default function App() {
         <section className="editor-frame">
           {!activeDocumentOpen ? (
             <div className="empty-state">
-              <h2>Launch the first desktop editing flow</h2>
+              <h2>Start your next document</h2>
               <p>
-                Open a Markdown file or workspace to exercise the new Tauri shell with the
-                Rust core bridge.
+                Create a new draft or open a Markdown file to begin editing right away.
               </p>
             </div>
           ) : null}
