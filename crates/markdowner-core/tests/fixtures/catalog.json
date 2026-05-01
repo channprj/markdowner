@@ -368,5 +368,16 @@
     "unsupported_behavior": "raw-fallback",
     "release_gate": ["v0.2"],
     "notes": "Ordered list syntax stays intact until native support lands."
+  },
+  {
+    "id": "MD-FIX-RAW-005",
+    "category": "unsupported",
+    "source": "unsupported/front-matter.md",
+    "expected": "unsupported/front-matter.expected.md",
+    "policy": "raw-preserved",
+    "features": ["front-matter", "yaml"],
+    "unsupported_behavior": "raw-fallback",
+    "release_gate": ["v1.0"],
+    "notes": "Front matter blocks should remain source-preserved until native support lands."
   }
 ]
