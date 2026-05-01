@@ -83,6 +83,8 @@ fn markdown_fixtures_include_v0_code_fence_image_and_unsupported_seed_coverage()
     );
     let inline_fixtures =
         count_category_fixtures_for_release(&fixtures, "inline-formatting", ReleaseGate::V0_2);
+    let quote_fixtures =
+        count_category_fixtures_for_release(&fixtures, "quotes", ReleaseGate::V0_2);
     let code_fence_fixtures =
         count_category_fixtures_for_release(&fixtures, "code-fences", ReleaseGate::V0_2);
     let image_fixtures =
@@ -105,6 +107,11 @@ fn markdown_fixtures_include_v0_code_fence_image_and_unsupported_seed_coverage()
         inline_fixtures >= 5,
         "expected at least five v0.2 inline-formatting fixtures, found {}",
         inline_fixtures
+    );
+    assert!(
+        quote_fixtures >= 2,
+        "expected at least two v0.2 quote fixtures, found {}",
+        quote_fixtures
     );
     assert!(
         code_fence_fixtures >= 4,
