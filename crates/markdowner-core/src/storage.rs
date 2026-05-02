@@ -95,13 +95,11 @@ pub(crate) fn persist_workspace_session(
         ))
     })?;
 
-    fs::write(path, payload).map_err(|error| {
-        RuntimeError::new(format!(
-            "Could not persist session to '{}': {error}",
-            path.display()
-        ))
-    })
+    // Use atomic write for session as well
+    write_document_source(path, &payload)
 }
+
+
 
 pub(crate) fn read_document_source(path: &Path) -> Result<String, RuntimeError> {
     fs::read_to_string(path).map_err(|error| {

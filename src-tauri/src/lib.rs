@@ -391,6 +391,42 @@ fn import_theme(path: String, state: State<'_, DesktopAppState>) -> Result<AppSn
     with_backend(state, |backend| backend.import_theme(Path::new(&path)))
 }
 
+#[tauri::command]
+fn load_settings(app_handle: tauri::AppHandle) -> Result<markdowner_core::settings::Settings, String> {
+    let path = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("settings.json");
+    
+    // We need to use `markdowner_core::storage::load_settings` but it's private.
+    // Let's implement it inside the core crate instead, or just read it here.
+    let raw = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
+    let settings: markdowner_core::settings::Settings = serde_json::from_str(&raw).unwrap_or_default();
+    Ok(settings)
+}
+
+#[tauri::command]
+fn save_settings(settings: markdowner_core::settings::Settings, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let path = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("settings.json");
+        
+    let payload = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    
+    // Atomic write
+    let temp_path = path.with_extension("tmp");
+    std::fs::write(&temp_path, payload).map_err(|e| e.to_string())?;
+    std::fs::rename(&temp_path, &path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_cli::init())
@@ -459,6 +495,8 @@ pub fn run() {
             set_mode,
             set_theme,
             import_theme,
+            load_settings,
+            save_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Markdowner desktop shell");
