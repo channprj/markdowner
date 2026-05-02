@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils';
 import { ActivityBar } from '@/shell/ActivityBar';
 import { EditorArea } from '@/shell/EditorArea';
 import { Header } from '@/shell/Header';
+import { QuickOpen, type QuickOpenItem } from '@/shell/QuickOpen';
 import { SideBar } from '@/shell/SideBar';
 import { StatusBar } from '@/shell/StatusBar';
 import { SettingsDialog } from '@/shell/SettingsDialog';
@@ -371,6 +372,7 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState<number>(readSidebarWidth());
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isQuickOpenOpen, setIsQuickOpenOpen] = useState(false);
   const [debouncedLocalDraft, setDebouncedLocalDraft] = useState(localDraft);
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number }>({
     line: 1,
@@ -886,6 +888,7 @@ export default function App() {
         return;
       case 'mode-splitview':
         await handleSetMode('SplitView');
+        return;
       default:
     }
   });
@@ -963,6 +966,12 @@ export default function App() {
       if (matchesShortcut(event, ',')) {
         event.preventDefault();
         setIsSettingsOpen((prev) => !prev);
+        return;
+      }
+
+      if (matchesShortcut(event, 'p')) {
+        event.preventDefault();
+        setIsQuickOpenOpen((prev) => !prev);
         return;
       }
 
@@ -1126,6 +1135,33 @@ export default function App() {
     : activeDocumentOpen
       ? 'Save As to choose where this draft lives.'
       : 'Open a workspace or a Markdown file to begin.';
+
+  const quickOpenItems: QuickOpenItem[] = (() => {
+    const seen = new Set<string>();
+    const items: QuickOpenItem[] = [];
+    const accumulate = (paths: readonly string[]) => {
+      for (const path of paths) {
+        if (!path || seen.has(path)) continue;
+        seen.add(path);
+        items.push({
+          path,
+          name: displayFileName(path),
+          relativePath: displayWorkspacePath(path, snapshot.rootDir),
+        });
+      }
+    };
+    accumulate(snapshot.workspaceDocuments);
+    accumulate(snapshot.recentDocuments);
+    return items;
+  })();
+
+  const handleQuickOpenSelect = (path: string) => {
+    if (snapshot.workspaceDocuments.includes(path)) {
+      void handleOpenWorkspaceDocument(path);
+    } else {
+      void handleOpenRecentDocument(path);
+    }
+  };
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground">
@@ -1302,6 +1338,12 @@ export default function App() {
       />
       </div>
       <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+      <QuickOpen
+        open={isQuickOpenOpen}
+        onOpenChange={setIsQuickOpenOpen}
+        items={quickOpenItems}
+        onSelect={handleQuickOpenSelect}
+      />
 
       <StatusBar
         mode={formatEditorMode(currentMode)}

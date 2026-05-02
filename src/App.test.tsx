@@ -871,6 +871,57 @@ describe('App recent documents', () => {
     }
   });
 
+  it('opens the Quick Open dialog with Cmd+P and routes a workspace file selection', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        rootDir: '/tmp/project',
+        workspaceDocuments: [
+          '/tmp/project/README.md',
+          '/tmp/project/guides/draft.md',
+          '/tmp/project/guides/reference/api.md',
+        ],
+      }),
+    );
+    openWorkspaceDocumentMock.mockResolvedValue(
+      baseSnapshot({
+        rootDir: '/tmp/project',
+        workspaceDocuments: [
+          '/tmp/project/README.md',
+          '/tmp/project/guides/draft.md',
+          '/tmp/project/guides/reference/api.md',
+        ],
+        activeDocumentName: 'api.md',
+        activeDocumentPath: '/tmp/project/guides/reference/api.md',
+        activeDocumentSource: '# API',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: 'p', metaKey: true });
+
+    const quickOpenDialog = await screen.findByRole('dialog', { name: /quick open/i });
+    const input = within(quickOpenDialog).getByRole('textbox', {
+      name: /quick open file search/i,
+    });
+
+    fireEvent.change(input, { target: { value: 'api' } });
+
+    const apiOption = await within(quickOpenDialog).findByRole('option', {
+      name: /api\.md/i,
+    });
+
+    fireEvent.click(apiOption);
+
+    await waitFor(() => {
+      expect(openWorkspaceDocumentMock).toHaveBeenCalledWith(
+        '/tmp/project/guides/reference/api.md',
+      );
+    });
+  });
+
   it('opens the Settings dialog with the Cmd+, keyboard shortcut', async () => {
     invokeMock.mockResolvedValue({
       autoSave: false,
