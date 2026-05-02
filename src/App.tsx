@@ -115,6 +115,26 @@ function usesCommandModifier(event: KeyboardEvent) {
   return event.metaKey || event.ctrlKey;
 }
 
+const SIDEBAR_STATE_KEY = 'markdowner.sidebarOpen';
+
+function readSidebarState(): boolean {
+  try {
+    const value = window.localStorage.getItem(SIDEBAR_STATE_KEY);
+    if (value === null) return false; // Collapsed by default
+    return value === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writeSidebarState(isOpen: boolean) {
+  try {
+    window.localStorage.setItem(SIDEBAR_STATE_KEY, String(isOpen));
+  } catch {
+    // localStorage unavailable; ignore
+  }
+}
+
 function matchesShortcut(
   event: KeyboardEvent,
   key: string,
@@ -295,6 +315,15 @@ export default function App() {
   const [externalCompareSource, setExternalCompareSource] = useState<string | null>(null);
   const [collapsedFolderKeys, setCollapsedFolderKeys] = useState<string[]>([]);
   const [workspaceFilter, setWorkspaceFilter] = useState('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(readSidebarState());
+
+  const handleToggleSidebar = useEffectEvent(() => {
+    setIsSidebarOpen((current) => {
+      const next = !current;
+      writeSidebarState(next);
+      return next;
+    });
+  });
 
   const currentMode = snapshot.mode;
   const activeDocumentOpen = snapshot.activeDocumentSource !== null;
@@ -818,6 +847,12 @@ export default function App() {
         return;
       }
 
+      if (matchesShortcut(event, 'b')) {
+        event.preventDefault();
+        handleToggleSidebar();
+        return;
+      }
+
       if (matchesShortcut(event, 'o')) {
         event.preventDefault();
         void handleOpenDocument();
@@ -980,8 +1015,18 @@ export default function App() {
       : 'Open a workspace or a Markdown file to begin.';
 
   return (
-    <div className="grid min-h-screen grid-cols-[280px_minmax(0,1fr)] bg-background text-foreground">
-      <aside className="flex min-h-0 flex-col gap-5 overflow-y-auto border-r border-border bg-sidebar text-sidebar-foreground p-5">
+    <div
+      className={cn(
+        'grid min-h-screen bg-background text-foreground transition-[grid-template-columns] duration-300 ease-in-out',
+        isSidebarOpen ? 'grid-cols-[280px_minmax(0,1fr)]' : 'grid-cols-[0px_minmax(0,1fr)]',
+      )}
+    >
+      <aside
+        className={cn(
+          'flex min-h-0 flex-col gap-5 overflow-y-auto border-r border-border bg-sidebar p-5 text-sidebar-foreground transition-opacity duration-300 ease-in-out',
+          !isSidebarOpen && 'opacity-0 invisible overflow-hidden p-0 border-r-0',
+        )}
+      >
         <div className="space-y-2">
           <Badge variant="secondary" className="uppercase tracking-wider">
             Markdowner
@@ -1082,6 +1127,15 @@ export default function App() {
       <main className="flex min-w-0 flex-col gap-3 p-5">
         <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2 ring-1 ring-foreground/5">
           <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleToggleSidebar}
+              title="Toggle Sidebar (Cmd+B)"
+              aria-label="Toggle Sidebar"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-panel-left"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+            </Button>
             <Button onClick={handleSave} disabled={!activeDocumentOpen || busy}>
               Save
             </Button>
