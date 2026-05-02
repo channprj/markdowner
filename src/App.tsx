@@ -1221,7 +1221,7 @@ export default function App() {
   const quickOpenItems: QuickOpenItem[] = (() => {
     const seen = new Set<string>();
     const items: QuickOpenItem[] = [];
-    const accumulate = (paths: readonly string[]) => {
+    const accumulate = (paths: readonly string[], kind: 'workspace' | 'recent') => {
       for (const path of paths) {
         if (!path || seen.has(path)) continue;
         seen.add(path);
@@ -1229,11 +1229,12 @@ export default function App() {
           path,
           name: displayFileName(path),
           relativePath: displayWorkspacePath(path, snapshot.rootDir),
+          kind,
         });
       }
     };
-    accumulate(snapshot.workspaceDocuments);
-    accumulate(snapshot.recentDocuments);
+    accumulate(snapshot.workspaceDocuments, 'workspace');
+    accumulate(snapshot.recentDocuments, 'recent');
     return items;
   })();
 

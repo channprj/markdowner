@@ -1125,6 +1125,46 @@ describe('App recent documents', () => {
     });
   });
 
+  it('groups Quick Open entries under Workspace Files and Recent Files section headers', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        rootDir: '/tmp/project',
+        workspaceDocuments: [
+          '/tmp/project/README.md',
+          '/tmp/project/guides/draft.md',
+        ],
+        recentDocuments: [
+          '/tmp/project/README.md',
+          '/tmp/elsewhere/notes.md',
+        ],
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: 'p', metaKey: true });
+
+    const quickOpenDialog = await screen.findByRole('dialog', { name: /quick open/i });
+
+    const listbox = within(quickOpenDialog).getByRole('listbox');
+    const headers = Array.from(
+      listbox.querySelectorAll<HTMLElement>('[data-section-header]'),
+    );
+    expect(headers).toHaveLength(2);
+    expect(headers[0]).toHaveAttribute('data-section-header', 'workspace');
+    expect(headers[0]).toHaveTextContent(/workspace files/i);
+    expect(headers[1]).toHaveAttribute('data-section-header', 'recent');
+    expect(headers[1]).toHaveTextContent(/recent files/i);
+
+    const options = within(quickOpenDialog).getAllByRole('option');
+    expect(options).toHaveLength(3);
+    expect(options[0]).toHaveAttribute('data-kind', 'workspace');
+    expect(options[1]).toHaveAttribute('data-kind', 'workspace');
+    expect(options[2]).toHaveAttribute('data-kind', 'recent');
+  });
+
   it('opens the Quick Open dialog when the Activity Bar Search button is clicked', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
