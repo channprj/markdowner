@@ -315,6 +315,14 @@ export default function App() {
   const [workspaceFilter, setWorkspaceFilter] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(readSidebarState());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [debouncedLocalDraft, setDebouncedLocalDraft] = useState(localDraft);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedLocalDraft(localDraft);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [localDraft]);
 
   const handleToggleSidebar = useEffectEvent(() => {
     setIsSidebarOpen((current) => {
@@ -489,7 +497,7 @@ export default function App() {
   }, [editor, localDraft]);
 
   const previewSource = activeDocumentOpen
-    ? localDraft
+    ? debouncedLocalDraft
     : '*Open a Markdown document to preview it.*';
 
   const withBusy = async (action: () => Promise<void>) => {
