@@ -94,6 +94,15 @@ export function SettingsDialog({
                 onChange={(event) => handleSettingChange('editorFontFamily', event.target.value)}
               />
             </div>
+
+            <div className="flex items-center justify-between mt-2">
+              <Label htmlFor="line-wrap" className="text-sm">Word Wrap</Label>
+              <Switch
+                id="line-wrap"
+                checked={settings.editorLineWrap}
+                onCheckedChange={(checked) => handleSettingChange('editorLineWrap', checked)}
+              />
+            </div>
           </div>
         </div>
       </DialogContent>

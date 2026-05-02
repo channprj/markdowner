@@ -79,20 +79,30 @@ vi.mock('@tiptap/react', () => ({
   useEditor: () => null,
 }));
 
+const LINE_WRAPPING_SENTINEL = '__line_wrapping__';
+
 vi.mock('@uiw/react-codemirror', () => ({
   default: ({
     value,
     onChange,
+    extensions,
   }: {
     value: string;
     onChange: (value: string) => void;
+    extensions?: unknown[];
   }) => (
     <textarea
       aria-label="Source editor"
       value={value}
       onChange={(event) => onChange(event.target.value)}
+      data-line-wrap={
+        Array.isArray(extensions) && extensions.includes(LINE_WRAPPING_SENTINEL)
+          ? 'true'
+          : 'false'
+      }
     />
   ),
+  EditorView: { lineWrapping: LINE_WRAPPING_SENTINEL },
 }));
 
 const baseSnapshot = (overrides: Partial<AppSnapshot> = {}): AppSnapshot => ({
@@ -1196,6 +1206,99 @@ describe('App recent documents', () => {
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
     expect(saveActiveDocumentMock).not.toHaveBeenCalled();
+  });
+
+  it('applies line wrapping to the source editor when editorLineWrap is enabled', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: true,
+        };
+      }
+      return undefined;
+    });
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'notes.md',
+        activeDocumentPath: '/tmp/project/notes.md',
+        activeDocumentSource: '# Notes',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    await waitFor(() => {
+      expect(sourceEditor.getAttribute('data-line-wrap')).toBe('true');
+    });
+  });
+
+  it('omits line wrapping from the source editor when editorLineWrap is disabled', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: false,
+        };
+      }
+      return undefined;
+    });
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'notes.md',
+        activeDocumentPath: '/tmp/project/notes.md',
+        activeDocumentSource: '# Notes',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    await waitFor(() => {
+      expect(sourceEditor.getAttribute('data-line-wrap')).toBe('false');
+    });
+  });
+
+  it('persists Word Wrap toggle changes from the Settings dialog through save_settings', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: true,
+        };
+      }
+      return undefined;
+    });
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /settings/i });
+    const wrapToggle = within(dialog).getByLabelText(/word wrap/i);
+
+    fireEvent.click(wrapToggle);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_settings', {
+        settings: expect.objectContaining({ editorLineWrap: false }),
+      });
+    });
   });
 
   it('opens a Markdown document from the native menu event', async () => {

@@ -17,7 +17,7 @@ import TaskList from '@tiptap/extension-task-list';
 import { Markdown } from '@tiptap/markdown';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import CodeMirror from '@uiw/react-codemirror';
+import CodeMirror, { EditorView } from '@uiw/react-codemirror';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { startTransition, useEffect, useEffectEvent, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -1467,7 +1467,7 @@ export default function App() {
           <CodeMirror
             value={localDraft}
             height="100%"
-            extensions={[markdown()]}
+            extensions={settings.editorLineWrap ? [markdown(), EditorView.lineWrapping] : [markdown()]}
             onChange={(value) => setLocalDraft(value)}
             onStatistics={(stats) => {
               const head = stats.selectionAsSingle.head;
