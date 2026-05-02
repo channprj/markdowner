@@ -214,6 +214,13 @@ describe('App recent documents', () => {
     expect(openFileButton).toBeInTheDocument();
     expect(openWorkspaceButton).toBeInTheDocument();
 
+    expect(newFileButton).toHaveAttribute('title', 'New File (Cmd+N)');
+    expect(openFileButton).toHaveAttribute('title', 'Open File (Cmd+O)');
+    expect(openWorkspaceButton).toHaveAttribute(
+      'title',
+      'Open Workspace (Cmd+Shift+O)',
+    );
+
     fireEvent.click(newFileButton);
 
     await waitFor(() => {

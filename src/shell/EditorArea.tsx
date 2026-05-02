@@ -159,6 +159,7 @@ export function EditorArea({
                       size="sm"
                       onClick={onNewDocument}
                       disabled={busy}
+                      title="New File (Cmd+N)"
                     >
                       New File
                     </Button>
@@ -169,6 +170,7 @@ export function EditorArea({
                       size="sm"
                       onClick={onOpenDocument}
                       disabled={busy}
+                      title="Open File (Cmd+O)"
                     >
                       Open File…
                     </Button>
@@ -179,6 +181,7 @@ export function EditorArea({
                       size="sm"
                       onClick={onOpenWorkspace}
                       disabled={busy}
+                      title="Open Workspace (Cmd+Shift+O)"
                     >
                       Open Workspace…
                     </Button>
