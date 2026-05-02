@@ -276,6 +276,31 @@ function collectWorkspaceFolderKeys(nodes: WorkspaceTreeNode[], folderKeys: Set<
   }
 }
 
+type EditorModeOption = {
+  mode: EditorMode;
+  label: string;
+  shortcutSymbol: string;
+  shortcutText: string;
+};
+
+const EDITOR_MODE_OPTIONS: EditorModeOption[] = [
+  { mode: 'Editor', label: 'Editor', shortcutSymbol: '⌘1', shortcutText: 'Cmd+1' },
+  { mode: 'Wysiwyg', label: 'WYSIWYG', shortcutSymbol: '⌘2', shortcutText: 'Cmd+2' },
+  { mode: 'SplitView', label: 'Split View', shortcutSymbol: '⌘3', shortcutText: 'Cmd+3' },
+];
+
+const EDITOR_MODE_LABELS: Record<EditorMode, string> = EDITOR_MODE_OPTIONS.reduce(
+  (acc, option) => {
+    acc[option.mode] = option.label;
+    return acc;
+  },
+  {} as Record<EditorMode, string>,
+);
+
+function formatEditorMode(mode: EditorMode): string {
+  return EDITOR_MODE_LABELS[mode] ?? mode;
+}
+
 function applyThemeSelection(themeKind: ThemeKind) {
   document.documentElement.dataset.theme = themeKind;
 }
@@ -1072,9 +1097,15 @@ export default function App() {
               size="sm"
               className="h-8"
             >
-              {(['Wysiwyg', 'Editor', 'SplitView'] as EditorMode[]).map((mode) => (
-                <ToggleGroupItem key={mode} value={mode} disabled={busy} aria-label={mode}>
-                  {mode}
+              {EDITOR_MODE_OPTIONS.map((option) => (
+                <ToggleGroupItem
+                  key={option.mode}
+                  value={option.mode}
+                  disabled={busy}
+                  aria-label={option.label}
+                  title={`${option.label} (${option.shortcutText})`}
+                >
+                  {option.label}
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
@@ -1175,7 +1206,7 @@ export default function App() {
       <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
 
       <StatusBar
-        mode={currentMode}
+        mode={formatEditorMode(currentMode)}
         theme={snapshot.theme.kind}
         isDirty={snapshot.activeDocumentDirty}
         workspaceName={snapshot.rootDir ? displayFileName(snapshot.rootDir) : null}

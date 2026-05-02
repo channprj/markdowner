@@ -818,6 +818,40 @@ describe('App recent documents', () => {
     });
   });
 
+  it('renders friendly mode labels in the header toggle and status bar', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'SplitView',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByText(/^meeting-notes\.md/);
+
+    const editorToggle = screen.getByRole('radio', { name: 'Editor' });
+    const wysiwygToggle = screen.getByRole('radio', { name: 'WYSIWYG' });
+    const splitToggle = screen.getByRole('radio', { name: 'Split View' });
+
+    expect(editorToggle).toHaveAttribute('title', 'Editor (Cmd+1)');
+    expect(wysiwygToggle).toHaveAttribute('title', 'WYSIWYG (Cmd+2)');
+    expect(splitToggle).toHaveAttribute('title', 'Split View (Cmd+3)');
+
+    const toggles = screen.getAllByRole('radio');
+    expect(toggles[0]).toBe(editorToggle);
+    expect(toggles[1]).toBe(wysiwygToggle);
+    expect(toggles[2]).toBe(splitToggle);
+
+    expect(splitToggle).toHaveAttribute('aria-checked', 'true');
+
+    expect(screen.getAllByText('Split View').length).toBeGreaterThanOrEqual(2);
+  });
+
   it('opens the Settings dialog with the Cmd+, keyboard shortcut', async () => {
     invokeMock.mockResolvedValue({
       autoSave: false,
