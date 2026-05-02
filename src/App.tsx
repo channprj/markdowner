@@ -60,6 +60,12 @@ import {
   setTheme,
 } from './lib/desktop';
 import {
+  DEFAULT_SETTINGS,
+  type Settings,
+  loadSettings,
+  saveSettings,
+} from './lib/settings';
+import {
   MARKDOWN_CONTENT_SCOPE_CLASS,
   scopeImportedStylesheet,
 } from './lib/themeScope';
@@ -375,6 +381,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isQuickOpenOpen, setIsQuickOpenOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [debouncedLocalDraft, setDebouncedLocalDraft] = useState(localDraft);
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number }>({
     line: 1,
@@ -495,6 +502,28 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadSettings()
+      .then((next) => {
+        if (cancelled) return;
+        startTransition(() => {
+          setSettings(next);
+        });
+      })
+      .catch((error) => {
+        console.error(error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSettingsChange = (next: Settings) => {
+    setSettings(next);
+    void saveSettings(next);
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -1402,6 +1431,8 @@ export default function App() {
         onHideComparison={() => setExternalCompareSource(null)}
         localDraft={localDraft}
         activeDocumentName={snapshot.activeDocumentName}
+        fontSize={settings.editorFontSize || DEFAULT_SETTINGS.editorFontSize}
+        fontFamily={settings.editorFontFamily}
         editorContent={<EditorContent editor={editor} />}
         sourceEditor={
           <CodeMirror
@@ -1431,7 +1462,12 @@ export default function App() {
         }
       />
       </div>
-      <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+      <SettingsDialog
+        open={isSettingsOpen}
+        onOpenChange={setIsSettingsOpen}
+        settings={settings}
+        onSettingsChange={handleSettingsChange}
+      />
       <QuickOpen
         open={isQuickOpenOpen}
         onOpenChange={setIsQuickOpenOpen}

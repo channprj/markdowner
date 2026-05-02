@@ -981,6 +981,67 @@ describe('App recent documents', () => {
     await screen.findByRole('dialog', { name: /settings/i });
   });
 
+  it('applies the persisted editor font size to the source pane on startup', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 22,
+          editorFontFamily: 'JetBrains Mono',
+        };
+      }
+      return undefined;
+    });
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'notes.md',
+        activeDocumentPath: '/tmp/project/notes.md',
+        activeDocumentSource: '# Notes',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const surface = await screen.findByTestId('editor-surface-source');
+    await waitFor(() => {
+      expect(surface.style.fontSize).toBe('22px');
+    });
+    expect(surface.style.fontFamily).toContain('JetBrains Mono');
+  });
+
+  it('persists font size changes from the Settings dialog through save_settings', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+        };
+      }
+      return undefined;
+    });
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /settings/i });
+    const fontSizeInput = within(dialog).getByLabelText(/font size/i);
+
+    fireEvent.change(fontSizeInput, { target: { value: '18' } });
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_settings', {
+        settings: expect.objectContaining({ editorFontSize: 18 }),
+      });
+    });
+  });
+
   it('opens a Markdown document from the native menu event', async () => {
     openDialogMock.mockResolvedValue('/tmp/project/from-menu.md');
     openDocumentMock.mockResolvedValue(

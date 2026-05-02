@@ -2,7 +2,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { cn } from '@/lib/utils';
-import { ReactNode } from 'react';
+import { type CSSProperties, type ReactNode } from 'react';
 
 export interface EditorAreaProps {
   busy: boolean;
@@ -21,6 +21,8 @@ export interface EditorAreaProps {
   editorContent: ReactNode;
   sourceEditor: ReactNode;
   splitViewPreview: ReactNode;
+  fontSize?: number;
+  fontFamily?: string;
 }
 
 export function EditorArea({
@@ -40,7 +42,16 @@ export function EditorArea({
   editorContent,
   sourceEditor,
   splitViewPreview,
+  fontSize,
+  fontFamily,
 }: EditorAreaProps) {
+  const editorSurfaceStyle: CSSProperties = {};
+  if (fontSize && Number.isFinite(fontSize) && fontSize > 0) {
+    editorSurfaceStyle.fontSize = `${fontSize}px`;
+  }
+  if (fontFamily && fontFamily.trim().length > 0) {
+    editorSurfaceStyle.fontFamily = fontFamily;
+  }
   return (
     <main className="flex min-w-0 flex-col relative h-full">
       {errorMessage ? (
@@ -132,23 +143,39 @@ export function EditorArea({
         ) : null}
 
         {activeDocumentOpen && currentMode === 'Wysiwyg' ? (
-          <div className="markdown-surface min-h-0 flex-1 overflow-auto px-8 py-6">
+          <div
+            data-testid="editor-surface-wysiwyg"
+            className="markdown-surface min-h-0 flex-1 overflow-auto px-8 py-6"
+            style={editorSurfaceStyle}
+          >
             {editorContent}
           </div>
         ) : null}
 
         {activeDocumentOpen && currentMode === 'Editor' ? (
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div
+            data-testid="editor-surface-source"
+            className="min-h-0 flex-1 overflow-auto"
+            style={editorSurfaceStyle}
+          >
             {sourceEditor}
           </div>
         ) : null}
 
         {activeDocumentOpen && currentMode === 'SplitView' ? (
           <div className="flex min-h-0 flex-1 divide-x divide-border">
-            <div className="flex-1 overflow-auto">
+            <div
+              data-testid="editor-surface-source"
+              className="flex-1 overflow-auto"
+              style={editorSurfaceStyle}
+            >
               {sourceEditor}
             </div>
-            <div className="flex-1 overflow-auto bg-background">
+            <div
+              data-testid="editor-surface-preview"
+              className="flex-1 overflow-auto bg-background"
+              style={editorSurfaceStyle}
+            >
               {splitViewPreview}
             </div>
           </div>
