@@ -855,14 +855,14 @@ export default function App() {
       }
 
       if (matchesShortcut(event, 'b')) {
-      if (matchesShortcut(event, ',')) {
         event.preventDefault();
-        setIsSettingsOpen((prev) => !prev);
+        handleToggleSidebar();
         return;
       }
 
+      if (matchesShortcut(event, ',')) {
         event.preventDefault();
-        handleToggleSidebar();
+        setIsSettingsOpen((prev) => !prev);
         return;
       }
 

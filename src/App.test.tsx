@@ -69,6 +69,11 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: listenMock,
 }));
 
+const invokeMock = vi.fn();
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: invokeMock,
+}));
+
 vi.mock('@tiptap/react', () => ({
   EditorContent: () => null,
   useEditor: () => null,
@@ -770,6 +775,24 @@ describe('App recent documents', () => {
     await waitFor(() => {
       expect(setModeMock).toHaveBeenCalledWith('Editor');
     });
+  });
+
+  it('opens the Settings dialog with the Cmd+, keyboard shortcut', async () => {
+    invokeMock.mockResolvedValue({
+      autoSave: false,
+      editorFontSize: 14,
+      editorFontFamily: '',
+    });
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    expect(screen.queryByRole('dialog', { name: /settings/i })).toBeNull();
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+
+    await screen.findByRole('dialog', { name: /settings/i });
   });
 
   it('opens a Markdown document from the native menu event', async () => {
