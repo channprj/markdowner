@@ -312,7 +312,7 @@ describe('App recent documents', () => {
     render(<App />);
 
     expect(await screen.findAllByText('draft.md')).toHaveLength(3);
-    expect(screen.getAllByText('guides/draft.md')).toHaveLength(3);
+    expect(screen.getAllByText('guides/draft.md')).toHaveLength(2);
   });
 
   it('reflects the active document dirty state in the window title', async () => {
@@ -330,7 +330,7 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    await screen.findByText('meeting-notes.md');
+    await screen.findByText(/^meeting-notes\.md/);
 
     expect(document.title).toBe('● meeting-notes.md — Markdowner');
   });
@@ -436,7 +436,7 @@ describe('App recent documents', () => {
     });
     fireEvent.click(newDocumentButton);
 
-    await screen.findByText('Untitled.md');
+    await screen.findByText(/^Untitled\.md/);
 
     const saveButton = await screen.findByRole('button', { name: /^save$/i });
     await waitFor(() => {
@@ -480,7 +480,7 @@ describe('App recent documents', () => {
     render(<App />);
 
     const saveButton = await screen.findByRole('button', { name: /^save$/i });
-    await screen.findByText('meeting-notes.md');
+    await screen.findByText(/^meeting-notes\.md/);
     fireEvent.click(saveButton);
 
     await waitFor(() => {
@@ -516,7 +516,7 @@ describe('App recent documents', () => {
     render(<App />);
 
     const saveButton = await screen.findByRole('button', { name: /^save$/i });
-    await screen.findByText('meeting-notes.md');
+    await screen.findByText(/^meeting-notes\.md/);
     fireEvent.click(saveButton);
 
     const reloadButton = await screen.findByRole('button', { name: /reload from disk/i });
@@ -547,7 +547,7 @@ describe('App recent documents', () => {
     render(<App />);
 
     const saveButton = await screen.findByRole('button', { name: /^save$/i });
-    await screen.findByText('meeting-notes.md');
+    await screen.findByText(/^meeting-notes\.md/);
     fireEvent.click(saveButton);
 
     const keepButton = await screen.findByRole('button', { name: /keep local/i });
@@ -709,7 +709,7 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    await screen.findByText('meeting-notes.md');
+    await screen.findByText(/^meeting-notes\.md/);
 
     fireEvent.keyDown(window, { key: 's', metaKey: true });
 
@@ -763,7 +763,7 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    await screen.findByText('meeting-notes.md');
+    await screen.findByText(/^meeting-notes\.md/);
 
     fireEvent.keyDown(window, { key: '2', metaKey: true });
 

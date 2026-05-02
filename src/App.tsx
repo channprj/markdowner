@@ -32,7 +32,9 @@ import { Separator } from '@/components/ui/separator';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/utils';
 import { ActivityBar } from '@/shell/ActivityBar';
+import { EditorArea } from '@/shell/EditorArea';
 import { Header } from '@/shell/Header';
+import { SideBar } from '@/shell/SideBar';
 import { StatusBar } from '@/shell/StatusBar';
 
 import {
@@ -1088,239 +1090,60 @@ export default function App() {
           onToggleSidebar={handleToggleSidebar} 
           isSidebarOpen={isSidebarOpen} 
         />
-        <aside
-          className={cn(
-            'flex min-h-0 flex-col gap-5 overflow-y-auto border-r border-border bg-sidebar p-5 text-sidebar-foreground transition-opacity duration-300 ease-in-out',
-            !isSidebarOpen && 'opacity-0 invisible overflow-hidden p-0 border-r-0',
-          )}
-        >
-        <div className="space-y-2">
-          <Badge variant="secondary" className="uppercase tracking-wider">
-            Markdowner
-          </Badge>
-          <h1 className="text-xl font-bold leading-tight">Write Markdown with confidence</h1>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Work locally, keep your files intact, and switch between WYSIWYG, Source, and Preview
-            without losing your place.
-          </p>
-        </div>
+        <SideBar
+          isOpen={isSidebarOpen}
+          busy={busy}
+          workspaceFilter={workspaceFilter}
+          onWorkspaceFilterChange={setWorkspaceFilter}
+          workspaceTreeLength={workspaceTree.length}
+          filteredWorkspaceTreeLength={filteredWorkspaceTree.length}
+          recentDocuments={snapshot.recentDocuments}
+          activeDocumentPath={snapshot.activeDocumentPath}
+          rootDir={snapshot.rootDir}
+          onNewDocument={handleNewDocument}
+          onOpenWorkspace={handleOpenWorkspace}
+          onOpenDocument={handleOpenDocument}
+          onOpenRecentDocument={handleOpenRecentDocument}
+          renderWorkspaceTreeNodes={() => filteredWorkspaceTree.map((node) => renderWorkspaceTreeNode(node))}
+          displayFileName={displayFileName}
+          displayWorkspacePath={displayWorkspacePath}
+        />
 
-        <Separator />
-
-        <section className="flex flex-col gap-2">
-          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Workspace
+      <EditorArea
+        busy={busy}
+        errorMessage={errorMessage}
+        externalChangeMessage={externalChangeMessage}
+        showExternalChangeActions={showExternalChangeActions}
+        externalCompareSource={externalCompareSource}
+        activeDocumentOpen={activeDocumentOpen}
+        currentMode={currentMode}
+        onReloadActiveDocument={() => void handleReloadActiveDocument()}
+        onKeepLocalChanges={handleKeepLocalChanges}
+        onCompareExternalChanges={() => void handleCompareExternalChanges()}
+        onHideComparison={() => setExternalCompareSource(null)}
+        localDraft={localDraft}
+        activeDocumentName={snapshot.activeDocumentName}
+        editorContent={<EditorContent editor={editor} />}
+        sourceEditor={
+          <CodeMirror
+            value={localDraft}
+            height="100%"
+            extensions={[markdown()]}
+            onChange={(value) => setLocalDraft(value)}
+            theme={snapshot.theme.kind === 'BuiltInDark' ? 'dark' : 'light'}
+          />
+        }
+        splitViewPreview={
+          <div
+            className={cn(
+              'markdown-surface flex-1 px-8 py-6',
+              MARKDOWN_CONTENT_SCOPE_CLASS,
+            )}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{previewSource}</ReactMarkdown>
           </div>
-          <Button onClick={handleNewDocument} disabled={busy}>
-            New Document
-          </Button>
-          <Button variant="outline" onClick={handleOpenWorkspace} disabled={busy}>
-            Open Folder…
-          </Button>
-          <Button variant="outline" onClick={handleOpenDocument} disabled={busy}>
-            Open Markdown…
-          </Button>
-        </section>
-
-        <Separator />
-
-        <section className="flex min-h-0 flex-col gap-2">
-          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Files
-          </div>
-          {workspaceTree.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Open a folder to populate the file tree.
-            </p>
-          ) : (
-            <>
-              <Input
-                type="text"
-                value={workspaceFilter}
-                onChange={(event) => setWorkspaceFilter(event.target.value)}
-                placeholder="Search this workspace"
-                disabled={busy}
-                aria-label="Filter files"
-              />
-              {filteredWorkspaceTree.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No files match this filter.</p>
-              ) : (
-                <ScrollArea className="max-h-[360px] pr-2">
-                  <div className="flex flex-col gap-1">
-                    {filteredWorkspaceTree.map((node) => renderWorkspaceTreeNode(node))}
-                  </div>
-                </ScrollArea>
-              )}
-            </>
-          )}
-        </section>
-
-        <Separator />
-
-        <section className="flex flex-col gap-2">
-          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Recent
-          </div>
-          {snapshot.recentDocuments.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Recent documents will appear here.</p>
-          ) : (
-            <div className="flex flex-col gap-1">
-              {snapshot.recentDocuments.slice(0, 5).map((path) => {
-                const isActive = path === snapshot.activeDocumentPath;
-                return (
-                  <button
-                    key={path}
-                    type="button"
-                    className={cn(
-                      'flex w-full flex-col items-start gap-0.5 rounded-md border border-transparent px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
-                      isActive && 'border-border bg-accent text-accent-foreground',
-                    )}
-                    onClick={() => handleOpenRecentDocument(path)}
-                    disabled={busy}
-                    title={path}
-                  >
-                    <span className="truncate font-medium">{displayFileName(path)}</span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {displayWorkspacePath(path, snapshot.rootDir)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      </aside>
-
-      <main className="flex min-w-0 flex-col relative h-full">
-        {errorMessage ? (
-          <Alert variant="destructive">
-            <AlertTitle>Something went wrong</AlertTitle>
-            <AlertDescription>{errorMessage}</AlertDescription>
-          </Alert>
-        ) : null}
-
-        {externalChangeMessage ? (
-          <Alert>
-            <AlertTitle>External change detected</AlertTitle>
-            <AlertDescription>{externalChangeMessage}</AlertDescription>
-            {showExternalChangeActions ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void handleReloadActiveDocument()}
-                >
-                  Reload from disk
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={handleKeepLocalChanges}
-                >
-                  Keep local
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void handleCompareExternalChanges()}
-                >
-                  Compare
-                </Button>
-              </div>
-            ) : null}
-          </Alert>
-        ) : null}
-
-        {externalCompareSource !== null ? (
-          <Alert>
-            <div className="flex items-center justify-between gap-2">
-              <AlertTitle>Disk vs local</AlertTitle>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => setExternalCompareSource(null)}
-              >
-                Hide comparison
-              </Button>
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-3">
-              <div>
-                <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Disk
-                </h4>
-                <pre className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">
-                  {externalCompareSource}
-                </pre>
-              </div>
-              <div>
-                <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Local
-                </h4>
-                <pre className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">
-                  {localDraft}
-                </pre>
-              </div>
-            </div>
-          </Alert>
-        ) : null}
-
-        <section className="flex min-h-0 flex-1 flex-col bg-background">
-          {!activeDocumentOpen ? (
-            <Empty className="flex-1 border-dashed">
-              <EmptyHeader>
-                <EmptyTitle>Start your next document</EmptyTitle>
-                <EmptyDescription>
-                  Create a new draft or open a Markdown file to begin editing right away.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : null}
-
-          {activeDocumentOpen && currentMode === 'Wysiwyg' ? (
-            <div className="markdown-surface min-h-0 flex-1 overflow-auto px-8 py-6">
-              <EditorContent editor={editor} />
-            </div>
-          ) : null}
-
-          {activeDocumentOpen && currentMode === 'Editor' ? (
-            <div className="min-h-0 flex-1 overflow-auto">
-              <CodeMirror
-                value={localDraft}
-                height="100%"
-                extensions={[markdown()]}
-                onChange={(value) => setLocalDraft(value)}
-                theme={snapshot.theme.kind === 'BuiltInDark' ? 'dark' : 'light'}
-              />
-            </div>
-          ) : null}
-
-          {activeDocumentOpen && currentMode === 'SplitView' ? (
-            <div className="flex min-h-0 flex-1 divide-x divide-border">
-              <div className="flex-1 overflow-auto">
-                <CodeMirror
-                  value={localDraft}
-                  height="100%"
-                  extensions={[markdown()]}
-                  onChange={(value) => setLocalDraft(value)}
-                  theme={snapshot.theme.kind === 'BuiltInDark' ? 'dark' : 'light'}
-                />
-              </div>
-              <div
-                className={cn(
-                  'markdown-surface flex-1 overflow-auto px-8 py-6',
-                  MARKDOWN_CONTENT_SCOPE_CLASS,
-                )}
-              >
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{previewSource}</ReactMarkdown>
-              </div>
-            </div>
-          ) : null}
-        </section>
-      </main>
+        }
+      />
       </div>
       <StatusBar
         mode={currentMode}
