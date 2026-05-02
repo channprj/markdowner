@@ -82,6 +82,18 @@ export function SettingsDialog({
                 }}
               />
             </div>
+
+            <div className="flex items-center justify-between mt-2">
+              <Label htmlFor="font-family" className="text-sm">Font Family</Label>
+              <Input
+                id="font-family"
+                type="text"
+                placeholder="System default"
+                className="w-56 h-8"
+                value={settings.editorFontFamily}
+                onChange={(event) => handleSettingChange('editorFontFamily', event.target.value)}
+              />
+            </div>
           </div>
         </div>
       </DialogContent>

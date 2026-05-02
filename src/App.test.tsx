@@ -1042,6 +1042,49 @@ describe('App recent documents', () => {
     });
   });
 
+  it('persists font family changes from the Settings dialog through save_settings', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+        };
+      }
+      return undefined;
+    });
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'notes.md',
+        activeDocumentPath: '/tmp/project/notes.md',
+        activeDocumentSource: '# Notes',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /settings/i });
+    const fontFamilyInput = within(dialog).getByLabelText(/font family/i);
+
+    fireEvent.change(fontFamilyInput, { target: { value: 'Fira Code' } });
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_settings', {
+        settings: expect.objectContaining({ editorFontFamily: 'Fira Code' }),
+      });
+    });
+
+    const surface = await screen.findByTestId('editor-surface-source');
+    await waitFor(() => {
+      expect(surface.style.fontFamily).toContain('Fira Code');
+    });
+  });
+
   it('opens a Markdown document from the native menu event', async () => {
     openDialogMock.mockResolvedValue('/tmp/project/from-menu.md');
     openDocumentMock.mockResolvedValue(
