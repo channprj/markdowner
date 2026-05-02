@@ -1463,10 +1463,20 @@ export default function App() {
               size="sm"
               className="h-8"
             >
-              <ToggleGroupItem value="BuiltInLight" disabled={busy} aria-label="Light theme">
+              <ToggleGroupItem
+                value="BuiltInLight"
+                disabled={busy}
+                aria-label="Light theme"
+                title="Light theme"
+              >
                 Light
               </ToggleGroupItem>
-              <ToggleGroupItem value="BuiltInDark" disabled={busy} aria-label="Dark theme">
+              <ToggleGroupItem
+                value="BuiltInDark"
+                disabled={busy}
+                aria-label="Dark theme"
+                title="Dark theme"
+              >
                 Dark
               </ToggleGroupItem>
               <ToggleGroupItem

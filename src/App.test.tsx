@@ -650,6 +650,22 @@ describe('App recent documents', () => {
     expect(importCssButton).toHaveAttribute('title', 'Import a custom CSS theme');
   });
 
+  it('exposes consistent tooltips on the Header theme toggle items', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const lightToggle = await screen.findByRole('radio', { name: /light theme/i });
+    const darkToggle = screen.getByRole('radio', { name: /dark theme/i });
+    const systemToggle = screen.getByRole('radio', { name: /follow system theme/i });
+
+    expect(lightToggle).toHaveAttribute('title', 'Light theme');
+    expect(darkToggle).toHaveAttribute('title', 'Dark theme');
+    expect(systemToggle).toHaveAttribute('title', 'Follow system theme');
+  });
+
   it('exposes keyboard-shortcut tooltips on the SideBar workspace action buttons', async () => {
     bootstrapMock.mockResolvedValue(baseSnapshot());
 
