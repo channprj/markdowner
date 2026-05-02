@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   Dialog,
@@ -136,37 +136,44 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
           ) : (
             filtered.map((command, index) => {
               const isActive = index === highlightedIndex;
+              const previousCategory = index > 0 ? filtered[index - 1].category : undefined;
+              const showCategoryHeader =
+                command.category !== undefined && command.category !== previousCategory;
               return (
-                <li
-                  key={command.id}
-                  role="option"
-                  aria-selected={isActive}
-                  aria-disabled={command.disabled || undefined}
-                  data-active={isActive}
-                  className={cn(
-                    'flex cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-sm',
-                    isActive && 'bg-accent text-accent-foreground',
-                    command.disabled && 'cursor-not-allowed opacity-50',
-                  )}
-                  onMouseEnter={() => {
-                    if (!command.disabled) setHighlightedIndex(index);
-                  }}
-                  onClick={() => commitSelection(index)}
-                >
-                  <span className="flex min-w-0 flex-col">
-                    {command.category ? (
-                      <span className="truncate text-xs uppercase tracking-wider text-muted-foreground">
-                        {command.category}
-                      </span>
-                    ) : null}
-                    <span className="truncate font-medium">{command.label}</span>
-                  </span>
-                  {command.shortcut ? (
-                    <kbd className="ml-2 shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                      {command.shortcut}
-                    </kbd>
+                <Fragment key={command.id}>
+                  {showCategoryHeader ? (
+                    <li
+                      role="presentation"
+                      className="px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                      data-category-header={command.category}
+                    >
+                      {command.category}
+                    </li>
                   ) : null}
-                </li>
+                  <li
+                    role="option"
+                    aria-selected={isActive}
+                    aria-disabled={command.disabled || undefined}
+                    data-active={isActive}
+                    data-category={command.category}
+                    className={cn(
+                      'flex cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-sm',
+                      isActive && 'bg-accent text-accent-foreground',
+                      command.disabled && 'cursor-not-allowed opacity-50',
+                    )}
+                    onMouseEnter={() => {
+                      if (!command.disabled) setHighlightedIndex(index);
+                    }}
+                    onClick={() => commitSelection(index)}
+                  >
+                    <span className="truncate font-medium">{command.label}</span>
+                    {command.shortcut ? (
+                      <kbd className="ml-2 shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                        {command.shortcut}
+                      </kbd>
+                    ) : null}
+                  </li>
+                </Fragment>
               );
             })
           )}

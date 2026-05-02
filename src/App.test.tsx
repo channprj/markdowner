@@ -1328,10 +1328,9 @@ describe('App recent documents', () => {
 
     const dialog = await screen.findByRole('dialog', { name: /command palette/i });
     const options = within(dialog).getAllByRole('option');
-    const categories = options.map((option) => {
-      const labelNode = option.querySelector('.uppercase');
-      return labelNode?.textContent?.trim() ?? '';
-    });
+    const categories = options.map((option) =>
+      option.getAttribute('data-category')?.trim() ?? '',
+    );
 
     let lastIndex = -1;
     for (const expected of ['File', 'View', 'Preferences', 'Theme']) {
@@ -1342,6 +1341,12 @@ describe('App recent documents', () => {
       expect(slice.every((category) => category === expected)).toBe(true);
       lastIndex = lastSeen;
     }
+
+    const headers = within(dialog).getAllByText(/^File$|^View$|^Preferences$|^Theme$/);
+    const headerCategories = headers
+      .filter((node) => node.hasAttribute('data-category-header'))
+      .map((node) => node.getAttribute('data-category-header'));
+    expect(headerCategories).toEqual(['File', 'View', 'Preferences', 'Theme']);
   });
 
   it('opens the Settings dialog with the Cmd+, keyboard shortcut', async () => {
