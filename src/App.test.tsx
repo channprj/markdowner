@@ -1170,6 +1170,12 @@ describe('App recent documents', () => {
 
     const quickOpenDialog = await screen.findByRole('dialog', { name: /quick open/i });
 
+    const options = await within(quickOpenDialog).findAllByRole('option');
+    expect(options).toHaveLength(3);
+    expect(options[0]).toHaveAttribute('data-kind', 'workspace');
+    expect(options[1]).toHaveAttribute('data-kind', 'workspace');
+    expect(options[2]).toHaveAttribute('data-kind', 'recent');
+
     const listbox = within(quickOpenDialog).getByRole('listbox');
     const headers = Array.from(
       listbox.querySelectorAll<HTMLElement>('[data-section-header]'),
@@ -1179,12 +1185,6 @@ describe('App recent documents', () => {
     expect(headers[0]).toHaveTextContent(/workspace files/i);
     expect(headers[1]).toHaveAttribute('data-section-header', 'recent');
     expect(headers[1]).toHaveTextContent(/recent files/i);
-
-    const options = within(quickOpenDialog).getAllByRole('option');
-    expect(options).toHaveLength(3);
-    expect(options[0]).toHaveAttribute('data-kind', 'workspace');
-    expect(options[1]).toHaveAttribute('data-kind', 'workspace');
-    expect(options[2]).toHaveAttribute('data-kind', 'recent');
   });
 
   it('opens the Quick Open dialog when the Activity Bar Search button is clicked', async () => {
