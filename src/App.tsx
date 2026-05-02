@@ -1336,6 +1336,12 @@ export default function App() {
       run: () => setIsSettingsOpen(true),
     },
     {
+      id: 'preferences.resetDefaults',
+      category: 'Preferences',
+      label: 'Reset Settings to Defaults',
+      run: () => handleSettingsChange({ ...DEFAULT_SETTINGS }),
+    },
+    {
       id: 'theme.light',
       category: 'Theme',
       label: 'Theme: Light',

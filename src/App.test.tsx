@@ -1397,6 +1397,52 @@ describe('App recent documents', () => {
     });
   });
 
+  it('resets settings to defaults from the Command Palette and persists through save_settings', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: true,
+          editorFontSize: 22,
+          editorFontFamily: 'JetBrains Mono',
+          editorLineWrap: false,
+        };
+      }
+      return undefined;
+    });
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('load_settings');
+    });
+
+    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /command palette/i });
+    const input = within(dialog).getByRole('textbox', { name: /command palette search/i });
+
+    fireEvent.change(input, { target: { value: 'reset' } });
+
+    const resetOption = await within(dialog).findByRole('option', {
+      name: /reset settings to defaults/i,
+    });
+    fireEvent.click(resetOption);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_settings', {
+        settings: {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: true,
+        },
+      });
+    });
+  });
+
   it('groups Command Palette entries contiguously in File → View → Preferences → Theme order', async () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {
