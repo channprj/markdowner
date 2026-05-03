@@ -12,6 +12,8 @@ export interface OutlineItem {
   id: string;
   title: string;
   depth: number;
+  selectionStart: number;
+  selectionEnd: number;
 }
 
 export interface SideBarProps {

@@ -336,6 +336,33 @@ describe('App recent documents', () => {
     expect(screen.getByRole('button', { name: /^follow-up$/i })).toBeInTheDocument();
   });
 
+  it('moves focus to the matching heading when selecting an Outline item in source mode', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: ['# Agenda', '', '## Decisions', 'Notes', '', '### Follow-up'].join('\n'),
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    const outlineButton = screen.getByRole('button', { name: /^outline$/i });
+
+    fireEvent.click(outlineButton);
+    fireEvent.click(await screen.findByRole('button', { name: /^decisions$/i }));
+
+    await waitFor(() => {
+      expect(sourceEditor).toHaveFocus();
+      expect((sourceEditor as HTMLTextAreaElement).selectionStart).toBe(10);
+      expect((sourceEditor as HTMLTextAreaElement).selectionEnd).toBe(22);
+    });
+  });
+
   it('exposes Split View source and preview panes as named landmark regions', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({

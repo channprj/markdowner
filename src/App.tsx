@@ -19,7 +19,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import CodeMirror, { EditorView } from '@uiw/react-codemirror';
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { startTransition, useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { startTransition, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -387,6 +387,8 @@ export default function App() {
     line: 1,
     column: 1,
   });
+  const sourceEditorViewRef = useRef<EditorView | null>(null);
+  const sourceEditorContainerRef = useRef<HTMLDivElement | null>(null);
   const activeDocumentOpen = snapshot.activeDocumentSource !== null;
 
   useEffect(() => {
@@ -441,6 +443,8 @@ export default function App() {
       id: `${index}-${match.index ?? index}`,
       depth: match[1]?.length ?? 1,
       title: (match[2] ?? '').trim(),
+      selectionStart: match.index ?? 0,
+      selectionEnd: (match.index ?? 0) + match[0].trimEnd().length,
     }));
   }, [activeDocumentOpen, localDraft]);
   const themeMode: ThemeMode = settings.themeFollowSystem ? 'system' : 'manual';
@@ -466,6 +470,25 @@ export default function App() {
     setSidebarPanel('outline');
     setIsSidebarOpen(true);
     writeSidebarState(true);
+  });
+
+  const handleSelectOutlineItem = useEffectEvent((item: OutlineItem) => {
+    if (currentMode === 'Wysiwyg') {
+      return;
+    }
+
+    const selection = { anchor: item.selectionStart, head: item.selectionEnd };
+    if (sourceEditorViewRef.current) {
+      sourceEditorViewRef.current.dispatch({ selection, scrollIntoView: true });
+      sourceEditorViewRef.current.focus();
+      return;
+    }
+
+    const sourceTextarea = sourceEditorContainerRef.current?.querySelector('textarea');
+    if (sourceTextarea instanceof HTMLTextAreaElement) {
+      sourceTextarea.focus();
+      sourceTextarea.setSelectionRange(item.selectionStart, item.selectionEnd);
+    }
   });
 
   const handleSidebarResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1678,6 +1701,7 @@ export default function App() {
           displayFileName={displayFileName}
           displayWorkspacePath={displayWorkspacePath}
           outlineItems={outlineItems}
+          onSelectOutlineItem={handleSelectOutlineItem}
         />
         <div
           role="separator"
@@ -1727,20 +1751,25 @@ export default function App() {
         fontFamily={settings.editorFontFamily}
         editorContent={<EditorContent editor={editor} />}
         sourceEditor={
-          <CodeMirror
-            value={localDraft}
-            height="100%"
-            extensions={settings.editorLineWrap ? [markdown(), EditorView.lineWrapping] : [markdown()]}
-            onChange={(value) => setLocalDraft(value)}
-            onStatistics={(stats) => {
-              const head = stats.selectionAsSingle.head;
-              setCursorPosition({
-                line: stats.line.number,
-                column: head - stats.line.from + 1,
-              });
-            }}
-            theme={snapshot.theme.kind === 'BuiltInDark' ? 'dark' : 'light'}
-          />
+          <div ref={sourceEditorContainerRef} className="h-full">
+            <CodeMirror
+              value={localDraft}
+              height="100%"
+              extensions={settings.editorLineWrap ? [markdown(), EditorView.lineWrapping] : [markdown()]}
+              onChange={(value) => setLocalDraft(value)}
+              onStatistics={(stats) => {
+                const head = stats.selectionAsSingle.head;
+                setCursorPosition({
+                  line: stats.line.number,
+                  column: head - stats.line.from + 1,
+                });
+              }}
+              onCreateEditor={(view) => {
+                sourceEditorViewRef.current = view;
+              }}
+              theme={snapshot.theme.kind === 'BuiltInDark' ? 'dark' : 'light'}
+            />
+          </div>
         }
         splitViewPreview={
           <div
