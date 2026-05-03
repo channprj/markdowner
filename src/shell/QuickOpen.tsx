@@ -150,6 +150,7 @@ export function QuickOpen({ open, onOpenChange, items, onSelect }: QuickOpenProp
             aria-label="Quick Open file search"
             aria-controls={listboxId}
             aria-activedescendant={activeOptionId}
+            aria-autocomplete="list"
             className="h-9 border-0 shadow-none focus-visible:ring-0 px-1"
           />
         </div>

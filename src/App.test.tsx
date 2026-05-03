@@ -1987,6 +1987,43 @@ describe('App recent documents', () => {
     });
   });
 
+  it('exposes aria-autocomplete="list" on the Quick Open input', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        rootDir: '/tmp/project',
+        workspaceDocuments: ['/tmp/project/alpha.md'],
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: 'p', metaKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /quick open/i });
+    const input = within(dialog).getByRole('textbox', {
+      name: /quick open file search/i,
+    });
+    expect(input).toHaveAttribute('aria-autocomplete', 'list');
+  });
+
+  it('exposes aria-autocomplete="list" on the Command Palette input', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /command palette/i });
+    const input = within(dialog).getByRole('textbox', {
+      name: /command palette search/i,
+    });
+    expect(input).toHaveAttribute('aria-autocomplete', 'list');
+  });
+
   it('opens the Settings dialog with the Cmd+, keyboard shortcut', async () => {
     invokeMock.mockResolvedValue({
       autoSave: false,

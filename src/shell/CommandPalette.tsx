@@ -149,6 +149,7 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
             aria-label="Command palette search"
             aria-controls={listboxId}
             aria-activedescendant={activeOptionId}
+            aria-autocomplete="list"
             className="h-9 border-0 shadow-none focus-visible:ring-0 px-1"
           />
         </div>
