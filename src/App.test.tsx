@@ -251,6 +251,38 @@ describe('App recent documents', () => {
     );
   });
 
+  it('shows header loading feedback while creating a new document', async () => {
+    let resolveNewDocument: ((snapshot: AppSnapshot) => void) | undefined;
+    newDocumentMock.mockImplementation(
+      () =>
+        new Promise<AppSnapshot>((resolve) => {
+          resolveNewDocument = resolve;
+        }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const newFileButton = await screen.findByRole('button', { name: /^new file$/i });
+    fireEvent.click(newFileButton);
+
+    expect(await screen.findByRole('status', { name: /working/i })).toBeInTheDocument();
+
+    resolveNewDocument?.(
+      baseSnapshot({
+        activeDocumentName: 'Untitled.md',
+        activeDocumentPath: null,
+        activeDocumentSource: '',
+        activeDocumentDirty: true,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status', { name: /working/i })).not.toBeInTheDocument();
+    });
+  });
+
   it('exposes the ActivityBar as a named vertical toolbar landmark', async () => {
     bootstrapMock.mockResolvedValue(baseSnapshot());
 

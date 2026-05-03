@@ -1483,6 +1483,11 @@ export default function App() {
         titleTooltip={snapshot.activeDocumentPath ?? undefined}
         leftContent={
           <>
+            {busy ? (
+              <Badge variant="secondary" role="status" aria-label="Working" className="h-6 px-2">
+                Working…
+              </Badge>
+            ) : null}
             <Button
               variant="ghost"
               size="icon"
