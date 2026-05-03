@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import {
   Dialog,
@@ -52,8 +52,11 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
   const [query, setQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
+  const listboxId = useId();
 
   const filtered = useMemo(() => filterCommands(commands, query), [commands, query]);
+  const activeOptionId =
+    filtered.length > 0 ? `${listboxId}-option-${highlightedIndex}` : undefined;
 
   useEffect(() => {
     if (!open) {
@@ -144,11 +147,14 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
             onKeyDown={handleKeyDown}
             placeholder="Type a command…"
             aria-label="Command palette search"
+            aria-controls={listboxId}
+            aria-activedescendant={activeOptionId}
             className="h-9 border-0 shadow-none focus-visible:ring-0 px-1"
           />
         </div>
         <ul
           ref={listRef}
+          id={listboxId}
           role="listbox"
           aria-label="Available commands"
           className="max-h-80 overflow-y-auto py-1"
@@ -179,6 +185,7 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
                     </li>
                   ) : null}
                   <li
+                    id={`${listboxId}-option-${index}`}
                     role="option"
                     aria-selected={isActive}
                     aria-disabled={command.disabled || undefined}

@@ -1907,6 +1907,86 @@ describe('App recent documents', () => {
     });
   });
 
+  it('tracks the highlighted Quick Open option via aria-activedescendant', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        rootDir: '/tmp/project',
+        workspaceDocuments: [
+          '/tmp/project/alpha.md',
+          '/tmp/project/beta.md',
+          '/tmp/project/gamma.md',
+        ],
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: 'p', metaKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /quick open/i });
+    const input = within(dialog).getByRole('textbox', { name: /quick open file search/i });
+    const listbox = within(dialog).getByRole('listbox', { name: /workspace files/i });
+
+    const listboxId = listbox.getAttribute('id');
+    expect(listboxId).toBeTruthy();
+    expect(input).toHaveAttribute('aria-controls', listboxId);
+
+    const options = await within(dialog).findAllByRole('option');
+    expect(options).toHaveLength(3);
+    expect(options[0]).toHaveAttribute('id');
+    expect(input).toHaveAttribute(
+      'aria-activedescendant',
+      options[0].getAttribute('id') as string,
+    );
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+
+    await waitFor(() => {
+      const refreshed = within(dialog).getAllByRole('option');
+      expect(input).toHaveAttribute(
+        'aria-activedescendant',
+        refreshed[1].getAttribute('id') as string,
+      );
+    });
+  });
+
+  it('tracks the highlighted Command Palette option via aria-activedescendant', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /command palette/i });
+    const input = within(dialog).getByRole('textbox', { name: /command palette search/i });
+    const listbox = within(dialog).getByRole('listbox', { name: /available commands/i });
+
+    const listboxId = listbox.getAttribute('id');
+    expect(listboxId).toBeTruthy();
+    expect(input).toHaveAttribute('aria-controls', listboxId);
+
+    const options = await within(dialog).findAllByRole('option');
+    expect(options.length).toBeGreaterThan(1);
+    expect(input).toHaveAttribute(
+      'aria-activedescendant',
+      options[0].getAttribute('id') as string,
+    );
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+
+    await waitFor(() => {
+      const refreshed = within(dialog).getAllByRole('option');
+      expect(input).toHaveAttribute(
+        'aria-activedescendant',
+        refreshed[1].getAttribute('id') as string,
+      );
+    });
+  });
+
   it('opens the Settings dialog with the Cmd+, keyboard shortcut', async () => {
     invokeMock.mockResolvedValue({
       autoSave: false,
