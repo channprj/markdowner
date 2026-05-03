@@ -180,10 +180,19 @@ export function SettingsDialog({
                 <ToggleGroupItem value="Letter" aria-label="Letter" title="Letter PDF paper size">
                   Letter
                 </ToggleGroupItem>
-              </ToggleGroup>
+                </ToggleGroup>
+              </div>
+
+              <div className="flex items-center justify-between mt-2">
+                <Label htmlFor="diagnostics-enabled" className="text-sm">Diagnostics Logging</Label>
+                <Switch
+                  id="diagnostics-enabled"
+                  checked={settings.diagnosticsEnabled}
+                  onCheckedChange={(checked) => handleSettingChange('diagnosticsEnabled', checked)}
+                />
+              </div>
             </div>
           </div>
-        </div>
         <DialogFooter>
           <Button
             variant="outline"
