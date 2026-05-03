@@ -36,6 +36,11 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): Setting
   if (typeof merged.editorLineWrap !== 'boolean') {
     merged.editorLineWrap = DEFAULT_SETTINGS.editorLineWrap;
   }
+  if (typeof merged.assetFolder !== 'string' || merged.assetFolder.trim().length === 0) {
+    merged.assetFolder = DEFAULT_SETTINGS.assetFolder;
+  } else {
+    merged.assetFolder = merged.assetFolder.trim();
+  }
   return merged;
 }
 

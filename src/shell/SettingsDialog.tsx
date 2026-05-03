@@ -98,6 +98,24 @@ export function SettingsDialog({
               />
             </div>
 
+            <div className="flex items-center justify-between mt-2 gap-4">
+              <Label htmlFor="asset-folder" className="text-sm">Asset Folder</Label>
+              <Input
+                id="asset-folder"
+                type="text"
+                placeholder={DEFAULT_SETTINGS.assetFolder}
+                className="w-56 h-8"
+                value={settings.assetFolder}
+                onChange={(event) => {
+                  const nextValue = event.target.value.trim();
+                  handleSettingChange(
+                    'assetFolder',
+                    nextValue.length > 0 ? nextValue : DEFAULT_SETTINGS.assetFolder,
+                  );
+                }}
+              />
+            </div>
+
             <div className="flex items-center justify-between mt-2">
               <Label htmlFor="line-wrap" className="text-sm">Word Wrap</Label>
               <Switch

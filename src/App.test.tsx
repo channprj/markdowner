@@ -2575,6 +2575,38 @@ describe('App recent documents', () => {
     });
   });
 
+  it('falls back to the default asset folder when the Settings dialog input is cleared', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: true,
+          assetFolder: 'media',
+        };
+      }
+      return undefined;
+    });
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /settings/i });
+    const assetFolderInput = within(dialog).getByLabelText(/asset folder/i);
+
+    fireEvent.change(assetFolderInput, { target: { value: '' } });
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_settings', {
+        settings: expect.objectContaining({ assetFolder: 'assets' }),
+      });
+    });
+  });
+
   it('restores default values when "Reset to Defaults" is clicked in the Settings dialog', async () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {
