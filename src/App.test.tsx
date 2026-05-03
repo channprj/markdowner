@@ -300,8 +300,40 @@ describe('App recent documents', () => {
       within(toolbar).getByRole('button', { name: /^quick open \(cmd\+p\)$/i }),
     ).toBeInTheDocument();
     expect(
+      within(toolbar).getByRole('button', { name: /^outline$/i }),
+    ).toBeInTheDocument();
+    expect(
       within(toolbar).getByRole('button', { name: /^settings \(cmd\+,\)$/i }),
     ).toBeInTheDocument();
+  });
+
+  it('opens an Outline sidebar view with document headings from the active draft', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: ['# Agenda', '', '## Decisions', '', '### Follow-up'].join('\n'),
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const outlineButton = await screen.findByRole('button', { name: /^outline$/i });
+    expect(outlineButton).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(outlineButton);
+
+    await waitFor(() => {
+      expect(outlineButton).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    expect(screen.getByText(/^outline$/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^agenda$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^decisions$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^follow-up$/i })).toBeInTheDocument();
   });
 
   it('exposes Split View source and preview panes as named landmark regions', async () => {

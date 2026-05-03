@@ -38,7 +38,7 @@ import { DocumentStatsDialog } from '@/shell/DocumentStatsDialog';
 import { EditorArea } from '@/shell/EditorArea';
 import { Header } from '@/shell/Header';
 import { QuickOpen, type QuickOpenItem } from '@/shell/QuickOpen';
-import { SideBar } from '@/shell/SideBar';
+import { SideBar, type OutlineItem, type SideBarPanel } from '@/shell/SideBar';
 import { StatusBar } from '@/shell/StatusBar';
 import { SettingsDialog } from '@/shell/SettingsDialog';
 
@@ -373,6 +373,7 @@ export default function App() {
   const [externalCompareSource, setExternalCompareSource] = useState<string | null>(null);
   const [collapsedFolderKeys, setCollapsedFolderKeys] = useState<string[]>([]);
   const [workspaceFilter, setWorkspaceFilter] = useState('');
+  const [sidebarPanel, setSidebarPanel] = useState<SideBarPanel>('files');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(readSidebarState());
   const [sidebarWidth, setSidebarWidth] = useState<number>(readSidebarWidth());
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
@@ -386,6 +387,7 @@ export default function App() {
     line: 1,
     column: 1,
   });
+  const activeDocumentOpen = snapshot.activeDocumentSource !== null;
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -429,6 +431,18 @@ export default function App() {
       tables,
     };
   }, [localDraft]);
+  const outlineItems = useMemo<OutlineItem[]>(() => {
+    if (!activeDocumentOpen) {
+      return [];
+    }
+
+    const matches = Array.from(localDraft.matchAll(/^(#{1,6})\s+(.+?)\s*#*\s*$/gm));
+    return matches.map((match, index) => ({
+      id: `${index}-${match.index ?? index}`,
+      depth: match[1]?.length ?? 1,
+      title: (match[2] ?? '').trim(),
+    }));
+  }, [activeDocumentOpen, localDraft]);
   const themeMode: ThemeMode = settings.themeFollowSystem ? 'system' : 'manual';
 
   const handleToggleSidebar = useEffectEvent(() => {
@@ -437,6 +451,21 @@ export default function App() {
       writeSidebarState(next);
       return next;
     });
+  });
+
+  const handleOpenFilesPanel = useEffectEvent(() => {
+    setSidebarPanel('files');
+    setIsSidebarOpen((current) => {
+      const next = current && sidebarPanel === 'files' ? !current : true;
+      writeSidebarState(next);
+      return next;
+    });
+  });
+
+  const handleOpenOutlinePanel = useEffectEvent(() => {
+    setSidebarPanel('outline');
+    setIsSidebarOpen(true);
+    writeSidebarState(true);
   });
 
   const handleSidebarResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -517,7 +546,6 @@ export default function App() {
   }, [isResizingSidebar, sidebarWidth]);
 
   const currentMode = snapshot.mode;
-  const activeDocumentOpen = snapshot.activeDocumentSource !== null;
   const hasUnsavedChanges =
     activeDocumentOpen && localDraft !== (snapshot.activeDocumentSource ?? '')
       ? true
@@ -1624,12 +1652,15 @@ export default function App() {
         <ActivityBar
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenQuickOpen={() => setIsQuickOpenOpen(true)}
-          onToggleSidebar={handleToggleSidebar}
-          isSidebarOpen={isSidebarOpen}
+          onOpenOutline={handleOpenOutlinePanel}
+          onToggleSidebar={handleOpenFilesPanel}
+          isSidebarOpen={isSidebarOpen && sidebarPanel === 'files'}
           isSettingsOpen={isSettingsOpen}
           isQuickOpenOpen={isQuickOpenOpen}
+          isOutlineOpen={isSidebarOpen && sidebarPanel === 'outline'}
         />
         <SideBar
+          panel={sidebarPanel}
           isOpen={isSidebarOpen}
           busy={busy}
           workspaceFilter={workspaceFilter}
@@ -1646,6 +1677,7 @@ export default function App() {
           renderWorkspaceTreeNodes={() => filteredWorkspaceTree.map((node) => renderWorkspaceTreeNode(node))}
           displayFileName={displayFileName}
           displayWorkspacePath={displayWorkspacePath}
+          outlineItems={outlineItems}
         />
         <div
           role="separator"

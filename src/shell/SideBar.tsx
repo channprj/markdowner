@@ -6,7 +6,16 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { ReactNode } from 'react';
 
+export type SideBarPanel = 'files' | 'outline';
+
+export interface OutlineItem {
+  id: string;
+  title: string;
+  depth: number;
+}
+
 export interface SideBarProps {
+  panel: SideBarPanel;
   isOpen: boolean;
   busy: boolean;
   workspaceFilter: string;
@@ -23,9 +32,12 @@ export interface SideBarProps {
   renderWorkspaceTreeNodes: () => ReactNode;
   displayFileName: (path: string) => string;
   displayWorkspacePath: (path: string, rootDir: string | null) => string;
+  outlineItems: OutlineItem[];
+  onSelectOutlineItem?: (item: OutlineItem) => void;
 }
 
 export function SideBar({
+  panel,
   isOpen,
   busy,
   workspaceFilter,
@@ -42,7 +54,11 @@ export function SideBar({
   renderWorkspaceTreeNodes,
   displayFileName,
   displayWorkspacePath,
+  outlineItems,
+  onSelectOutlineItem,
 }: SideBarProps) {
+  const showOutline = panel === 'outline';
+
   return (
     <aside
       className={cn(
@@ -63,105 +79,137 @@ export function SideBar({
 
       <Separator />
 
-      <section className="flex flex-col gap-2">
-        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Workspace
-        </div>
-        <Button
-          onClick={onNewDocument}
-          disabled={busy}
-          title="New Document (Cmd+N)"
-          aria-keyshortcuts="Meta+N Control+N"
-        >
-          New Document
-        </Button>
-        <Button
-          variant="outline"
-          onClick={onOpenWorkspace}
-          disabled={busy}
-          title="Open Folder (Cmd+Shift+O)"
-          aria-keyshortcuts="Meta+Shift+O Control+Shift+O"
-        >
-          Open Folder…
-        </Button>
-        <Button
-          variant="outline"
-          onClick={onOpenDocument}
-          disabled={busy}
-          title="Open Markdown (Cmd+O)"
-          aria-keyshortcuts="Meta+O Control+O"
-        >
-          Open Markdown…
-        </Button>
-      </section>
-
-      <Separator />
-
-      <section className="flex min-h-0 flex-col gap-2">
-        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Files
-        </div>
-        {workspaceTreeLength === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Open a folder to populate the file tree.
-          </p>
-        ) : (
-          <>
-            <Input
-              type="text"
-              value={workspaceFilter}
-              onChange={(event) => onWorkspaceFilterChange(event.target.value)}
-              placeholder="Search this workspace"
-              disabled={busy}
-              aria-label="Filter files"
-            />
-            {filteredWorkspaceTreeLength === 0 ? (
-              <p className="text-xs text-muted-foreground">No files match this filter.</p>
-            ) : (
-              <ScrollArea className="max-h-[360px] pr-2">
-                <div className="flex flex-col gap-1">
-                  {renderWorkspaceTreeNodes()}
-                </div>
-              </ScrollArea>
-            )}
-          </>
-        )}
-      </section>
-
-      <Separator />
-
-      <section className="flex flex-col gap-2">
-        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Recent
-        </div>
-        {recentDocuments.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Recent documents will appear here.</p>
-        ) : (
-          <div className="flex flex-col gap-1">
-            {recentDocuments.slice(0, 5).map((path) => {
-              const isActive = path === activeDocumentPath;
-              return (
-                <button
-                  key={path}
-                  type="button"
-                  className={cn(
-                    'flex w-full flex-col items-start gap-0.5 rounded-md border border-transparent px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
-                    isActive && 'border-border bg-accent text-accent-foreground',
-                  )}
-                  onClick={() => onOpenRecentDocument(path)}
-                  disabled={busy}
-                  title={path}
-                >
-                  <span className="truncate font-medium">{displayFileName(path)}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {displayWorkspacePath(path, rootDir)}
-                  </span>
-                </button>
-              );
-            })}
+      {showOutline ? (
+        <section className="flex min-h-0 flex-col gap-2">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Outline
           </div>
-        )}
-      </section>
+          {outlineItems.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Add Markdown headings to see the document outline.
+            </p>
+          ) : (
+            <ScrollArea className="max-h-[520px] pr-2">
+              <div className="flex flex-col gap-1">
+                {outlineItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="flex w-full items-center rounded-md border border-transparent px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ paddingLeft: `${12 + Math.max(0, item.depth - 1) * 14}px` }}
+                    disabled={busy}
+                    onClick={() => onSelectOutlineItem?.(item)}
+                  >
+                    <span className="truncate font-medium">{item.title}</span>
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+        </section>
+      ) : (
+        <>
+          <section className="flex flex-col gap-2">
+            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Workspace
+            </div>
+            <Button
+              onClick={onNewDocument}
+              disabled={busy}
+              title="New Document (Cmd+N)"
+              aria-keyshortcuts="Meta+N Control+N"
+            >
+              New Document
+            </Button>
+            <Button
+              variant="outline"
+              onClick={onOpenWorkspace}
+              disabled={busy}
+              title="Open Folder (Cmd+Shift+O)"
+              aria-keyshortcuts="Meta+Shift+O Control+Shift+O"
+            >
+              Open Folder…
+            </Button>
+            <Button
+              variant="outline"
+              onClick={onOpenDocument}
+              disabled={busy}
+              title="Open Markdown (Cmd+O)"
+              aria-keyshortcuts="Meta+O Control+O"
+            >
+              Open Markdown…
+            </Button>
+          </section>
+
+          <Separator />
+
+          <section className="flex min-h-0 flex-col gap-2">
+            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Files
+            </div>
+            {workspaceTreeLength === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Open a folder to populate the file tree.
+              </p>
+            ) : (
+              <>
+                <Input
+                  type="text"
+                  value={workspaceFilter}
+                  onChange={(event) => onWorkspaceFilterChange(event.target.value)}
+                  placeholder="Search this workspace"
+                  disabled={busy}
+                  aria-label="Filter files"
+                />
+                {filteredWorkspaceTreeLength === 0 ? (
+                  <p className="text-xs text-muted-foreground">No files match this filter.</p>
+                ) : (
+                  <ScrollArea className="max-h-[360px] pr-2">
+                    <div className="flex flex-col gap-1">
+                      {renderWorkspaceTreeNodes()}
+                    </div>
+                  </ScrollArea>
+                )}
+              </>
+            )}
+          </section>
+
+          <Separator />
+
+          <section className="flex flex-col gap-2">
+            <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Recent
+            </div>
+            {recentDocuments.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Recent documents will appear here.</p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {recentDocuments.slice(0, 5).map((path) => {
+                  const isActive = path === activeDocumentPath;
+                  return (
+                    <button
+                      key={path}
+                      type="button"
+                      className={cn(
+                        'flex w-full flex-col items-start gap-0.5 rounded-md border border-transparent px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50',
+                        isActive && 'border-border bg-accent text-accent-foreground',
+                      )}
+                      onClick={() => onOpenRecentDocument(path)}
+                      disabled={busy}
+                      title={path}
+                    >
+                      <span className="truncate font-medium">{displayFileName(path)}</span>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {displayWorkspacePath(path, rootDir)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </>
+      )}
     </aside>
   );
 }

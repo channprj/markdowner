@@ -1,15 +1,17 @@
 import { cn } from '@/lib/utils';
-import { Files, Search, Settings } from 'lucide-react';
+import { Files, ListTree, Search, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export interface ActivityBarProps {
   onOpenSettings?: () => void;
   onOpenQuickOpen?: () => void;
+  onOpenOutline?: () => void;
   className?: string;
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
   isSettingsOpen?: boolean;
   isQuickOpenOpen?: boolean;
+  isOutlineOpen?: boolean;
 }
 
 export function ActivityBar({
@@ -18,8 +20,10 @@ export function ActivityBar({
   isSidebarOpen,
   onOpenSettings,
   onOpenQuickOpen,
+  onOpenOutline,
   isSettingsOpen,
   isQuickOpenOpen,
+  isOutlineOpen,
 }: ActivityBarProps) {
   const activeClass = 'bg-accent text-accent-foreground';
   const inactiveClass = 'text-muted-foreground hover:text-foreground';
@@ -54,6 +58,17 @@ export function ActivityBar({
           onClick={onOpenQuickOpen}
         >
           <Search className="w-5 h-5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn('w-8 h-8 rounded-md', isOutlineOpen ? activeClass : inactiveClass)}
+          title="Outline"
+          aria-label="Outline"
+          aria-pressed={Boolean(isOutlineOpen)}
+          onClick={onOpenOutline}
+        >
+          <ListTree className="w-5 h-5" />
         </Button>
       </div>
       <div className="mt-auto flex flex-col gap-2 w-full px-2 mb-2">
