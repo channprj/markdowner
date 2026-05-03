@@ -23,11 +23,13 @@ const saveActiveDocumentMock = vi.fn();
 const saveActiveDocumentAsMock = vi.fn();
 const setModeMock = vi.fn();
 const setThemeMock = vi.fn();
+const openDroppedPathMock = vi.fn();
 const openDialogMock = vi.fn();
 const saveDialogMock = vi.fn();
 const messageMock = vi.fn();
 const destroyWindowMock = vi.fn();
 const onCloseRequestedMock = vi.fn();
+const onDragDropEventMock = vi.fn().mockImplementation(() => Promise.resolve(vi.fn()));
 const listenMock = vi.fn();
 let closeRequestedHandler:
   | ((event: { preventDefault: () => void }) => Promise<void>)
@@ -50,6 +52,7 @@ vi.mock('./lib/desktop', () => ({
   saveActiveDocumentAs: saveActiveDocumentAsMock,
   setMode: setModeMock,
   setTheme: setThemeMock,
+  openDroppedPath: openDroppedPathMock,
 }));
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({
@@ -62,6 +65,7 @@ vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: () => ({
     destroy: destroyWindowMock,
     onCloseRequested: onCloseRequestedMock,
+    onDragDropEvent: onDragDropEventMock,
   }),
 }));
 

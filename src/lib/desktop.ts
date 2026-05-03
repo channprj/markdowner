@@ -73,3 +73,8 @@ export async function setTheme(themeKind: ThemeKind) {
 export async function importTheme(path: string) {
   return invoke<AppSnapshot>('import_theme', { path });
 }
+
+export async function openDroppedPath(path: string) {
+  return invoke<AppSnapshot>('open_dropped_path', { path });
+}
+

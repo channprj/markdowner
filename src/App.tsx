@@ -58,6 +58,7 @@ import {
   saveActiveDocumentAs,
   setMode,
   setTheme,
+  openDroppedPath,
 } from './lib/desktop';
 import {
   DEFAULT_SETTINGS,
@@ -1254,6 +1255,42 @@ export default function App() {
       })
       .catch((error) => {
         console.error(error);
+      });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    getCurrentWindow()
+      .onDragDropEvent(async (event) => {
+        if (event.payload.type === 'drop') {
+          const paths = event.payload.paths;
+          if (paths && paths.length > 0) {
+            const firstPath = paths[0];
+            if (!firstPath) return;
+            await withBusy(async () => {
+              await syncActiveDraft();
+              const next = await openDroppedPath(firstPath);
+              applySnapshot(next, true);
+            });
+          }
+        }
+      })
+      .then((nextUnlisten) => {
+        if (cancelled) {
+          nextUnlisten();
+          return;
+        }
+        unlisten = nextUnlisten;
+      })
+      .catch((error) => {
+        console.error('Failed to listen to drag-drop event:', error);
       });
 
     return () => {

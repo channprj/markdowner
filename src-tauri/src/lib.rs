@@ -427,6 +427,20 @@ fn save_settings(settings: markdowner_core::settings::Settings, app_handle: taur
     Ok(())
 }
 
+#[tauri::command]
+fn open_dropped_path(path: String, state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
+    with_backend(state, |backend| {
+        let path_obj = Path::new(&path);
+        if path_obj.is_file() {
+            backend.open_document(path_obj)
+        } else if path_obj.is_dir() {
+            backend.open_workspace(path_obj)
+        } else {
+            Err(format!("Path not found: {}", path_obj.display()))
+        }
+    })
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_cli::init())
@@ -497,6 +511,7 @@ pub fn run() {
             import_theme,
             load_settings,
             save_settings,
+            open_dropped_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Markdowner desktop shell");
