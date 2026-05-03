@@ -24,7 +24,12 @@ export function ActivityBar({
   const activeClass = 'bg-accent text-accent-foreground';
   const inactiveClass = 'text-muted-foreground hover:text-foreground';
   return (
-    <div className={cn("flex flex-col items-center py-2 bg-muted/50 border-r border-border h-full", className)}>
+    <div
+      role="toolbar"
+      aria-label="Activity Bar"
+      aria-orientation="vertical"
+      className={cn("flex flex-col items-center py-2 bg-muted/50 border-r border-border h-full", className)}
+    >
       <div className="flex flex-col gap-2 w-full px-2">
         <Button
           variant="ghost"

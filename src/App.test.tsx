@@ -247,6 +247,27 @@ describe('App recent documents', () => {
     );
   });
 
+  it('exposes the ActivityBar as a named vertical toolbar landmark', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const toolbar = await screen.findByRole('toolbar', { name: /activity bar/i });
+
+    expect(toolbar).toHaveAttribute('aria-orientation', 'vertical');
+    expect(
+      within(toolbar).getByRole('button', { name: /^explorer \(cmd\+b\)$/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(toolbar).getByRole('button', { name: /^quick open \(cmd\+p\)$/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(toolbar).getByRole('button', { name: /^settings \(cmd\+,\)$/i }),
+    ).toBeInTheDocument();
+  });
+
   it('exposes Split View source and preview panes as named landmark regions', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
