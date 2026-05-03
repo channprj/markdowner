@@ -1828,6 +1828,85 @@ describe('App recent documents', () => {
     });
   });
 
+  it('advances and retreats Quick Open selection by a page with PageDown and PageUp', async () => {
+    const documents = Array.from(
+      { length: 12 },
+      (_, index) => `/tmp/project/file-${String(index).padStart(2, '0')}.md`,
+    );
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        rootDir: '/tmp/project',
+        workspaceDocuments: documents,
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: 'p', metaKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /quick open/i });
+    const input = within(dialog).getByRole('textbox', { name: /quick open file search/i });
+
+    const options = await within(dialog).findAllByRole('option');
+    expect(options).toHaveLength(12);
+    expect(options[0]).toHaveAttribute('data-active', 'true');
+
+    fireEvent.keyDown(input, { key: 'PageDown' });
+    await waitFor(() => {
+      const refreshed = within(dialog).getAllByRole('option');
+      expect(refreshed[10]).toHaveAttribute('data-active', 'true');
+    });
+
+    fireEvent.keyDown(input, { key: 'PageDown' });
+    await waitFor(() => {
+      const refreshed = within(dialog).getAllByRole('option');
+      expect(refreshed[refreshed.length - 1]).toHaveAttribute('data-active', 'true');
+    });
+
+    fireEvent.keyDown(input, { key: 'PageUp' });
+    await waitFor(() => {
+      const refreshed = within(dialog).getAllByRole('option');
+      expect(refreshed[1]).toHaveAttribute('data-active', 'true');
+    });
+
+    fireEvent.keyDown(input, { key: 'PageUp' });
+    await waitFor(() => {
+      const refreshed = within(dialog).getAllByRole('option');
+      expect(refreshed[0]).toHaveAttribute('data-active', 'true');
+    });
+  });
+
+  it('advances and retreats Command Palette selection by a page with PageDown and PageUp', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /command palette/i });
+    const input = within(dialog).getByRole('textbox', { name: /command palette search/i });
+
+    const options = await within(dialog).findAllByRole('option');
+    expect(options.length).toBeGreaterThan(10);
+    expect(options[0]).toHaveAttribute('data-active', 'true');
+
+    fireEvent.keyDown(input, { key: 'PageDown' });
+    await waitFor(() => {
+      const refreshed = within(dialog).getAllByRole('option');
+      expect(refreshed[10]).toHaveAttribute('data-active', 'true');
+    });
+
+    fireEvent.keyDown(input, { key: 'PageUp' });
+    await waitFor(() => {
+      const refreshed = within(dialog).getAllByRole('option');
+      expect(refreshed[0]).toHaveAttribute('data-active', 'true');
+    });
+  });
+
   it('opens the Settings dialog with the Cmd+, keyboard shortcut', async () => {
     invokeMock.mockResolvedValue({
       autoSave: false,

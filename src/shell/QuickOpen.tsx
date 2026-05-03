@@ -30,6 +30,7 @@ export interface QuickOpenProps {
 }
 
 const MAX_RESULTS = 50;
+const PAGE_SIZE = 10;
 
 function filterItems(items: QuickOpenItem[], query: string): QuickOpenItem[] {
   const trimmed = query.trim().toLowerCase();
@@ -106,6 +107,18 @@ export function QuickOpen({ open, onOpenChange, items, onSelect }: QuickOpenProp
     if (event.key === 'End') {
       event.preventDefault();
       setHighlightedIndex(filtered.length - 1);
+      return;
+    }
+    if (event.key === 'PageDown') {
+      event.preventDefault();
+      setHighlightedIndex((current) =>
+        Math.min(filtered.length - 1, current + PAGE_SIZE),
+      );
+      return;
+    }
+    if (event.key === 'PageUp') {
+      event.preventDefault();
+      setHighlightedIndex((current) => Math.max(0, current - PAGE_SIZE));
       return;
     }
     if (event.key === 'Enter') {
