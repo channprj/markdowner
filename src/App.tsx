@@ -988,6 +988,11 @@ export default function App() {
       return;
     }
 
+    if (command.startsWith('open-recent-document:')) {
+      await handleOpenRecentDocument(command.slice('open-recent-document:'.length));
+      return;
+    }
+
     switch (command) {
       case 'new-document':
         await handleNewDocument();

@@ -18,6 +18,7 @@ const MENU_VIEW_ID: &str = "view";
 const MENU_COMMAND_NEW_DOCUMENT: &str = "new-document";
 const MENU_COMMAND_OPEN_DOCUMENT: &str = "open-document";
 const MENU_COMMAND_OPEN_WORKSPACE: &str = "open-workspace";
+const MENU_COMMAND_OPEN_RECENT_DOCUMENT_PREFIX: &str = "open-recent-document:";
 const MENU_COMMAND_SAVE_ACTIVE_DOCUMENT: &str = "save-active-document";
 const MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS: &str = "save-active-document-as";
 const MENU_COMMAND_CLOSE_WINDOW: &str = "close-window";
@@ -26,6 +27,10 @@ const MENU_COMMAND_SET_MODE_EDITOR: &str = "mode-editor";
 const MENU_COMMAND_SET_MODE_SPLITVIEW: &str = "mode-splitview";
 const MENU_FILE_TITLE: &str = "File";
 const MENU_VIEW_TITLE: &str = "View";
+const MENU_RECENT_ID: &str = "open-recent";
+const MENU_RECENT_TITLE: &str = "Open Recent";
+const MENU_RECENT_EMPTY_ID: &str = "open-recent-empty";
+const MENU_RECENT_EMPTY_LABEL: &str = "No Recent Documents";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MenuCommandDescriptor {
@@ -253,12 +258,42 @@ fn build_menu_item<R: Runtime>(
         .build(app)
 }
 
-fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+fn recent_document_menu_command(path: &str) -> String {
+    format!("{MENU_COMMAND_OPEN_RECENT_DOCUMENT_PREFIX}{path}")
+}
+
+fn build_recent_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    recent_documents: &[String],
+) -> tauri::Result<tauri::menu::Submenu<R>> {
+    let mut recent_menu_builder = SubmenuBuilder::with_id(app, MENU_RECENT_ID, MENU_RECENT_TITLE);
+
+    if recent_documents.is_empty() {
+        let empty_item = MenuItemBuilder::with_id(MENU_RECENT_EMPTY_ID, MENU_RECENT_EMPTY_LABEL)
+            .enabled(false)
+            .build(app)?;
+        recent_menu_builder = recent_menu_builder.item(&empty_item);
+    } else {
+        for path in recent_documents {
+            let item = MenuItemBuilder::with_id(recent_document_menu_command(path), path).build(app)?;
+            recent_menu_builder = recent_menu_builder.item(&item);
+        }
+    }
+
+    recent_menu_builder.build()
+}
+
+fn build_app_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    recent_documents: &[String],
+) -> tauri::Result<Menu<R>> {
     let mut file_menu_builder = SubmenuBuilder::with_id(app, MENU_FILE_ID, MENU_FILE_TITLE);
     for descriptor in FILE_MENU_COMMANDS {
         let item = build_menu_item(app, *descriptor)?;
         file_menu_builder = file_menu_builder.item(&item);
     }
+    let recent_menu = build_recent_menu(app, recent_documents)?;
+    file_menu_builder = file_menu_builder.item(&recent_menu);
     let file_menu = file_menu_builder.build()?;
 
     let mut view_menu_builder = SubmenuBuilder::with_id(app, MENU_VIEW_ID, MENU_VIEW_TITLE);
@@ -274,18 +309,30 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .build()
 }
 
-fn menu_command_from_id(id: &str) -> Option<&'static str> {
+fn menu_command_from_id(id: &str) -> Option<String> {
+    if id.starts_with(MENU_COMMAND_OPEN_RECENT_DOCUMENT_PREFIX) {
+        return Some(id.to_string());
+    }
+
     match id {
-        MENU_COMMAND_NEW_DOCUMENT => Some(MENU_COMMAND_NEW_DOCUMENT),
-        MENU_COMMAND_OPEN_DOCUMENT => Some(MENU_COMMAND_OPEN_DOCUMENT),
-        MENU_COMMAND_OPEN_WORKSPACE => Some(MENU_COMMAND_OPEN_WORKSPACE),
-        MENU_COMMAND_SAVE_ACTIVE_DOCUMENT => Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT),
-        MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS => Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS),
-        MENU_COMMAND_CLOSE_WINDOW => Some(MENU_COMMAND_CLOSE_WINDOW),
-        MENU_COMMAND_SET_MODE_WYSIWYG => Some(MENU_COMMAND_SET_MODE_WYSIWYG),
-        MENU_COMMAND_SET_MODE_EDITOR => Some(MENU_COMMAND_SET_MODE_EDITOR),
-        MENU_COMMAND_SET_MODE_SPLITVIEW => Some(MENU_COMMAND_SET_MODE_SPLITVIEW),
+        MENU_COMMAND_NEW_DOCUMENT => Some(MENU_COMMAND_NEW_DOCUMENT.to_string()),
+        MENU_COMMAND_OPEN_DOCUMENT => Some(MENU_COMMAND_OPEN_DOCUMENT.to_string()),
+        MENU_COMMAND_OPEN_WORKSPACE => Some(MENU_COMMAND_OPEN_WORKSPACE.to_string()),
+        MENU_COMMAND_SAVE_ACTIVE_DOCUMENT => Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT.to_string()),
+        MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS => Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS.to_string()),
+        MENU_COMMAND_CLOSE_WINDOW => Some(MENU_COMMAND_CLOSE_WINDOW.to_string()),
+        MENU_COMMAND_SET_MODE_WYSIWYG => Some(MENU_COMMAND_SET_MODE_WYSIWYG.to_string()),
+        MENU_COMMAND_SET_MODE_EDITOR => Some(MENU_COMMAND_SET_MODE_EDITOR.to_string()),
+        MENU_COMMAND_SET_MODE_SPLITVIEW => Some(MENU_COMMAND_SET_MODE_SPLITVIEW.to_string()),
         _ => None,
+    }
+}
+
+fn sync_app_menu<R: Runtime>(app: &AppHandle<R>, backend: &DesktopBackend) {
+    let snapshot = backend.snapshot();
+
+    if let Ok(menu) = build_app_menu(app, &snapshot.recent_documents) {
+        let _ = app.set_menu(menu);
     }
 }
 
@@ -308,19 +355,37 @@ fn with_backend<T>(
     operation(&mut backend)
 }
 
+fn with_backend_and_menu<T>(
+    state: State<'_, DesktopAppState>,
+    app_handle: AppHandle,
+    operation: impl FnOnce(&mut DesktopBackend) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut backend = state
+        .0
+        .lock()
+        .map_err(|_| "Could not lock desktop backend state".to_string())?;
+    let result = operation(&mut backend)?;
+    sync_app_menu(&app_handle, &backend);
+    Ok(result)
+}
+
 #[tauri::command]
 fn bootstrap(state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
     with_backend(state, |backend| Ok(backend.snapshot()))
 }
 
 #[tauri::command]
-fn new_document(state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
-    with_backend(state, DesktopBackend::new_document)
+fn new_document(state: State<'_, DesktopAppState>, app_handle: AppHandle) -> Result<AppSnapshot, String> {
+    with_backend_and_menu(state, app_handle, DesktopBackend::new_document)
 }
 
 #[tauri::command]
-fn open_document(path: String, state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
-    with_backend(state, |backend| backend.open_document(Path::new(&path)))
+fn open_document(
+    path: String,
+    state: State<'_, DesktopAppState>,
+    app_handle: AppHandle,
+) -> Result<AppSnapshot, String> {
+    with_backend_and_menu(state, app_handle, |backend| backend.open_document(Path::new(&path)))
 }
 
 #[tauri::command]
@@ -332,8 +397,9 @@ fn open_workspace(path: String, state: State<'_, DesktopAppState>) -> Result<App
 fn open_workspace_document(
     path: String,
     state: State<'_, DesktopAppState>,
+    app_handle: AppHandle,
 ) -> Result<AppSnapshot, String> {
-    with_backend(state, |backend| {
+    with_backend_and_menu(state, app_handle, |backend| {
         backend.open_workspace_document(Path::new(&path))
     })
 }
@@ -357,8 +423,9 @@ fn save_active_document(state: State<'_, DesktopAppState>) -> Result<AppSnapshot
 fn save_active_document_as(
     path: String,
     state: State<'_, DesktopAppState>,
+    app_handle: AppHandle,
 ) -> Result<AppSnapshot, String> {
-    with_backend(state, |backend| {
+    with_backend_and_menu(state, app_handle, |backend| {
         backend.save_active_document_as(Path::new(&path))
     })
 }
@@ -428,8 +495,12 @@ fn save_settings(settings: markdowner_core::settings::Settings, app_handle: taur
 }
 
 #[tauri::command]
-fn open_dropped_path(path: String, state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
-    with_backend(state, |backend| {
+fn open_dropped_path(
+    path: String,
+    state: State<'_, DesktopAppState>,
+    app_handle: AppHandle,
+) -> Result<AppSnapshot, String> {
+    with_backend_and_menu(state, app_handle, |backend| {
         let path_obj = Path::new(&path);
         if path_obj.is_file() {
             backend.open_document(path_obj)
@@ -490,7 +561,12 @@ pub fn run() {
                 }
             }
 
-            let menu = build_app_menu(app.handle())?;
+            let initial_recent_documents = state
+                .0
+                .lock()
+                .map(|backend| backend.snapshot().recent_documents)
+                .unwrap_or_default();
+            let menu = build_app_menu(app.handle(), &initial_recent_documents)?;
             app.set_menu(menu)?;
             app.manage(state);
             Ok(())
@@ -718,12 +794,19 @@ mod tests {
     fn menu_command_mapping_only_accepts_supported_command_ids() {
         assert_eq!(
             menu_command_from_id(MENU_COMMAND_SET_MODE_SPLITVIEW),
-            Some(MENU_COMMAND_SET_MODE_SPLITVIEW)
+            Some(MENU_COMMAND_SET_MODE_SPLITVIEW.to_string())
         );
         assert_eq!(
             menu_command_from_id(MENU_COMMAND_CLOSE_WINDOW),
-            Some(MENU_COMMAND_CLOSE_WINDOW)
+            Some(MENU_COMMAND_CLOSE_WINDOW.to_string())
         );
         assert_eq!(menu_command_from_id("unknown-command"), None);
+    }
+
+    #[test]
+    fn menu_command_mapping_accepts_open_recent_document_prefix() {
+        let recent_command = "open-recent-document:/tmp/project/meeting-notes.md";
+
+        assert_eq!(menu_command_from_id(recent_command), Some(recent_command.to_string()));
     }
 }

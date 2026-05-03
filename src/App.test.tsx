@@ -2593,6 +2593,31 @@ describe('App recent documents', () => {
     });
   });
 
+  it('opens a recent document from the native menu event', async () => {
+    openDocumentMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        recentDocuments: ['/tmp/project/meeting-notes.md'],
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(menuCommandHandler).toBeTypeOf('function');
+    });
+
+    await menuCommandHandler?.({ payload: 'open-recent-document:/tmp/project/meeting-notes.md' });
+
+    await waitFor(() => {
+      expect(openDocumentMock).toHaveBeenCalledWith('/tmp/project/meeting-notes.md');
+    });
+  });
+
   it('closes the window from the native close menu command when document is clean', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
