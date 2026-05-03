@@ -627,7 +627,19 @@ describe('App recent documents', () => {
     expect(emptyHeaderTitle).not.toHaveAttribute('title');
   });
 
-  it('exposes a System theme toggle that follows OS preference', async () => {
+  it('exposes a System theme toggle that persists themeFollowSystem through settings', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: true,
+          themeFollowSystem: false,
+        };
+      }
+      return undefined;
+    });
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'meeting-notes.md',
@@ -643,8 +655,6 @@ describe('App recent documents', () => {
         theme: { kind, stylesheet: null, stylesheetPath: null },
       }),
     );
-
-    window.localStorage.setItem('markdowner.themeMode', 'manual');
 
     const { default: App } = await import('./App');
 
@@ -663,14 +673,58 @@ describe('App recent documents', () => {
     await waitFor(() => {
       expect(setThemeMock).toHaveBeenCalledWith('BuiltInDark');
     });
-    expect(window.localStorage.getItem('markdowner.themeMode')).toBe('system');
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_settings', {
+        settings: expect.objectContaining({ themeFollowSystem: true }),
+      });
+    });
 
     fireEvent.click(lightToggle);
 
     await waitFor(() => {
       expect(setThemeMock).toHaveBeenCalledWith('BuiltInLight');
     });
-    expect(window.localStorage.getItem('markdowner.themeMode')).toBe('manual');
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_settings', {
+        settings: expect.objectContaining({ themeFollowSystem: false }),
+      });
+    });
+  });
+
+  it('does not sync the theme to the OS on startup when themeFollowSystem is disabled', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: true,
+          themeFollowSystem: false,
+        };
+      }
+      return undefined;
+    });
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        theme: { kind: 'BuiltInLight', stylesheet: null, stylesheetPath: null },
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('load_settings');
+    });
+    await waitFor(() => {
+      expect(bootstrapMock).toHaveBeenCalled();
+    });
+
+    expect(setThemeMock).not.toHaveBeenCalled();
   });
 
   it('scopes imported custom CSS to markdown content surfaces', async () => {

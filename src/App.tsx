@@ -93,24 +93,7 @@ const WINDOW_TITLE = 'Markdowner';
 const MENU_COMMAND_EVENT = 'markdowner://menu-command';
 const MENU_COMMAND_CLOSE_WINDOW = 'close-window';
 
-const THEME_MODE_STORAGE_KEY = 'markdowner.themeMode';
 type ThemeMode = 'system' | 'manual';
-
-function readThemeMode(): ThemeMode {
-  try {
-    return window.localStorage.getItem(THEME_MODE_STORAGE_KEY) === 'manual' ? 'manual' : 'system';
-  } catch {
-    return 'system';
-  }
-}
-
-function writeThemeMode(mode: ThemeMode) {
-  try {
-    window.localStorage.setItem(THEME_MODE_STORAGE_KEY, mode);
-  } catch {
-    // localStorage unavailable; ignore
-  }
-}
 
 function resolveOsTheme(): ThemeKind {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -396,7 +379,6 @@ export default function App() {
   const [isQuickOpenOpen, setIsQuickOpenOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => readThemeMode());
   const [debouncedLocalDraft, setDebouncedLocalDraft] = useState(localDraft);
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number }>({
     line: 1,
@@ -416,6 +398,7 @@ export default function App() {
     const words = trimmed.length === 0 ? 0 : trimmed.split(/\s+/).length;
     return { words, characters };
   }, [localDraft]);
+  const themeMode: ThemeMode = settings.themeFollowSystem ? 'system' : 'manual';
 
   const handleToggleSidebar = useEffectEvent(() => {
     setIsSidebarOpen((current) => {
@@ -530,12 +513,22 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
 
-    bootstrap()
-      .then(async (next) => {
+    loadSettings()
+      .then(async (loadedSettings) => {
         if (cancelled) {
           return;
         }
-        if (readThemeMode() === 'system' && next.theme.kind !== 'CustomCss') {
+
+        startTransition(() => {
+          setSettings(loadedSettings);
+        });
+
+        const next = await bootstrap();
+        if (cancelled) {
+          return;
+        }
+
+        if (loadedSettings.themeFollowSystem && next.theme.kind !== 'CustomCss') {
           const osKind = resolveOsTheme();
           if (next.theme.kind !== osKind) {
             try {
@@ -562,23 +555,6 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    loadSettings()
-      .then((next) => {
-        if (cancelled) return;
-        startTransition(() => {
-          setSettings(next);
-        });
-      })
-      .catch((error) => {
-        console.error(error);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const handleSettingsChange = (next: Settings) => {
     setSettings(next);
     void saveSettings(next);
@@ -590,7 +566,7 @@ export default function App() {
     }
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleOsThemeChange = async () => {
-      if (readThemeMode() !== 'system') {
+      if (!settings.themeFollowSystem) {
         return;
       }
       try {
@@ -604,7 +580,7 @@ export default function App() {
     return () => {
       mediaQuery.removeEventListener('change', handleOsThemeChange);
     };
-  }, []);
+  }, [settings.themeFollowSystem]);
 
   useEffect(() => {
     applyThemeSelection(snapshot.theme.kind);
@@ -945,8 +921,9 @@ export default function App() {
 
   const handleSetTheme = async (themeKind: ThemeKind) => {
     await withBusy(async () => {
-      writeThemeMode('manual');
-      setThemeMode('manual');
+      if (settings.themeFollowSystem) {
+        handleSettingsChange({ ...settings, themeFollowSystem: false });
+      }
       const next = await setTheme(themeKind);
       applySnapshot(next, true);
     });
@@ -954,8 +931,9 @@ export default function App() {
 
   const handleFollowSystemTheme = async () => {
     await withBusy(async () => {
-      writeThemeMode('system');
-      setThemeMode('system');
+      if (!settings.themeFollowSystem) {
+        handleSettingsChange({ ...settings, themeFollowSystem: true });
+      }
       const next = await setTheme(resolveOsTheme());
       applySnapshot(next, true);
     });

@@ -105,6 +105,15 @@ export function SettingsDialog({
                 onCheckedChange={(checked) => handleSettingChange('editorLineWrap', checked)}
               />
             </div>
+
+            <div className="flex items-center justify-between mt-2">
+              <Label htmlFor="theme-follow-system" className="text-sm">Follow System Theme</Label>
+              <Switch
+                id="theme-follow-system"
+                checked={settings.themeFollowSystem}
+                onCheckedChange={(checked) => handleSettingChange('themeFollowSystem', checked)}
+              />
+            </div>
           </div>
         </div>
         <DialogFooter>
