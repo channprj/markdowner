@@ -112,9 +112,15 @@ pub struct DesktopBackend {
 
 impl DesktopBackend {
     pub fn new(session_store: Option<PathBuf>) -> Self {
+        Self::new_with_mode(session_store, EditorMode::Wysiwyg)
+    }
+
+    pub fn new_with_mode(session_store: Option<PathBuf>, mode: EditorMode) -> Self {
+        let mut workspace = WorkspaceState::default();
+        workspace.set_mode(mode);
         let runtime = match session_store {
-            Some(path) => EditorRuntime::new(WorkspaceState::default()).with_session_store(path),
-            None => EditorRuntime::new(WorkspaceState::default()),
+            Some(path) => EditorRuntime::new(workspace).with_session_store(path),
+            None => EditorRuntime::new(workspace),
         };
 
         Self { runtime }
@@ -244,9 +250,28 @@ impl DesktopBackend {
 pub struct DesktopAppState(Mutex<DesktopBackend>);
 
 impl DesktopAppState {
-    fn new(session_store: Option<PathBuf>) -> Self {
-        Self(Mutex::new(DesktopBackend::new(session_store)))
+    fn new(session_store: Option<PathBuf>, startup_mode: EditorMode) -> Self {
+        Self(Mutex::new(DesktopBackend::new_with_mode(
+            session_store,
+            startup_mode,
+        )))
     }
+}
+
+fn settings_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("settings.json"))
+}
+
+fn load_desktop_settings(app_handle: &AppHandle) -> Result<markdowner_core::settings::Settings, String> {
+    let path = settings_path(app_handle)?;
+    let raw = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
+    let settings: markdowner_core::settings::Settings =
+        serde_json::from_str(&raw).unwrap_or_default();
+    Ok(settings)
 }
 
 fn build_menu_item<R: Runtime>(
@@ -460,26 +485,12 @@ fn import_theme(path: String, state: State<'_, DesktopAppState>) -> Result<AppSn
 
 #[tauri::command]
 fn load_settings(app_handle: tauri::AppHandle) -> Result<markdowner_core::settings::Settings, String> {
-    let path = app_handle
-        .path()
-        .app_config_dir()
-        .map_err(|e| e.to_string())?
-        .join("settings.json");
-    
-    // We need to use `markdowner_core::storage::load_settings` but it's private.
-    // Let's implement it inside the core crate instead, or just read it here.
-    let raw = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
-    let settings: markdowner_core::settings::Settings = serde_json::from_str(&raw).unwrap_or_default();
-    Ok(settings)
+    load_desktop_settings(&app_handle)
 }
 
 #[tauri::command]
 fn save_settings(settings: markdowner_core::settings::Settings, app_handle: tauri::AppHandle) -> Result<(), String> {
-    let path = app_handle
-        .path()
-        .app_config_dir()
-        .map_err(|e| e.to_string())?
-        .join("settings.json");
+    let path = settings_path(&app_handle)?;
         
     let payload = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     
@@ -541,10 +552,17 @@ pub fn run() {
         })
         .setup(|app| {
             let session_store = session_store_path(app.handle());
-            let mut state = DesktopAppState::new(session_store);
+            let startup_mode = load_desktop_settings(app.handle())
+                .map(|settings| settings.default_mode)
+                .unwrap_or(EditorMode::Wysiwyg);
+            let mut state = DesktopAppState::new(session_store.clone(), startup_mode);
 
             if let Ok(backend) = state.0.get_mut() {
-                let _ = backend.restore_session();
+                let has_persisted_session = session_store.as_ref().is_some_and(|path| path.exists());
+
+                if has_persisted_session {
+                    let _ = backend.restore_session();
+                }
 
                 // Open CLI arguments if provided
                 if let Ok(matches) = app.cli().matches() {
@@ -725,6 +743,40 @@ mod tests {
         assert_eq!(snapshot.active_document_source.as_deref(), Some(""));
         assert!(snapshot.active_document_dirty);
         assert!(snapshot.recent_documents.is_empty());
+    }
+
+    #[test]
+    fn backend_can_seed_startup_mode_before_any_session_restore() {
+        let backend = DesktopBackend::new_with_mode(None, markdowner_core::EditorMode::Editor);
+
+        assert_eq!(backend.snapshot().mode, markdowner_core::EditorMode::Editor);
+    }
+
+    #[test]
+    fn restored_session_mode_overrides_the_configured_startup_mode() {
+        let temp = tempdir().unwrap();
+        let session_path = temp.path().join("workspace-session.json");
+        fs::write(
+            &session_path,
+            r#"{
+  "recent_documents": [],
+  "mode": "SplitView",
+  "theme": {
+    "kind": "BuiltInLight",
+    "stylesheet": null,
+    "stylesheet_path": null
+  }
+}"#,
+        )
+        .unwrap();
+
+        let mut backend = DesktopBackend::new_with_mode(
+            Some(session_path),
+            markdowner_core::EditorMode::Editor,
+        );
+        backend.restore_session().unwrap();
+
+        assert_eq!(backend.snapshot().mode, markdowner_core::EditorMode::SplitView);
     }
 
     #[test]
