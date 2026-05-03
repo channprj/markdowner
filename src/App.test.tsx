@@ -1302,6 +1302,40 @@ describe('App recent documents', () => {
     });
   });
 
+  it('filters Quick Open with a space-separated query that spans the name and path', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        rootDir: '/tmp/project',
+        workspaceDocuments: [
+          '/tmp/project/guides/reference/api.md',
+          '/tmp/project/README.md',
+        ],
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: 'p', metaKey: true });
+
+    const quickOpenDialog = await screen.findByRole('dialog', { name: /quick open/i });
+    const input = within(quickOpenDialog).getByRole('textbox', {
+      name: /quick open file search/i,
+    });
+
+    await within(quickOpenDialog).findAllByRole('option');
+
+    fireEvent.change(input, { target: { value: 'md guides' } });
+
+    await waitFor(() => {
+      expect(within(quickOpenDialog).queryAllByRole('option')).toHaveLength(1);
+    });
+    const match = within(quickOpenDialog).getByRole('option');
+    expect(match).toHaveTextContent(/api\.md/);
+    expect(match).toHaveTextContent(/guides\/reference\/api\.md/);
+  });
+
   it('groups Quick Open entries under Workspace Files and Recent Files section headers', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
