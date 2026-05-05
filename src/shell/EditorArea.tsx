@@ -65,7 +65,7 @@ export function EditorArea({
     editorSurfaceStyle.fontFamily = fontFamily;
   }
   return (
-    <main className="flex min-w-0 flex-col relative h-full">
+    <main className="relative flex h-full min-h-0 min-w-0 flex-col">
       {errorMessage ? (
         <Alert variant="destructive">
           <AlertTitle>Something went wrong</AlertTitle>
@@ -221,7 +221,7 @@ export function EditorArea({
               data-testid="editor-surface-source"
               role="region"
               aria-label="Markdown source"
-              className="flex-1 overflow-auto"
+              className="min-h-0 flex-1 overflow-auto"
               style={editorSurfaceStyle}
             >
               {sourceEditor}
@@ -230,7 +230,7 @@ export function EditorArea({
               data-testid="editor-surface-preview"
               role="region"
               aria-label="Markdown preview"
-              className="flex-1 overflow-auto bg-background"
+              className="min-h-0 flex-1 overflow-auto bg-background"
               style={editorSurfaceStyle}
             >
               {splitViewPreview}

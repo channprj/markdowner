@@ -385,6 +385,31 @@ describe('App recent documents', () => {
 
     expect(sourceRegion).toHaveAttribute('data-testid', 'editor-surface-source');
     expect(previewRegion).toHaveAttribute('data-testid', 'editor-surface-preview');
+    expect(sourceRegion).toHaveClass('min-h-0');
+    expect(previewRegion).toHaveClass('min-h-0');
+  });
+
+  it('constrains the desktop shell so editor panes own vertical scrolling', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'notes.md',
+        activeDocumentPath: '/tmp/project/notes.md',
+        activeDocumentSource: Array.from({ length: 80 }, (_, index) => `Line ${index + 1}`).join('\n'),
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const sourceSurface = await screen.findByTestId('editor-surface-source');
+    const editorRoot = sourceSurface.closest('main');
+    const shellGrid = editorRoot?.parentElement;
+
+    expect(shellGrid).toHaveClass('min-h-0');
+    expect(editorRoot).toHaveClass('min-h-0');
+    expect(sourceSurface).toHaveClass('overflow-auto');
   });
 
   it('reopens a recent document from the sidebar', async () => {

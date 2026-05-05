@@ -1745,7 +1745,7 @@ export default function App() {
       />
       <div
         className={cn(
-          'flex-1 grid',
+          'min-h-0 flex-1 grid',
           !isResizingSidebar && 'transition-[grid-template-columns] duration-300 ease-in-out',
         )}
         style={{
@@ -1833,7 +1833,7 @@ export default function App() {
         fontFamily={settings.editorFontFamily}
         editorContent={<EditorContent editor={editor} />}
         sourceEditor={
-          <div ref={sourceEditorContainerRef} className="h-full">
+          <div ref={sourceEditorContainerRef} className="h-full min-h-0">
             <CodeMirror
               value={localDraft}
               height="100%"
