@@ -8,8 +8,44 @@ Markdowner는 `Tauri v2`, `React`, `Vite`, `Tiptap` 기반으로 구성된 Rust 
 
 - `pnpm tauri dev` 로 macOS 로컬 개발 실행이 가능합니다
 - `pnpm tauri build --debug` 로 macOS 로컬 debug 빌드가 가능합니다
-- 앱 셸에는 파일 열기, 폴더 열기, 저장, 모드 전환, 테마 전환, `markdowner-core` 와 연결되는 Rust command bridge 가 포함되어 있습니다
+- 앱 셸에는 파일 열기, 폴더 열기, 저장, 명령 팔레트, 빠른 열기, 모드 전환, 테마 전환, 드래그 앤 드롭 열기, `markdowner-core` 와 연결되는 Rust command bridge 가 포함되어 있습니다
+- 사이드 패널에 문서 목차가 구현되어 있으며 헤딩 클릭으로 줄 점프가 가능합니다
+- 안정성은 원자적 쓰기, 외부 변경 감지, ErrorBoundary fallback까지 적용되어 있습니다
 - Windows 는 아직 후속 작업 범위이지만, 아키텍처는 같은 Tauri 앱 셸을 기준으로 맞춰져 있습니다
+
+## 개발 진행상황 스냅샷
+
+2026-05-05 기준 Markdowner는 macOS 개발자 프리뷰에 가까운 상태입니다. 핵심 데스크톱 루프는 사용할 수 있습니다. Markdown 파일 또는 워크스페이스를 열고, WYSIWYG/Source/Split View 사이를 전환하며 편집하고, 안전하게 저장하고, 최근 파일을 다시 열고, 테마를 바꾸고, 외부 변경 충돌을 처리할 수 있습니다. 현재 v1 제품 목표 대비 완성도는 대략 60-65% 수준으로 보는 것이 맞습니다. 셸, 코어 파일 모델, 설정 영속화, 일반적인 Markdown 왕복 저장 경로는 자리 잡았고, 고급 작성 기능, export, 검색, 배포 품질, Windows 검증은 아직 남아 있습니다.
+
+완료 또는 안정권에 있는 항목:
+
+- Tauri v2 데스크톱 셸과 React 19, Vite 7, TypeScript, Tiptap, CodeMirror, React Markdown, shadcn 스타일 UI 구성
+- `markdowner-core`, `src-tauri` Tauri bridge, 기존 `markdowner-macos` reference crate 로 나뉜 Rust workspace
+- 파일 생명주기: 새 문서, 파일 열기, 워크스페이스 열기, 저장, 다른 이름으로 저장, 최근 문서, CLI 경로 열기, single-instance 라우팅, 드래그 앤 드롭 파일/폴더 열기, native menu command event
+- 안전성 모델: 원자적 쓰기, 읽기 전용 파일 보호, 외부 디스크 변경 감지, 비교/다시 로드/로컬 유지 흐름, dirty close confirmation, 세션 복원
+- 탐색과 셸 UX: Activity Bar, 리사이즈/접힘 가능한 사이드바, 워크스페이스 트리, 파일명 필터, Quick Open, Command Palette, Outline 패널, 문서 통계, Status Bar metadata
+- Markdown coverage: heading, paragraph, quote, bullet, checklist, image, table, fenced code block, link, emphasis, inline code, raw-preserved unsupported block
+- 설정 영속화: autosave, editor font, word wrap, startup mode, focus/typewriter toggle, asset folder, system theme following, PDF paper size, diagnostics flag
+- 사용자 CSS 테마 import 검증과 Markdown content surface 로의 frontend scoping
+
+부분 완료 항목:
+
+- Focus mode, Typewriter mode, diagnostics logging, asset folder, PDF paper size 는 설정으로 저장되지만 실제 런타임 동작은 아직 완성되지 않았습니다
+- 코드 하이라이팅은 Rust core 모델에 알려진 code fence 기준으로 존재하지만, frontend preview/WYSIWYG 하이라이팅 정책은 제품 수준 polish가 더 필요합니다
+- macOS bundle 생성은 켜져 있지만, production signing, notarization, release metadata, 배포 workflow는 미완료입니다
+- Rust core와 React shell 테스트는 의미 있게 존재하지만, 전체 데스크톱 E2E, screenshot regression, 자동 접근성 gate는 아직 없습니다
+
+미구현 항목:
+
+- 본문 Find & Replace
+- Slash command menu
+- KaTeX 수식 및 Mermaid diagram rendering
+- HTML/PDF/Print export
+- Workspace full-text search
+- 이미지 paste/drop asset 복사 및 상대경로 삽입
+- overwrite 전 자동 백업
+- Window size/position restore
+- Windows build/test/release 검증
 
 ## 기능 요약
 
@@ -17,10 +53,12 @@ Markdowner는 `Tauri v2`, `React`, `Vite`, `Tiptap` 기반으로 구성된 Rust 
 - CodeMirror 6 기반 Source 모드
 - React Markdown + GFM 기반 Preview 모드
 - 데스크톱 셸을 통한 파일 열기/저장
+- 명령 팔레트(`⌘⇧P`) 및 빠른 열기(`⌘P`)로 파일·커맨드 탐색
 - 워크스페이스 폴더 열기와 파일 트리 탐색
+- 문서 통계 다이얼로그와 아웃라인 패널
 - 이미지, 표, 체크리스트, fenced code block 지원
-- 기본 라이트/다크 테마
-- 세션 상태와 함께 저장되는 사용자 CSS 테마 import
+- 기본 라이트/다크 테마 및 사용자 CSS 테마 import
+- 설정 다이얼로그에서 오토세이브, 글꼴, 줄 바꿈, 시작 모드, 시스템 테마 연동, asset, PDF, diagnostics preference 편집 가능
 - Markdown 저장 형식과 문서 의미 모델은 Rust `markdowner-core` 가 담당
 
 ## 저장소 구성
@@ -119,9 +157,10 @@ target/debug/markdowner-desktop
 
 ## 현재 앱 검증 방법
 
-전체 Rust 테스트 스위트:
+프런트엔드와 Rust 테스트 스위트:
 
 ```bash
+pnpm test
 cargo test
 ```
 
@@ -135,7 +174,7 @@ pnpm tauri build --debug
 
 ## 참고 사항과 현재 제한사항
 
-- Tauri 데스크톱 셸은 macOS 로컬에서 동작하지만, 패키징된 macOS `.app` 번들은 아직 활성화되어 있지 않습니다. 현재 `src-tauri/tauri.conf.json` 의 `"bundle.active"` 는 `false` 입니다.
+- Tauri 데스크톱 셸은 macOS 로컬에서 동작하고 번들 생성은 활성화되어 있습니다 (`src-tauri/tauri.conf.json`의 `"bundle.active"` 는 `true`). 다만 프로덕션 배포를 위한 서명/공증 흐름은 후속 작업입니다.
 - 프런트엔드 프로덕션 번들은 현재 Vite chunk size warning 이 발생할 정도로 크기가 큽니다.
 - Windows 지원은 다음 단계의 목표이며, 아직 완료된 로컬 개발 워크플로는 아닙니다.
 - `crates/markdowner-macos` 는 Tauri 셸이 주 앱 진입점이 되는 동안 참고 구현과 회귀 기준으로 남겨둔 상태입니다.
