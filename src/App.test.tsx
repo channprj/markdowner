@@ -24,6 +24,7 @@ const saveActiveDocumentAsMock = vi.fn();
 const setModeMock = vi.fn();
 const setThemeMock = vi.fn();
 const openDroppedPathMock = vi.fn();
+const quitAppMock = vi.fn();
 const openDialogMock = vi.fn();
 const saveDialogMock = vi.fn();
 const messageMock = vi.fn();
@@ -53,6 +54,7 @@ vi.mock('./lib/desktop', () => ({
   setMode: setModeMock,
   setTheme: setThemeMock,
   openDroppedPath: openDroppedPathMock,
+  quitApp: quitAppMock,
 }));
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({
@@ -145,6 +147,7 @@ describe('App recent documents', () => {
     saveActiveDocumentAsMock.mockReset();
     setModeMock.mockReset();
     setThemeMock.mockReset();
+    quitAppMock.mockReset();
     openDialogMock.mockReset();
     saveDialogMock.mockReset();
     messageMock.mockReset();
@@ -1456,6 +1459,53 @@ describe('App recent documents', () => {
     await waitFor(() => {
       expect(setModeMock).toHaveBeenCalledWith('SplitView');
     });
+  });
+
+  it('renders the selected mode before backend mode persistence resolves', async () => {
+    let resolveMode:
+      | ((snapshot: AppSnapshot) => void)
+      | undefined;
+
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Wysiwyg',
+      }),
+    );
+    setModeMock.mockReturnValue(
+      new Promise<AppSnapshot>((resolve) => {
+        resolveMode = resolve;
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByText(/^meeting-notes\.md/);
+    expect(screen.queryByRole('textbox', { name: /source editor/i })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: '1', metaKey: true });
+
+    await waitFor(() => {
+      expect(setModeMock).toHaveBeenCalledWith('Editor');
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: /source editor/i })).toHaveValue(
+        '# Meeting notes',
+      );
+    });
+
+    resolveMode?.(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
   });
 
   it('opens the Document Stats dialog from the Command Palette', async () => {
@@ -3053,6 +3103,32 @@ describe('App recent documents', () => {
     });
   });
 
+  it('quits the app from the native quit menu command when document is clean', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(menuCommandHandler).toBeTypeOf('function');
+    });
+
+    await menuCommandHandler?.({ payload: 'quit-app' });
+
+    await waitFor(() => {
+      expect(quitAppMock).toHaveBeenCalled();
+    });
+    expect(destroyWindowMock).not.toHaveBeenCalled();
+  });
+
   it('switches modes from the native menu event', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
@@ -3140,6 +3216,80 @@ describe('App recent documents', () => {
       expect(saveActiveDocumentMock).toHaveBeenCalled();
       expect(destroyWindowMock).toHaveBeenCalled();
     });
+  });
+
+  it('closes a dirty window without saving when the close confirmation returns No', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        activeDocumentDirty: true,
+        mode: 'Editor',
+      }),
+    );
+    messageMock.mockResolvedValue('No');
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(onCloseRequestedMock).toHaveBeenCalled();
+      expect(closeRequestedHandler).toBeTypeOf('function');
+    });
+
+    const preventDefault = vi.fn();
+    await closeRequestedHandler?.({ preventDefault });
+
+    await waitFor(() => {
+      expect(preventDefault).toHaveBeenCalled();
+      expect(messageMock).toHaveBeenCalled();
+      expect(destroyWindowMock).toHaveBeenCalled();
+    });
+    expect(saveActiveDocumentMock).not.toHaveBeenCalled();
+    expect(saveActiveDocumentAsMock).not.toHaveBeenCalled();
+    expect(quitAppMock).not.toHaveBeenCalled();
+  });
+
+  it('quits a dirty app without saving when Cmd+Q discard is selected', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        activeDocumentDirty: true,
+        mode: 'Editor',
+      }),
+    );
+    messageMock.mockResolvedValue('No');
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByRole('textbox', { name: /source editor/i });
+
+    fireEvent.keyDown(window, { key: 'q', metaKey: true });
+
+    await waitFor(() => {
+      expect(messageMock).toHaveBeenCalledWith(
+        "Save changes to 'meeting-notes.md' before closing?",
+        {
+          buttons: {
+            yes: 'Save',
+            no: "Don't Save",
+            cancel: 'Cancel',
+          },
+          kind: 'warning',
+          title: 'Markdowner',
+        },
+      );
+      expect(quitAppMock).toHaveBeenCalled();
+    });
+    expect(saveActiveDocumentMock).not.toHaveBeenCalled();
+    expect(saveActiveDocumentAsMock).not.toHaveBeenCalled();
+    expect(destroyWindowMock).not.toHaveBeenCalled();
   });
 
   it('keeps the window open when the active document changed externally and user chose save', async () => {

@@ -78,3 +78,6 @@ export async function openDroppedPath(path: string) {
   return invoke<AppSnapshot>('open_dropped_path', { path });
 }
 
+export async function quitApp() {
+  return invoke<void>('quit_app');
+}

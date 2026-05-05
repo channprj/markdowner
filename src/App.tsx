@@ -60,6 +60,7 @@ import {
   setMode,
   setTheme,
   openDroppedPath,
+  quitApp,
 } from './lib/desktop';
 import {
   DEFAULT_SETTINGS,
@@ -93,6 +94,9 @@ const MARKDOWN_FILE_EXTENSIONS = ['md', 'markdown', 'mdown', 'mkd'];
 const WINDOW_TITLE = 'Markdowner';
 const MENU_COMMAND_EVENT = 'markdowner://menu-command';
 const MENU_COMMAND_CLOSE_WINDOW = 'close-window';
+const MENU_COMMAND_QUIT_APP = 'quit-app';
+
+type CloseTarget = 'window' | 'app';
 
 type ThemeMode = 'system' | 'manual';
 
@@ -167,6 +171,28 @@ function matchesShortcut(
   }
 
   return event.key.toLowerCase() === key && event.shiftKey === (options.shift ?? false);
+}
+
+function normalizeCloseDecision(decision: unknown) {
+  return typeof decision === 'string'
+    ? decision.trim().toLowerCase().replace(/[’']/g, "'")
+    : decision;
+}
+
+function isSaveCloseDecision(decision: unknown) {
+  const normalized = normalizeCloseDecision(decision);
+  return normalized === true || normalized === 'save' || normalized === 'yes';
+}
+
+function isDiscardCloseDecision(decision: unknown) {
+  const normalized = normalizeCloseDecision(decision);
+  return (
+    normalized === false ||
+    normalized === 'no' ||
+    normalized === "don't save" ||
+    normalized === 'dont save' ||
+    normalized === 'discard'
+  );
 }
 
 function normalizeDisplayPath(path: string) {
@@ -592,6 +618,12 @@ export default function App() {
     });
   };
 
+  const applyModeOptimistically = (mode: EditorMode) => {
+    startTransition(() => {
+      setSnapshot((current) => ({ ...current, mode }));
+    });
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -693,14 +725,14 @@ export default function App() {
 
     const timeout = window.setTimeout(() => {
       replaceActiveDocumentSource(localDraft)
-        .then((next) => applySnapshot(next, true))
+        .then((next) => applySnapshot({ ...next, mode: snapshot.mode }, true))
         .catch((error) => console.error(error));
     }, 180);
 
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [localDraft, snapshot.activeDocumentPath, snapshot.activeDocumentSource]);
+  }, [localDraft, snapshot.activeDocumentPath, snapshot.activeDocumentSource, snapshot.mode]);
 
   const editor = useEditor({
     extensions: [
@@ -793,13 +825,17 @@ export default function App() {
     }
   };
 
-  const syncActiveDraft = async () => {
-    if (!activeDocumentOpen) {
+  const syncActiveDraft = async (preserveMode: EditorMode = snapshot.mode) => {
+    if (!activeDocumentOpen || snapshot.activeDocumentSource === null) {
+      return;
+    }
+
+    if (localDraft === snapshot.activeDocumentSource) {
       return;
     }
 
     const synced = await replaceActiveDocumentSource(localDraft);
-    applySnapshot(synced, true);
+    applySnapshot({ ...synced, mode: preserveMode }, true);
   };
 
   const handleNewDocument = async () => {
@@ -994,11 +1030,23 @@ export default function App() {
   ]);
 
   const handleSetMode = async (nextMode: EditorMode) => {
-    await withBusy(async () => {
-      await syncActiveDraft();
-      const next = await setMode(nextMode);
-      applySnapshot(next, true);
-    });
+    if (currentMode === nextMode) {
+      return;
+    }
+
+    const previousMode = currentMode;
+    applyModeOptimistically(nextMode);
+
+    try {
+      await withBusy(async () => {
+        await syncActiveDraft(nextMode);
+        const next = await setMode(nextMode);
+        applySnapshot(next, true);
+      });
+    } catch (error) {
+      console.error(error);
+      applyModeOptimistically(previousMode);
+    }
   };
 
   const handleSetTheme = async (themeKind: ThemeKind) => {
@@ -1071,6 +1119,9 @@ export default function App() {
         return;
       case MENU_COMMAND_CLOSE_WINDOW:
         await handleWindowCloseCommand();
+        return;
+      case MENU_COMMAND_QUIT_APP:
+        await handleQuitCommand();
         return;
       case 'mode-wysiwyg':
         await handleSetMode('Wysiwyg');
@@ -1201,6 +1252,12 @@ export default function App() {
         return;
       }
 
+      if (matchesShortcut(event, 'q')) {
+        event.preventDefault();
+        void handleQuitCommand();
+        return;
+      }
+
       if (matchesShortcut(event, '1')) {
         event.preventDefault();
         void handleSetMode('Editor');
@@ -1251,8 +1308,17 @@ export default function App() {
     };
   }, []);
 
+  const closeTarget = async (target: CloseTarget) => {
+    if (target === 'app') {
+      await quitApp();
+      return;
+    }
+
+    await getCurrentWindow().destroy();
+  };
+
   const handleWindowCloseRequest = useEffectEvent(
-    async (event: { preventDefault: () => void }) => {
+    async (event: { preventDefault: () => void }, target: CloseTarget = 'window') => {
       if (!hasUnsavedChanges) {
         return;
       }
@@ -1264,7 +1330,6 @@ export default function App() {
       }
 
       try {
-        const currentWindow = getCurrentWindow();
         const decision = await message(
           `Save changes to '${snapshot.activeDocumentName ?? 'Untitled.md'}' before closing?`,
           {
@@ -1278,18 +1343,18 @@ export default function App() {
           },
         );
 
-        if (decision === 'Save') {
+        if (isSaveCloseDecision(decision)) {
           await withBusy(async () => {
             const saved = await saveActiveDocumentForClose();
             if (saved) {
-              await currentWindow.destroy();
+              await closeTarget(target);
             }
           });
           return;
         }
 
-        if (decision === "Don't Save") {
-          await currentWindow.destroy();
+        if (isDiscardCloseDecision(decision)) {
+          await closeTarget(target);
         }
       } catch (error) {
         console.error(error);
@@ -1309,6 +1374,23 @@ export default function App() {
 
     if (!prevented) {
       await currentWindow.destroy();
+    }
+  };
+
+  const handleQuitCommand = async () => {
+    let prevented = false;
+
+    await handleWindowCloseRequest(
+      {
+        preventDefault: () => {
+          prevented = true;
+        },
+      },
+      'app',
+    );
+
+    if (!prevented) {
+      await quitApp();
     }
   };
 

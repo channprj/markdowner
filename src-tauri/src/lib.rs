@@ -22,6 +22,7 @@ const MENU_COMMAND_OPEN_RECENT_DOCUMENT_PREFIX: &str = "open-recent-document:";
 const MENU_COMMAND_SAVE_ACTIVE_DOCUMENT: &str = "save-active-document";
 const MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS: &str = "save-active-document-as";
 const MENU_COMMAND_CLOSE_WINDOW: &str = "close-window";
+const MENU_COMMAND_QUIT_APP: &str = "quit-app";
 const MENU_COMMAND_SET_MODE_WYSIWYG: &str = "mode-wysiwyg";
 const MENU_COMMAND_SET_MODE_EDITOR: &str = "mode-editor";
 const MENU_COMMAND_SET_MODE_SPLITVIEW: &str = "mode-splitview";
@@ -69,6 +70,11 @@ const FILE_MENU_COMMANDS: &[MenuCommandDescriptor] = &[
         id: MENU_COMMAND_CLOSE_WINDOW,
         label: "Close",
         accelerator: "CmdOrCtrl+W",
+    },
+    MenuCommandDescriptor {
+        id: MENU_COMMAND_QUIT_APP,
+        label: "Quit Markdowner",
+        accelerator: "CmdOrCtrl+Q",
     },
 ];
 
@@ -346,6 +352,7 @@ fn menu_command_from_id(id: &str) -> Option<String> {
         MENU_COMMAND_SAVE_ACTIVE_DOCUMENT => Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT.to_string()),
         MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS => Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS.to_string()),
         MENU_COMMAND_CLOSE_WINDOW => Some(MENU_COMMAND_CLOSE_WINDOW.to_string()),
+        MENU_COMMAND_QUIT_APP => Some(MENU_COMMAND_QUIT_APP.to_string()),
         MENU_COMMAND_SET_MODE_WYSIWYG => Some(MENU_COMMAND_SET_MODE_WYSIWYG.to_string()),
         MENU_COMMAND_SET_MODE_EDITOR => Some(MENU_COMMAND_SET_MODE_EDITOR.to_string()),
         MENU_COMMAND_SET_MODE_SPLITVIEW => Some(MENU_COMMAND_SET_MODE_SPLITVIEW.to_string()),
@@ -491,13 +498,13 @@ fn load_settings(app_handle: tauri::AppHandle) -> Result<markdowner_core::settin
 #[tauri::command]
 fn save_settings(settings: markdowner_core::settings::Settings, app_handle: tauri::AppHandle) -> Result<(), String> {
     let path = settings_path(&app_handle)?;
-        
+
     let payload = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    
+
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    
+
     // Atomic write
     let temp_path = path.with_extension("tmp");
     std::fs::write(&temp_path, payload).map_err(|e| e.to_string())?;
@@ -521,6 +528,11 @@ fn open_dropped_path(
             Err(format!("Path not found: {}", path_obj.display()))
         }
     })
+}
+
+#[tauri::command]
+fn quit_app(app_handle: AppHandle) {
+    app_handle.exit(0);
 }
 
 pub fn run() {
@@ -606,6 +618,7 @@ pub fn run() {
             load_settings,
             save_settings,
             open_dropped_path,
+            quit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Markdowner desktop shell");
@@ -620,9 +633,10 @@ mod tests {
 
     use super::{
         DesktopBackend, FILE_MENU_COMMANDS, MENU_COMMAND_CLOSE_WINDOW, MENU_COMMAND_NEW_DOCUMENT,
-        MENU_COMMAND_OPEN_DOCUMENT, MENU_COMMAND_OPEN_WORKSPACE, MENU_COMMAND_SAVE_ACTIVE_DOCUMENT,
-        MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS, MENU_COMMAND_SET_MODE_SPLITVIEW, MENU_FILE_TITLE,
-        MENU_VIEW_TITLE, VIEW_MENU_COMMANDS, menu_command_from_id,
+        MENU_COMMAND_OPEN_DOCUMENT, MENU_COMMAND_OPEN_WORKSPACE, MENU_COMMAND_QUIT_APP,
+        MENU_COMMAND_SAVE_ACTIVE_DOCUMENT, MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS,
+        MENU_COMMAND_SET_MODE_SPLITVIEW, MENU_FILE_TITLE, MENU_VIEW_TITLE, VIEW_MENU_COMMANDS,
+        menu_command_from_id,
     };
 
     #[test]
@@ -795,6 +809,7 @@ mod tests {
                 MENU_COMMAND_SAVE_ACTIVE_DOCUMENT,
                 MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS,
                 MENU_COMMAND_CLOSE_WINDOW,
+                MENU_COMMAND_QUIT_APP,
             ]
         );
         assert_eq!(
@@ -851,6 +866,10 @@ mod tests {
         assert_eq!(
             menu_command_from_id(MENU_COMMAND_CLOSE_WINDOW),
             Some(MENU_COMMAND_CLOSE_WINDOW.to_string())
+        );
+        assert_eq!(
+            menu_command_from_id(MENU_COMMAND_QUIT_APP),
+            Some(MENU_COMMAND_QUIT_APP.to_string())
         );
         assert_eq!(menu_command_from_id("unknown-command"), None);
     }
