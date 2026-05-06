@@ -619,6 +619,29 @@ function centerSourceEditorLine(view: EditorView) {
   }
 }
 
+function centerTiptapEditorLine(editor: any) {
+  const scrollElement = document.querySelector('[data-testid="editor-surface-wysiwyg"]');
+  if (!scrollElement || scrollElement.clientHeight <= 0) return;
+
+  const { view } = editor;
+  if (!view || !view.state) return;
+  const { selection } = view.state;
+  
+  try {
+    const coords = view.coordsAtPos(selection.head);
+    const scrollRect = scrollElement.getBoundingClientRect();
+    const offsetToCenter = coords.top - scrollRect.top + scrollElement.scrollTop;
+    
+    const nextScrollTop = Math.max(0, offsetToCenter - scrollElement.clientHeight / 2);
+
+    if (Number.isFinite(nextScrollTop)) {
+      scrollElement.scrollTop = nextScrollTop;
+    }
+  } catch (e) {
+    // coordsAtPos might fail if the position is not drawn yet
+  }
+}
+
 export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(EMPTY_SNAPSHOT);
   const [localDraft, setLocalDraft] = useState('');
@@ -1091,6 +1114,14 @@ export default function App() {
       if (currentMode === 'Wysiwyg') {
         setLocalDraft(nextEditor.getMarkdown());
       }
+      if (settings.typewriterModeEnabled && currentMode === 'Wysiwyg') {
+        window.requestAnimationFrame(() => centerTiptapEditorLine(nextEditor));
+      }
+    },
+    onSelectionUpdate: ({ editor: nextEditor }) => {
+      if (settings.typewriterModeEnabled && currentMode === 'Wysiwyg') {
+        window.requestAnimationFrame(() => centerTiptapEditorLine(nextEditor));
+      }
     },
     immediatelyRender: false,
   });
@@ -1145,6 +1176,17 @@ export default function App() {
     });
     return () => window.cancelAnimationFrame(animationFrame);
   }, [settings.typewriterModeEnabled, currentMode]);
+
+  useEffect(() => {
+    if (!settings.typewriterModeEnabled || !editor) {
+      return;
+    }
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      centerTiptapEditorLine(editor);
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [settings.typewriterModeEnabled, currentMode, editor]);
 
   const withBusy = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -1659,6 +1701,18 @@ export default function App() {
       if (matchesShortcut(event, '3')) {
         event.preventDefault();
         void handleSetMode('SplitView');
+        return;
+      }
+
+      if (matchesShortcut(event, 'f', { shift: true })) {
+        event.preventDefault();
+        handleSettingsChange({ ...settings, focusModeEnabled: !settings.focusModeEnabled });
+        return;
+      }
+
+      if (matchesShortcut(event, 't', { shift: true })) {
+        event.preventDefault();
+        handleSettingsChange({ ...settings, typewriterModeEnabled: !settings.typewriterModeEnabled });
       }
     };
 
@@ -1667,7 +1721,7 @@ export default function App() {
     return () => {
       window.removeEventListener('keydown', handleKeyboardShortcut);
     };
-  }, [busy, localDraft, snapshot]);
+  }, [busy, localDraft, snapshot, settings]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1935,6 +1989,20 @@ export default function App() {
       shortcut: option.shortcutSymbol,
       run: () => void handleSetMode(option.mode),
     })),
+    {
+      id: 'preferences.toggleFocusMode',
+      category: 'Preferences',
+      label: settings.focusModeEnabled ? 'Disable Focus Mode' : 'Enable Focus Mode',
+      shortcut: '⌘⇧F',
+      run: () => handleSettingsChange({ ...settings, focusModeEnabled: !settings.focusModeEnabled }),
+    },
+    {
+      id: 'preferences.toggleTypewriterMode',
+      category: 'Preferences',
+      label: settings.typewriterModeEnabled ? 'Disable Typewriter Mode' : 'Enable Typewriter Mode',
+      shortcut: '⌘⇧T',
+      run: () => handleSettingsChange({ ...settings, typewriterModeEnabled: !settings.typewriterModeEnabled }),
+    },
     {
       id: 'preferences.toggleWordWrap',
       category: 'Preferences',

@@ -203,6 +203,8 @@
   }
   .editor-typewriter-mode {
     scroll-padding-block: 45%;
+    padding-top: 35vh;
+    padding-bottom: 35vh;
   }
   .markdown-surface ul[data-type="taskList"] {
     @apply list-none pl-0;
