@@ -24,19 +24,17 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cn } from '@/lib/utils';
 import { ActivityBar } from '@/shell/ActivityBar';
+import { AppMenu } from '@/shell/AppMenu';
 import { CommandPalette, type CommandPaletteCommand } from '@/shell/CommandPalette';
 import { DocumentStatsDialog } from '@/shell/DocumentStatsDialog';
 import { EditorArea } from '@/shell/EditorArea';
-import { Header } from '@/shell/Header';
 import { QuickOpen, type QuickOpenItem } from '@/shell/QuickOpen';
 import { SideBar, type OutlineItem, type SideBarPanel } from '@/shell/SideBar';
 import { StatusBar } from '@/shell/StatusBar';
@@ -600,7 +598,6 @@ export default function App() {
       ? true
       : snapshot.activeDocumentDirty;
   const errorMessage = snapshot.lastError;
-  const activeDocumentName = snapshot.activeDocumentName ?? 'No document open';
   const workspaceTree = buildWorkspaceTree(snapshot.workspaceDocuments, snapshot.rootDir);
   const filteredWorkspaceTree = filterWorkspaceTree(workspaceTree, workspaceFilter);
   const filteringWorkspace = workspaceFilter.trim().length > 0;
@@ -1610,139 +1607,33 @@ export default function App() {
   ];
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground">
-      <Header
-        title={activeDocumentName ? `${activeDocumentName}${snapshot.activeDocumentDirty ? ' •' : ''}` : 'Markdowner'}
-        titleTooltip={snapshot.activeDocumentPath ?? undefined}
-        leftContent={
-          <>
-            {busy ? (
-              <Badge variant="secondary" role="status" aria-label="Working" className="h-6 px-2">
-                Working…
-              </Badge>
-            ) : null}
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn('h-8 w-8', isSidebarOpen && 'bg-accent text-accent-foreground')}
-              onClick={handleToggleSidebar}
-              title="Toggle Sidebar (Cmd+B)"
-              aria-label="Toggle Sidebar"
-              aria-pressed={isSidebarOpen}
-              aria-keyshortcuts="Meta+B Control+B"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-panel-left"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8"
-              onClick={handleSave}
-              disabled={!activeDocumentOpen || busy}
-              title="Save (Cmd+S)"
-              aria-keyshortcuts="Meta+S Control+S"
-            >
-              Save
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8"
-              onClick={handleSaveAs}
-              disabled={!activeDocumentOpen || busy}
-              title="Save As (Cmd+Shift+S)"
-              aria-keyshortcuts="Meta+Shift+S Control+Shift+S"
-            >
-              Save As…
-            </Button>
-          </>
-        }
-        rightContent={
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8"
-              onClick={handleImportTheme}
-              disabled={busy}
-              title="Import a custom CSS theme"
-            >
-              Import CSS…
-            </Button>
-            <ToggleGroup
-              type="single"
-              value={currentMode}
-              onValueChange={(value) => {
-                if (value) {
-                  void handleSetMode(value as EditorMode);
-                }
-              }}
-              variant="outline"
-              size="sm"
-              className="h-8"
-            >
-              {EDITOR_MODE_OPTIONS.map((option) => (
-                <ToggleGroupItem
-                  key={option.mode}
-                  value={option.mode}
-                  disabled={busy}
-                  aria-label={option.label}
-                  title={`${option.label} (${option.shortcutText})`}
-                  aria-keyshortcuts={option.ariaKeyshortcuts}
-                >
-                  {option.label}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-            <ToggleGroup
-              type="single"
-              value={
-                themeMode === 'system'
-                  ? 'system'
-                  : snapshot.theme.kind === 'CustomCss'
-                  ? ''
-                  : snapshot.theme.kind
-              }
-              onValueChange={(value) => {
-                if (!value) return;
-                if (value === 'system') {
-                  void handleFollowSystemTheme();
-                } else {
-                  void handleSetTheme(value as ThemeKind);
-                }
-              }}
-              variant="outline"
-              size="sm"
-              className="h-8"
-            >
-              <ToggleGroupItem
-                value="BuiltInLight"
-                disabled={busy}
-                aria-label="Light theme"
-                title="Light theme"
-              >
-                Light
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="BuiltInDark"
-                disabled={busy}
-                aria-label="Dark theme"
-                title="Dark theme"
-              >
-                Dark
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="system"
-                disabled={busy}
-                aria-label="Follow system theme"
-                title="Follow system theme"
-              >
-                System
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </>
-        }
-      />
+    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
+      <div
+        data-testid="app-titlebar"
+        className="flex h-9 shrink-0 items-center border-b border-border/60 bg-background"
+      >
+        <div data-tauri-drag-region className="h-full w-20 shrink-0" />
+        <div
+          data-tauri-drag-region
+          data-testid="app-titlebar-drag-region"
+          className="h-full min-w-0 flex-1"
+        />
+        <AppMenu
+          className="mr-2"
+          busy={busy}
+          activeDocumentOpen={activeDocumentOpen}
+          currentMode={currentMode}
+          themeKind={snapshot.theme.kind}
+          themeMode={themeMode}
+          onSave={() => void handleSave()}
+          onSaveAs={() => void handleSaveAs()}
+          onImportTheme={() => void handleImportTheme()}
+          onSetMode={(mode) => void handleSetMode(mode)}
+          onSetTheme={(theme) => void handleSetTheme(theme)}
+          onFollowSystemTheme={() => void handleFollowSystemTheme()}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+        />
+      </div>
       <div
         className={cn(
           'min-h-0 flex-1 grid',
@@ -1893,7 +1784,10 @@ export default function App() {
       <StatusBar
         mode={formatEditorMode(currentMode)}
         theme={formatThemeLabel(snapshot.theme.kind)}
+        busy={busy}
         isDirty={activeDocumentOpen ? snapshot.activeDocumentDirty : null}
+        documentName={snapshot.activeDocumentName}
+        documentPath={snapshot.activeDocumentPath}
         workspaceName={snapshot.rootDir ? displayFileName(snapshot.rootDir) : null}
         activeDocumentLabel={
           snapshot.activeDocumentPath

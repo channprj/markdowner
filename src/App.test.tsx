@@ -129,6 +129,12 @@ const baseSnapshot = (overrides: Partial<AppSnapshot> = {}): AppSnapshot => ({
   ...overrides,
 });
 
+async function openAppMenu() {
+  const menuButton = await screen.findByRole('button', { name: /^app menu$/i });
+  fireEvent.click(menuButton);
+  return screen.findByRole('menu', { name: /^app menu$/i });
+}
+
 describe('App recent documents', () => {
   afterEach(() => {
     cleanup();
@@ -761,7 +767,7 @@ describe('App recent documents', () => {
     expect(document.title).toBe('● meeting-notes.md — Markdowner');
   });
 
-  it('surfaces the active document path as a hover tooltip on the Header title', async () => {
+  it('surfaces the active document name and path in the status bar', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'meeting-notes.md',
@@ -772,11 +778,15 @@ describe('App recent documents', () => {
 
     const { default: App } = await import('./App');
 
-    const { unmount } = render(<App />);
+    const { container, unmount } = render(<App />);
 
-    const headerTitle = await screen.findByTestId('header-title');
+    const statusBar = container.querySelector('footer');
+    expect(statusBar).not.toBeNull();
+    const documentLabel = await within(statusBar as HTMLElement).findByText(
+      /^meeting-notes\.md$/,
+    );
     await waitFor(() => {
-      expect(headerTitle).toHaveAttribute('title', '/tmp/project/meeting-notes.md');
+      expect(documentLabel).toHaveAttribute('title', '/tmp/project/meeting-notes.md');
     });
 
     unmount();
@@ -786,8 +796,8 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    const emptyHeaderTitle = await screen.findByTestId('header-title');
-    expect(emptyHeaderTitle).not.toHaveAttribute('title');
+    await screen.findByText(/Start your next document/);
+    expect(screen.queryByText(/^meeting-notes\.md$/)).not.toBeInTheDocument();
   });
 
   it('exposes a System theme toggle that persists themeFollowSystem through settings', async () => {
@@ -823,9 +833,12 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    const lightToggle = await screen.findByRole('radio', { name: /light theme/i });
-    const darkToggle = screen.getByRole('radio', { name: /dark theme/i });
-    const systemToggle = screen.getByRole('radio', { name: /follow system theme/i });
+    let menu = await openAppMenu();
+    let lightToggle = within(menu).getByRole('menuitemradio', { name: /light theme/i });
+    const darkToggle = within(menu).getByRole('menuitemradio', { name: /dark theme/i });
+    const systemToggle = within(menu).getByRole('menuitemradio', {
+      name: /follow system theme/i,
+    });
 
     expect(lightToggle).toBeInTheDocument();
     expect(darkToggle).toBeInTheDocument();
@@ -842,6 +855,8 @@ describe('App recent documents', () => {
       });
     });
 
+    menu = await openAppMenu();
+    lightToggle = within(menu).getByRole('menuitemradio', { name: /light theme/i });
     fireEvent.click(lightToggle);
 
     await waitFor(() => {
@@ -940,11 +955,10 @@ describe('App recent documents', () => {
 
     const { default: App } = await import('./App');
 
-    const view = render(<App />);
+    render(<App />);
 
-    const saveAsButton = within(view.container).getByRole('button', {
-      name: /save as/i,
-    });
+    const menu = await openAppMenu();
+    const saveAsButton = within(menu).getByRole('menuitem', { name: /^save as…$/i });
 
     await waitFor(() => {
       expect(saveAsButton).not.toHaveAttribute('disabled');
@@ -963,7 +977,7 @@ describe('App recent documents', () => {
     });
   });
 
-  it('exposes keyboard-shortcut tooltips on the Header Save and Save As buttons', async () => {
+  it('exposes keyboard-shortcut tooltips on app menu file actions', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'meeting-notes.md',
@@ -974,15 +988,12 @@ describe('App recent documents', () => {
 
     const { default: App } = await import('./App');
 
-    const view = render(<App />);
+    render(<App />);
 
-    const saveButton = await waitFor(() =>
-      within(view.container).getByRole('button', { name: /^save$/i }),
-    );
-    const saveAsButton = within(view.container).getByRole('button', {
-      name: /^save as…$/i,
-    });
-    const importCssButton = within(view.container).getByRole('button', {
+    const menu = await openAppMenu();
+    const saveButton = within(menu).getByRole('menuitem', { name: /^save$/i });
+    const saveAsButton = within(menu).getByRole('menuitem', { name: /^save as…$/i });
+    const importCssButton = within(menu).getByRole('menuitem', {
       name: /^import css…$/i,
     });
 
@@ -991,7 +1002,7 @@ describe('App recent documents', () => {
     expect(importCssButton).toHaveAttribute('title', 'Import a custom CSS theme');
   });
 
-  it('exposes aria-keyshortcuts on the Header shortcut buttons and mode toggles', async () => {
+  it('exposes aria-keyshortcuts on app menu shortcut actions and mode items', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'meeting-notes.md',
@@ -1002,26 +1013,21 @@ describe('App recent documents', () => {
 
     const { default: App } = await import('./App');
 
-    const view = render(<App />);
+    render(<App />);
 
-    const toggleSidebarButton = await waitFor(() =>
-      within(view.container).getByRole('button', { name: /^toggle sidebar$/i }),
-    );
-    const saveButton = within(view.container).getByRole('button', { name: /^save$/i });
-    const saveAsButton = within(view.container).getByRole('button', {
-      name: /^save as…$/i,
-    });
+    const menu = await openAppMenu();
+    const saveButton = within(menu).getByRole('menuitem', { name: /^save$/i });
+    const saveAsButton = within(menu).getByRole('menuitem', { name: /^save as…$/i });
 
-    expect(toggleSidebarButton).toHaveAttribute('aria-keyshortcuts', 'Meta+B Control+B');
     expect(saveButton).toHaveAttribute('aria-keyshortcuts', 'Meta+S Control+S');
     expect(saveAsButton).toHaveAttribute(
       'aria-keyshortcuts',
       'Meta+Shift+S Control+Shift+S',
     );
 
-    const editorToggle = within(view.container).getByRole('radio', { name: 'Editor' });
-    const wysiwygToggle = within(view.container).getByRole('radio', { name: 'WYSIWYG' });
-    const splitToggle = within(view.container).getByRole('radio', { name: 'Split View' });
+    const editorToggle = within(menu).getByRole('menuitemradio', { name: 'Editor' });
+    const wysiwygToggle = within(menu).getByRole('menuitemradio', { name: 'WYSIWYG' });
+    const splitToggle = within(menu).getByRole('menuitemradio', { name: 'Split View' });
 
     expect(editorToggle).toHaveAttribute('aria-keyshortcuts', 'Meta+1 Control+1');
     expect(wysiwygToggle).toHaveAttribute('aria-keyshortcuts', 'Meta+2 Control+2');
@@ -1050,16 +1056,19 @@ describe('App recent documents', () => {
     expect(settingsButton).toHaveAttribute('aria-keyshortcuts', 'Meta+, Control+,');
   });
 
-  it('exposes consistent tooltips on the Header theme toggle items', async () => {
+  it('exposes consistent tooltips on app menu theme items', async () => {
     bootstrapMock.mockResolvedValue(baseSnapshot());
 
     const { default: App } = await import('./App');
 
     render(<App />);
 
-    const lightToggle = await screen.findByRole('radio', { name: /light theme/i });
-    const darkToggle = screen.getByRole('radio', { name: /dark theme/i });
-    const systemToggle = screen.getByRole('radio', { name: /follow system theme/i });
+    const menu = await openAppMenu();
+    const lightToggle = within(menu).getByRole('menuitemradio', { name: /light theme/i });
+    const darkToggle = within(menu).getByRole('menuitemradio', { name: /dark theme/i });
+    const systemToggle = within(menu).getByRole('menuitemradio', {
+      name: /follow system theme/i,
+    });
 
     expect(lightToggle).toHaveAttribute('title', 'Light theme');
     expect(darkToggle).toHaveAttribute('title', 'Dark theme');
@@ -1143,7 +1152,8 @@ describe('App recent documents', () => {
 
     await screen.findByText(/^Untitled\.md/);
 
-    const saveButton = await screen.findByRole('button', { name: /^save$/i });
+    const menu = await openAppMenu();
+    const saveButton = within(menu).getByRole('menuitem', { name: /^save$/i });
     await waitFor(() => {
       expect(saveButton).not.toHaveAttribute('disabled');
     });
@@ -1184,7 +1194,8 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    const saveButton = await screen.findByRole('button', { name: /^save$/i });
+    const menu = await openAppMenu();
+    const saveButton = within(menu).getByRole('menuitem', { name: /^save$/i });
     await screen.findByText(/^meeting-notes\.md/);
     fireEvent.click(saveButton);
 
@@ -1220,7 +1231,8 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    const saveButton = await screen.findByRole('button', { name: /^save$/i });
+    const menu = await openAppMenu();
+    const saveButton = within(menu).getByRole('menuitem', { name: /^save$/i });
     await screen.findByText(/^meeting-notes\.md/);
     fireEvent.click(saveButton);
 
@@ -1251,7 +1263,8 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    const saveButton = await screen.findByRole('button', { name: /^save$/i });
+    const menu = await openAppMenu();
+    const saveButton = within(menu).getByRole('menuitem', { name: /^save$/i });
     await screen.findByText(/^meeting-notes\.md/);
     fireEvent.click(saveButton);
 
@@ -1283,7 +1296,8 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    const saveButton = await screen.findByRole('button', { name: /^save$/i });
+    const menu = await openAppMenu();
+    const saveButton = within(menu).getByRole('menuitem', { name: /^save$/i });
     fireEvent.click(saveButton);
 
     const compareButton = await screen.findByRole('button', { name: /compare/i });
@@ -1562,7 +1576,7 @@ describe('App recent documents', () => {
     expect(await screen.findByRole('dialog', { name: /document stats/i })).toBeInTheDocument();
   });
 
-  it('renders friendly mode labels in the header toggle and status bar', async () => {
+  it('renders friendly mode labels in the app menu and status bar', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'meeting-notes.md',
@@ -1578,22 +1592,25 @@ describe('App recent documents', () => {
 
     await screen.findByText(/^meeting-notes\.md/);
 
-    const editorToggle = screen.getByRole('radio', { name: 'Editor' });
-    const wysiwygToggle = screen.getByRole('radio', { name: 'WYSIWYG' });
-    const splitToggle = screen.getByRole('radio', { name: 'Split View' });
+    const menu = await openAppMenu();
+    const editorToggle = within(menu).getByRole('menuitemradio', { name: 'Editor' });
+    const wysiwygToggle = within(menu).getByRole('menuitemradio', { name: 'WYSIWYG' });
+    const splitToggle = within(menu).getByRole('menuitemradio', { name: 'Split View' });
 
     expect(editorToggle).toHaveAttribute('title', 'Editor (Cmd+1)');
     expect(wysiwygToggle).toHaveAttribute('title', 'WYSIWYG (Cmd+2)');
     expect(splitToggle).toHaveAttribute('title', 'Split View (Cmd+3)');
 
-    const toggles = screen.getAllByRole('radio');
+    const toggles = within(menu).getAllByRole('menuitemradio');
     expect(toggles[0]).toBe(editorToggle);
     expect(toggles[1]).toBe(wysiwygToggle);
     expect(toggles[2]).toBe(splitToggle);
 
     expect(splitToggle).toHaveAttribute('aria-checked', 'true');
 
-    expect(screen.getAllByText('Split View').length).toBeGreaterThanOrEqual(2);
+    const statusBar = document.querySelector('footer');
+    expect(statusBar).not.toBeNull();
+    expect(within(statusBar as HTMLElement).getByText('Split View')).toBeInTheDocument();
   });
 
   it('restores the persisted sidebar width on startup and clamps it to 220-320px', async () => {
@@ -1907,24 +1924,26 @@ describe('App recent documents', () => {
     expect(searchButton).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('marks the Header Toggle Sidebar button as pressed while the Sidebar is open', async () => {
+  it('reserves a draggable top titlebar with a compact app menu', async () => {
     bootstrapMock.mockResolvedValue(baseSnapshot());
 
     const { default: App } = await import('./App');
 
-    render(<App />);
+    const { container } = render(<App />);
 
-    const toggleButton = await screen.findByRole('button', { name: /^toggle sidebar$/i });
+    await screen.findByText(/Start your next document/);
 
-    expect(toggleButton).toHaveAttribute('aria-pressed', 'false');
+    expect(container.querySelector('header')).toBeNull();
+    const titlebar = screen.getByTestId('app-titlebar');
+    const dragRegion = screen.getByTestId('app-titlebar-drag-region');
+    const menuButton = within(titlebar).getByRole('button', { name: /^app menu$/i });
 
-    fireEvent.click(toggleButton);
-
-    expect(toggleButton).toHaveAttribute('aria-pressed', 'true');
-
-    fireEvent.click(toggleButton);
-
-    expect(toggleButton).toHaveAttribute('aria-pressed', 'false');
+    expect(titlebar).toHaveClass('h-9');
+    expect(dragRegion).toHaveAttribute('data-tauri-drag-region');
+    expect(dragRegion).toHaveClass('flex-1');
+    expect(menuButton).toHaveClass('h-7', 'w-7');
+    expect(menuButton.className).not.toContain('shadow');
+    expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument();
   });
 
   it('opens the Command Palette with Cmd+Shift+P and runs a selected command', async () => {
@@ -3217,6 +3236,7 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
+    await screen.findByText(/^meeting-notes\.md$/);
 
     const preventDefault = vi.fn();
     await closeRequestedHandler?.({ preventDefault });
@@ -3263,6 +3283,7 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
+    await screen.findByText(/^meeting-notes\.md$/);
 
     const preventDefault = vi.fn();
     await closeRequestedHandler?.({ preventDefault });
@@ -3337,6 +3358,7 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
+    await screen.findByText(/^meeting-notes\.md$/);
 
     const preventDefault = vi.fn();
     await closeRequestedHandler?.({ preventDefault });
@@ -3387,6 +3409,7 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
+    await screen.findByText(/^meeting-notes\.md$/);
 
     const preventDefault = vi.fn();
     await closeRequestedHandler?.({ preventDefault });
@@ -3428,6 +3451,7 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
+    await screen.findByText(/^Untitled\.md$/);
 
     const preventDefault = vi.fn();
     await closeRequestedHandler?.({ preventDefault });

@@ -29,8 +29,10 @@
         "title": "Markdowner",
         "width": 1440,
         "height": 920,
-        "minWidth": 1120,
-        "minHeight": 720
+        "minWidth": 380,
+        "minHeight": 720,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {
