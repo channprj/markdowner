@@ -29,6 +29,7 @@ const openDialogMock = vi.fn();
 const saveDialogMock = vi.fn();
 const messageMock = vi.fn();
 const destroyWindowMock = vi.fn();
+const startDraggingMock = vi.fn();
 const onCloseRequestedMock = vi.fn();
 const onDragDropEventMock = vi.fn().mockImplementation(() => Promise.resolve(vi.fn()));
 const listenMock = vi.fn();
@@ -66,6 +67,7 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: () => ({
     destroy: destroyWindowMock,
+    startDragging: startDraggingMock,
     onCloseRequested: onCloseRequestedMock,
     onDragDropEvent: onDragDropEventMock,
   }),
@@ -158,6 +160,7 @@ describe('App recent documents', () => {
     saveDialogMock.mockReset();
     messageMock.mockReset();
     destroyWindowMock.mockReset();
+    startDraggingMock.mockReset();
     onCloseRequestedMock.mockReset();
     listenMock.mockReset();
     hasActiveDocumentExternalChangesMock.mockReset();
@@ -1938,9 +1941,11 @@ describe('App recent documents', () => {
     const dragRegion = screen.getByTestId('app-titlebar-drag-region');
     const menuButton = within(titlebar).getByRole('button', { name: /^app menu$/i });
 
-    expect(titlebar).toHaveClass('h-9');
+    expect(titlebar).toHaveClass('h-[35px]');
     expect(dragRegion).toHaveAttribute('data-tauri-drag-region');
     expect(dragRegion).toHaveClass('flex-1');
+    fireEvent.pointerDown(dragRegion, { button: 0 });
+    expect(startDraggingMock).toHaveBeenCalledTimes(1);
     expect(menuButton).toHaveClass('h-7', 'w-7');
     expect(menuButton.className).not.toContain('shadow');
     expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument();
