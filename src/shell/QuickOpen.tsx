@@ -1,12 +1,5 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
@@ -52,8 +45,11 @@ function filterItems(items: QuickOpenItem[], query: string): QuickOpenItem[] {
 export function QuickOpen({ open, onOpenChange, items, onSelect }: QuickOpenProps) {
   const [query, setQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const listboxId = useId();
+  const titleId = useId();
+  const descriptionId = useId();
 
   const filtered = useMemo(() => filterItems(items, query), [items, query]);
   const activeOptionId =
@@ -69,6 +65,11 @@ export function QuickOpen({ open, onOpenChange, items, onSelect }: QuickOpenProp
   useEffect(() => {
     setHighlightedIndex(0);
   }, [query]);
+
+  useEffect(() => {
+    if (!open) return;
+    inputRef.current?.focus();
+  }, [open]);
 
   useEffect(() => {
     const list = listRef.current;
@@ -87,6 +88,12 @@ export function QuickOpen({ open, onOpenChange, items, onSelect }: QuickOpenProp
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onOpenChange(false);
+      return;
+    }
+
     if (filtered.length === 0) {
       return;
     }
@@ -130,19 +137,31 @@ export function QuickOpen({ open, onOpenChange, items, onSelect }: QuickOpenProp
     }
   };
 
+  if (!open) {
+    return null;
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton={false}
-        className="sm:max-w-lg p-0 gap-0 overflow-hidden top-[20%] translate-y-0"
+    <div className="fixed inset-0 z-50" role="presentation">
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 cursor-default bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
+        onMouseDown={() => onOpenChange(false)}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        className="fixed top-[20%] left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 gap-0 overflow-hidden rounded-xl bg-popover p-0 text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-lg"
       >
-        <DialogHeader className="sr-only">
-          <DialogTitle>Quick Open</DialogTitle>
-          <DialogDescription>Search workspace files by name.</DialogDescription>
-        </DialogHeader>
+        <div className="sr-only">
+          <h2 id={titleId}>Quick Open</h2>
+          <p id={descriptionId}>Search workspace files by name.</p>
+        </div>
         <div className="border-b border-border px-3 py-2">
           <Input
-            autoFocus
+            ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleKeyDown}
@@ -209,7 +228,7 @@ export function QuickOpen({ open, onOpenChange, items, onSelect }: QuickOpenProp
             })
           )}
         </ul>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   );
 }

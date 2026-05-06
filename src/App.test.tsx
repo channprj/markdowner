@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AppSnapshot, EditorMode } from './lib/desktop';
@@ -2082,6 +2083,33 @@ describe('App recent documents', () => {
     fireEvent.click(searchButton);
 
     await screen.findByRole('dialog', { name: /quick open/i });
+  });
+
+  it('opens Quick Open without mounting the shared Radix dialog overlay', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        rootDir: '/tmp/project',
+        workspaceDocuments: ['/tmp/project/README.md'],
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+
+    fireEvent.keyDown(window, { key: 'p', metaKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /quick open/i });
+    const input = within(dialog).getByRole('textbox', {
+      name: /quick open file search/i,
+    });
+
+    expect(input).toHaveFocus();
+    expect(document.querySelector('[data-slot="dialog-overlay"]')).toBeNull();
   });
 
   it('marks the Activity Bar Search button as pressed while the Quick Open dialog is open', async () => {
