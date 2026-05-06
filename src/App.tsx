@@ -413,6 +413,7 @@ export default function App() {
   });
   const sourceEditorViewRef = useRef<EditorView | null>(null);
   const sourceEditorContainerRef = useRef<HTMLDivElement | null>(null);
+  const modeRequestIdRef = useRef(0);
   const activeDocumentOpen = snapshot.activeDocumentSource !== null;
 
   useEffect(() => {
@@ -726,9 +727,22 @@ export default function App() {
       return;
     }
 
+    const activeDocumentPath = snapshot.activeDocumentPath;
     const timeout = window.setTimeout(() => {
       replaceActiveDocumentSource(localDraft)
-        .then((next) => applySnapshot({ ...next, mode: snapshot.mode }, true))
+        .then((next) => {
+          startTransition(() => {
+            setSnapshot((current) => {
+              if (current.activeDocumentPath !== activeDocumentPath) {
+                return current;
+              }
+              return { ...next, mode: current.mode };
+            });
+            setExternalChangeMessage(null);
+            setShowExternalChangeActions(false);
+            setExternalCompareSource(null);
+          });
+        })
         .catch((error) => console.error(error));
     }, 180);
 
@@ -1037,18 +1051,34 @@ export default function App() {
       return;
     }
 
+    const requestId = modeRequestIdRef.current + 1;
+    modeRequestIdRef.current = requestId;
     const previousMode = currentMode;
     applyModeOptimistically(nextMode);
 
     try {
-      await withBusy(async () => {
-        await syncActiveDraft(nextMode);
-        const next = await setMode(nextMode);
-        applySnapshot(next, true);
-      });
+      if (
+        activeDocumentOpen &&
+        snapshot.activeDocumentSource !== null &&
+        localDraft !== snapshot.activeDocumentSource
+      ) {
+        const synced = await replaceActiveDocumentSource(localDraft);
+        if (modeRequestIdRef.current !== requestId) {
+          return;
+        }
+        applySnapshot({ ...synced, mode: nextMode }, true);
+      }
+
+      const next = await setMode(nextMode);
+      if (modeRequestIdRef.current !== requestId) {
+        return;
+      }
+      applySnapshot({ ...next, mode: nextMode }, true);
     } catch (error) {
       console.error(error);
-      applyModeOptimistically(previousMode);
+      if (modeRequestIdRef.current === requestId) {
+        applyModeOptimistically(previousMode);
+      }
     }
   };
 

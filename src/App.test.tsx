@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -8,7 +9,7 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AppSnapshot } from './lib/desktop';
+import type { AppSnapshot, EditorMode } from './lib/desktop';
 
 const bootstrapMock = vi.fn();
 const activeDocumentDiskSourceMock = vi.fn();
@@ -1548,6 +1549,128 @@ describe('App recent documents', () => {
         mode: 'Editor',
       }),
     );
+  });
+
+  it('keeps the latest mode selected when earlier mode persistence resolves later', async () => {
+    const pendingModeResolutions = new Map<EditorMode, (snapshot: AppSnapshot) => void>();
+
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Wysiwyg',
+      }),
+    );
+    setModeMock.mockImplementation(
+      (mode: EditorMode) =>
+        new Promise<AppSnapshot>((resolve) => {
+          pendingModeResolutions.set(mode, resolve);
+        }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByText(/^meeting-notes\.md/);
+
+    fireEvent.keyDown(window, { key: '1', metaKey: true });
+    fireEvent.keyDown(window, { key: '3', metaKey: true });
+
+    await waitFor(() => {
+      expect(setModeMock).toHaveBeenCalledWith('Editor');
+      expect(setModeMock).toHaveBeenCalledWith('SplitView');
+    });
+    expect(await screen.findByTestId('editor-surface-preview')).toBeInTheDocument();
+
+    await act(async () => {
+      pendingModeResolutions.get('SplitView')?.(
+        baseSnapshot({
+          activeDocumentName: 'meeting-notes.md',
+          activeDocumentPath: '/tmp/project/meeting-notes.md',
+          activeDocumentSource: '# Meeting notes',
+          mode: 'SplitView',
+        }),
+      );
+    });
+    expect(screen.getByTestId('editor-surface-preview')).toBeInTheDocument();
+
+    await act(async () => {
+      pendingModeResolutions.get('Editor')?.(
+        baseSnapshot({
+          activeDocumentName: 'meeting-notes.md',
+          activeDocumentPath: '/tmp/project/meeting-notes.md',
+          activeDocumentSource: '# Meeting notes',
+          mode: 'Editor',
+        }),
+      );
+    });
+
+    expect(screen.getByTestId('editor-surface-preview')).toBeInTheDocument();
+  });
+
+  it('keeps the selected mode when an older draft sync resolves later', async () => {
+    let resolveBackgroundSync: ((snapshot: AppSnapshot) => void) | undefined;
+
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
+    replaceActiveDocumentSourceMock
+      .mockImplementationOnce(
+        () =>
+          new Promise<AppSnapshot>((resolve) => {
+            resolveBackgroundSync = resolve;
+          }),
+      )
+      .mockResolvedValue(
+        baseSnapshot({
+          activeDocumentName: 'meeting-notes.md',
+          activeDocumentPath: '/tmp/project/meeting-notes.md',
+          activeDocumentSource: '# Edited notes',
+          mode: 'SplitView',
+        }),
+      );
+    setModeMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Edited notes',
+        mode: 'SplitView',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    fireEvent.change(sourceEditor, { target: { value: '# Edited notes' } });
+
+    await waitFor(() => {
+      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith('# Edited notes');
+    });
+
+    fireEvent.keyDown(window, { key: '3', metaKey: true });
+    expect(await screen.findByTestId('editor-surface-preview')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveBackgroundSync?.(
+        baseSnapshot({
+          activeDocumentName: 'meeting-notes.md',
+          activeDocumentPath: '/tmp/project/meeting-notes.md',
+          activeDocumentSource: '# Edited notes',
+          mode: 'Editor',
+        }),
+      );
+    });
+
+    expect(screen.getByTestId('editor-surface-preview')).toBeInTheDocument();
   });
 
   it('opens the Document Stats dialog from the Command Palette', async () => {
