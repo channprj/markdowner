@@ -1052,10 +1052,23 @@ export default function App() {
   }, [isResizingSidebar, sidebarWidth]);
 
   const currentMode = snapshot.mode;
-  const hasUnsavedChanges =
-    activeDocumentOpen && localDraft !== (snapshot.activeDocumentSource ?? '')
-      ? true
-      : snapshot.activeDocumentDirty;
+  // The Rust-side activeDocumentDirty flag tracks "in-memory source != disk"
+  // which stays true after edits even if the user undoes back to the original
+  // content. For close/quit prompts we want a strict comparison against the
+  // last loaded/saved baseline, mirroring Zed's behavior — "Save changes" only
+  // appears when the live content actually differs from what's on disk.
+  const tabIsDirty = (tab: DocumentTab) =>
+    tab.id === activeTabId
+      ? localDraft !== tab.source
+      : tab.draft !== tab.source;
+  const activeTab = activeTabId
+    ? tabs.find((tab) => tab.id === activeTabId) ?? null
+    : null;
+  const hasActiveTabEdits = activeTab ? tabIsDirty(activeTab) : false;
+  const hasAnyTabEdits = tabs.some(tabIsDirty);
+  // Preserved for the existing Cmd+W close-confirmation surface (which prompts
+  // about the active document specifically).
+  const hasUnsavedChanges = hasActiveTabEdits;
   const errorMessage = snapshot.lastError;
   const workspaceTree = buildWorkspaceTree(snapshot.workspaceDocuments, snapshot.rootDir);
   const filteredWorkspaceTree = filterWorkspaceTree(workspaceTree, workspaceFilter);
@@ -1936,6 +1949,14 @@ export default function App() {
         return;
       }
 
+      // Cmd+T opens a new (untitled) tab — handleNewDocument creates a new
+      // tab when one does not already exist and switches to it otherwise.
+      if (matchesShortcut(event, 't')) {
+        event.preventDefault();
+        void handleNewDocument();
+        return;
+      }
+
       if (matchesShortcut(event, 'o', { shift: true })) {
         event.preventDefault();
         void handleOpenWorkspace();
@@ -2095,7 +2116,11 @@ export default function App() {
         return;
       }
 
-      if (!hasUnsavedChanges) {
+      // Window close (Cmd+W) gates on the active tab; app quit (Cmd+Q) gates on
+      // any tab having edits, matching Zed's behavior.
+      const requiresPrompt =
+        target === 'app' ? hasAnyTabEdits : hasActiveTabEdits;
+      if (!requiresPrompt) {
         return;
       }
 
@@ -2103,6 +2128,15 @@ export default function App() {
 
       if (busy) {
         return;
+      }
+
+      // For a quit with multiple tabs, switch to the first dirty tab so the
+      // dialog and the subsequent Save action operate on a real dirty doc.
+      if (target === 'app' && !hasActiveTabEdits) {
+        const firstDirty = tabs.find(tabIsDirty);
+        if (firstDirty && firstDirty.id !== activeTabId) {
+          await switchToTab(firstDirty.id);
+        }
       }
 
       try {

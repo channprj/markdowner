@@ -1499,6 +1499,57 @@ describe('App recent documents', () => {
     });
   });
 
+  it('opens a new untitled tab with Cmd+T', async () => {
+    newDocumentMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'Untitled.md',
+        activeDocumentPath: null,
+        activeDocumentSource: '',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(menuCommandHandler).toBeTypeOf('function');
+    });
+
+    fireEvent.keyDown(window, { key: 't', metaKey: true });
+
+    await waitFor(() => {
+      expect(newDocumentMock).toHaveBeenCalled();
+    });
+  });
+
+  it('closes the window on Cmd+W when the active tab has no edits', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        // Rust-side dirty flag set, but localDraft will match source so the
+        // frontend should not prompt and should close directly.
+        activeDocumentDirty: true,
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findAllByText(/^meeting-notes\.md/);
+
+    fireEvent.keyDown(window, { key: 'w', metaKey: true });
+
+    await waitFor(() => {
+      expect(destroyWindowMock).toHaveBeenCalled();
+    });
+    expect(messageMock).not.toHaveBeenCalled();
+  });
+
   it('blocks save when the active document changed on disk', async () => {
     hasActiveDocumentExternalChangesMock.mockResolvedValue(true);
     bootstrapMock.mockResolvedValue(
@@ -4028,6 +4079,8 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    fireEvent.change(editor, { target: { value: '# Meeting notes\n\nUnsaved edit' } });
     await screen.findAllByText(/^meeting-notes\.md$/);
 
     const preventDefault = vi.fn();
@@ -4059,7 +4112,8 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    await screen.findByRole('textbox', { name: /source editor/i });
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    fireEvent.change(editor, { target: { value: '# Meeting notes\n\nUnsaved edit' } });
 
     fireEvent.keyDown(window, { key: 'q', metaKey: true });
 
@@ -4091,6 +4145,7 @@ describe('App recent documents', () => {
         activeDocumentPath: '/tmp/project/meeting-notes.md',
         activeDocumentSource: '# Meeting notes',
         activeDocumentDirty: true,
+        mode: 'Editor',
       }),
     );
     messageMock.mockResolvedValue('Save');
@@ -4103,6 +4158,8 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    fireEvent.change(editor, { target: { value: '# Meeting notes\n\nUnsaved edit' } });
     await screen.findAllByText(/^meeting-notes\.md$/);
 
     const preventDefault = vi.fn();
@@ -4142,6 +4199,7 @@ describe('App recent documents', () => {
         activeDocumentPath: '/tmp/project/meeting-notes.md',
         activeDocumentSource: '# Meeting notes',
         activeDocumentDirty: true,
+        mode: 'Editor',
       }),
     );
     messageMock.mockResolvedValue('Cancel');
@@ -4154,6 +4212,8 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    fireEvent.change(editor, { target: { value: '# Meeting notes\n\nUnsaved edit' } });
     await screen.findAllByText(/^meeting-notes\.md$/);
 
     const preventDefault = vi.fn();
@@ -4176,6 +4236,7 @@ describe('App recent documents', () => {
         activeDocumentPath: null,
         activeDocumentSource: '',
         activeDocumentDirty: true,
+        mode: 'Editor',
       }),
     );
     messageMock.mockResolvedValue('Save');
@@ -4196,6 +4257,8 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    fireEvent.change(editor, { target: { value: 'Some draft content' } });
     await screen.findAllByText(/^Untitled\.md$/);
 
     const preventDefault = vi.fn();
