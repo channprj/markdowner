@@ -828,7 +828,8 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    expect(await screen.findAllByText('draft.md')).toHaveLength(3);
+    // 3 from before + 1 from the new tab strip
+    expect(await screen.findAllByText('draft.md')).toHaveLength(4);
     expect(screen.getAllByText('guides/draft.md')).toHaveLength(3);
   });
 
@@ -914,7 +915,7 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    await screen.findByText(/^meeting-notes\.md$/);
+    await screen.findAllByText(/^meeting-notes\.md$/);
 
     fireEvent.keyDown(window, { key: 'I', metaKey: true, shiftKey: true });
 
@@ -1037,7 +1038,7 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    await screen.findByText(/^meeting-notes\.md/);
+    await screen.findAllByText(/^meeting-notes\.md/);
 
     expect(document.title).toBe('● meeting-notes.md — Markdowner');
   });
@@ -1475,7 +1476,7 @@ describe('App recent documents', () => {
     });
     fireEvent.click(newDocumentButton);
 
-    await screen.findByText(/^Untitled\.md/);
+    await screen.findAllByText(/^Untitled\.md/);
 
     const menu = await openAppMenu();
     const saveButton = within(menu).getByRole('menuitem', { name: /^save$/i });
@@ -1521,7 +1522,7 @@ describe('App recent documents', () => {
 
     const menu = await openAppMenu();
     const saveButton = within(menu).getByRole('menuitem', { name: /^save$/i });
-    await screen.findByText(/^meeting-notes\.md/);
+    await screen.findAllByText(/^meeting-notes\.md/);
     fireEvent.click(saveButton);
 
     await waitFor(() => {
@@ -1558,7 +1559,7 @@ describe('App recent documents', () => {
 
     const menu = await openAppMenu();
     const saveButton = within(menu).getByRole('menuitem', { name: /^save$/i });
-    await screen.findByText(/^meeting-notes\.md/);
+    await screen.findAllByText(/^meeting-notes\.md/);
     fireEvent.click(saveButton);
 
     const reloadButton = await screen.findByRole('button', { name: /reload from disk/i });
@@ -1590,7 +1591,7 @@ describe('App recent documents', () => {
 
     const menu = await openAppMenu();
     const saveButton = within(menu).getByRole('menuitem', { name: /^save$/i });
-    await screen.findByText(/^meeting-notes\.md/);
+    await screen.findAllByText(/^meeting-notes\.md/);
     fireEvent.click(saveButton);
 
     const keepButton = await screen.findByRole('button', { name: /keep local/i });
@@ -1753,7 +1754,7 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    await screen.findByText(/^meeting-notes\.md/);
+    await screen.findAllByText(/^meeting-notes\.md/);
 
     fireEvent.keyDown(window, { key: 's', metaKey: true });
 
@@ -1807,7 +1808,7 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    await screen.findByText(/^meeting-notes\.md/);
+    await screen.findAllByText(/^meeting-notes\.md/);
 
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     fireEvent.keyDown(window, { key: 'e', metaKey: true });
@@ -1851,7 +1852,7 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    await screen.findByText(/^meeting-notes\.md/);
+    await screen.findAllByText(/^meeting-notes\.md/);
     expect(screen.queryByRole('textbox', { name: /source editor/i })).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
@@ -1898,7 +1899,7 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    await screen.findByText(/^meeting-notes\.md/);
+    await screen.findAllByText(/^meeting-notes\.md/);
 
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     fireEvent.keyDown(window, { key: 'e', metaKey: true });
@@ -2044,7 +2045,7 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    await screen.findByText(/^meeting-notes\.md/);
+    await screen.findAllByText(/^meeting-notes\.md/);
 
     const menu = await openAppMenu();
     const editorToggle = within(menu).getByRole('menuitemradio', { name: 'Editor' });
@@ -3944,7 +3945,7 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
-    await screen.findByText(/^meeting-notes\.md$/);
+    await screen.findAllByText(/^meeting-notes\.md$/);
 
     const preventDefault = vi.fn();
     await closeRequestedHandler?.({ preventDefault });
@@ -3991,7 +3992,7 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
-    await screen.findByText(/^meeting-notes\.md$/);
+    await screen.findAllByText(/^meeting-notes\.md$/);
 
     const preventDefault = vi.fn();
     await closeRequestedHandler?.({ preventDefault });
@@ -4066,7 +4067,7 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
-    await screen.findByText(/^meeting-notes\.md$/);
+    await screen.findAllByText(/^meeting-notes\.md$/);
 
     const preventDefault = vi.fn();
     await closeRequestedHandler?.({ preventDefault });
@@ -4117,7 +4118,7 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
-    await screen.findByText(/^meeting-notes\.md$/);
+    await screen.findAllByText(/^meeting-notes\.md$/);
 
     const preventDefault = vi.fn();
     await closeRequestedHandler?.({ preventDefault });
@@ -4159,7 +4160,7 @@ describe('App recent documents', () => {
       expect(onCloseRequestedMock).toHaveBeenCalled();
       expect(closeRequestedHandler).toBeTypeOf('function');
     });
-    await screen.findByText(/^Untitled\.md$/);
+    await screen.findAllByText(/^Untitled\.md$/);
 
     const preventDefault = vi.fn();
     await closeRequestedHandler?.({ preventDefault });

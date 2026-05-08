@@ -48,6 +48,7 @@ import { AppMenu } from '@/shell/AppMenu';
 import { CommandPalette, type CommandPaletteCommand } from '@/shell/CommandPalette';
 import { DocumentStatsDialog } from '@/shell/DocumentStatsDialog';
 import { EditorArea } from '@/shell/EditorArea';
+import { Tabs } from '@/shell/Tabs';
 import { QuickOpen, type QuickOpenItem } from '@/shell/QuickOpen';
 import { SideBar, type OutlineItem, type SideBarPanel } from '@/shell/SideBar';
 import { StatusBar } from '@/shell/StatusBar';
@@ -108,6 +109,17 @@ const MENU_COMMAND_CLOSE_WINDOW = 'close-window';
 const MENU_COMMAND_QUIT_APP = 'quit-app';
 
 type CloseTarget = 'window' | 'app';
+
+// One open tab. The active tab's path/name/source are also reflected in
+// the Rust-side AppSnapshot; tabs adds the rest of the open documents and
+// preserves their unsaved drafts across switches.
+type DocumentTab = {
+  id: string;
+  path: string | null;
+  name: string;
+  source: string;
+  draft: string;
+};
 
 type ThemeMode = 'system' | 'manual';
 type MarkdownSourceNode = {
@@ -682,6 +694,114 @@ export default function App() {
   };
   const activeDocumentOpen = snapshot.activeDocumentSource !== null;
 
+  // Tab state lives entirely in the frontend. The active tab's path/source
+  // is mirrored through Rust's single-active-document model on switch.
+  const [tabs, setTabs] = useState<DocumentTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+
+  const generateTabId = () => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  };
+
+  // Find a tab matching the given path; null path means untitled.
+  const findTabByPath = (path: string | null): DocumentTab | undefined => {
+    if (path === null) {
+      return tabs.find((tab) => tab.path === null);
+    }
+    return tabs.find((tab) => tab.path === path);
+  };
+
+  // Stash the live editor draft into the active tab so a later switch back
+  // restores the user's in-flight edits.
+  const stashActiveTabDraft = () => {
+    const id = activeTabId;
+    if (!id) return;
+    setTabs((prev) =>
+      prev.map((tab) => (tab.id === id ? { ...tab, draft: localDraft } : tab)),
+    );
+  };
+
+  // Replace (or append) a tab matching the snapshot's active document and
+  // mark it active. Used after open/new/save flows. The state updates run
+  // inside startTransition so they batch with applySnapshot — otherwise the
+  // tabs commit before the snapshot and the keyboard listener briefly sees
+  // activeDocumentOpen=false right after a fresh open.
+  const upsertActiveTabFromSnapshot = (
+    next: AppSnapshot,
+    options: { reuseTabId?: string | null } = {},
+  ) => {
+    const path = next.activeDocumentPath ?? null;
+    const name = next.activeDocumentName ?? 'Untitled';
+    const source = next.activeDocumentSource ?? '';
+    const reuseId = options.reuseTabId ?? null;
+
+    let newTabs = tabs;
+    let newActiveId: string | null = null;
+
+    const replaceAt = (index: number) => {
+      newTabs = tabs.map((tab, i) =>
+        i === index ? { ...tab, path, name, source, draft: source } : tab,
+      );
+      newActiveId = newTabs[index].id;
+    };
+
+    if (reuseId) {
+      const reusedAt = tabs.findIndex((tab) => tab.id === reuseId);
+      if (reusedAt >= 0) {
+        replaceAt(reusedAt);
+      }
+    }
+
+    if (newActiveId === null && path !== null) {
+      const matchAt = tabs.findIndex((tab) => tab.path === path);
+      if (matchAt >= 0) {
+        replaceAt(matchAt);
+      }
+    }
+
+    if (newActiveId === null && path === null) {
+      const untitledAt = tabs.findIndex((tab) => tab.path === null);
+      if (untitledAt >= 0) {
+        replaceAt(untitledAt);
+      }
+    }
+
+    if (newActiveId === null) {
+      const newTab: DocumentTab = {
+        id: generateTabId(),
+        path,
+        name,
+        source,
+        draft: source,
+      };
+      newTabs = [...tabs, newTab];
+      newActiveId = newTab.id;
+    }
+
+    startTransition(() => {
+      setTabs(newTabs);
+      setActiveTabId(newActiveId);
+    });
+  };
+
+  // Update only the active tab's metadata (after save / save-as).
+  const refreshActiveTabFromSnapshot = (next: AppSnapshot) => {
+    if (!activeTabId) return;
+    const path = next.activeDocumentPath ?? null;
+    const name = next.activeDocumentName ?? 'Untitled';
+    const source = next.activeDocumentSource ?? '';
+    startTransition(() => {
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === activeTabId ? { ...tab, path, name, source, draft: source } : tab,
+        ),
+      );
+    });
+  };
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedLocalDraft(localDraft);
@@ -985,6 +1105,9 @@ export default function App() {
               const synced = await setTheme(osKind);
               if (!cancelled) {
                 applySnapshot(synced);
+                if (synced.activeDocumentSource !== null) {
+                  upsertActiveTabFromSnapshot(synced);
+                }
               }
               return;
             } catch (error) {
@@ -993,6 +1116,9 @@ export default function App() {
           }
         }
         applySnapshot(next);
+        if (next.activeDocumentSource !== null) {
+          upsertActiveTabFromSnapshot(next);
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -1261,10 +1387,20 @@ export default function App() {
   };
 
   const handleNewDocument = async () => {
+    // If an Untitled tab already exists, just switch to it instead of stacking
+    // multiple Untitled drafts (Rust only models a single untitled document).
+    const existingUntitled = findTabByPath(null);
+    if (existingUntitled) {
+      void switchToTab(existingUntitled.id);
+      return;
+    }
+
     await withBusy(async () => {
+      stashActiveTabDraft();
       await syncActiveDraft();
       const next = await newDocument();
       applySnapshot(next);
+      upsertActiveTabFromSnapshot(next);
     });
   };
 
@@ -1279,10 +1415,19 @@ export default function App() {
       return;
     }
 
+    // Already open: just switch
+    const existing = findTabByPath(selected);
+    if (existing) {
+      void switchToTab(existing.id);
+      return;
+    }
+
     await withBusy(async () => {
+      stashActiveTabDraft();
       await syncActiveDraft();
       const next = await openDocument(selected);
       applySnapshot(next);
+      upsertActiveTabFromSnapshot(next);
     });
   };
 
@@ -1319,6 +1464,7 @@ export default function App() {
       }
       const next = await saveActiveDocument();
       applySnapshot(next, true);
+      refreshActiveTabFromSnapshot(next);
     });
   };
 
@@ -1421,6 +1567,7 @@ export default function App() {
       await syncActiveDraft();
       const next = await saveActiveDocumentAs(selected);
       applySnapshot(next, true);
+      refreshActiveTabFromSnapshot(next);
     });
   };
 
@@ -1510,18 +1657,34 @@ export default function App() {
   };
 
   const handleOpenWorkspaceDocument = async (path: string) => {
+    const existing = findTabByPath(path);
+    if (existing) {
+      void switchToTab(existing.id);
+      return;
+    }
+
     await withBusy(async () => {
+      stashActiveTabDraft();
       await syncActiveDraft();
       const next = await openWorkspaceDocument(path);
       applySnapshot(next);
+      upsertActiveTabFromSnapshot(next);
     });
   };
 
   const handleOpenRecentDocument = async (path: string) => {
+    const existing = findTabByPath(path);
+    if (existing) {
+      void switchToTab(existing.id);
+      return;
+    }
+
     await withBusy(async () => {
+      stashActiveTabDraft();
       await syncActiveDraft();
       const next = await openDocument(path);
       applySnapshot(next);
+      upsertActiveTabFromSnapshot(next);
     });
   };
 
@@ -1530,6 +1693,72 @@ export default function App() {
       current.includes(key) ? current.filter((entry) => entry !== key) : [...current, key],
     );
   };
+
+  // Switch to an existing tab. Stashes the outgoing tab's draft, drives Rust's
+  // active document to the target's path (or a fresh untitled), then restores
+  // the target tab's previously stashed draft as the live editor content.
+  const switchToTab = useEffectEvent(async (targetId: string) => {
+    if (targetId === activeTabId) return;
+    const target = tabs.find((tab) => tab.id === targetId);
+    if (!target) return;
+
+    await withBusy(async () => {
+      stashActiveTabDraft();
+      await syncActiveDraft();
+
+      try {
+        let next: AppSnapshot;
+        if (target.path) {
+          next = await openDocument(target.path);
+        } else {
+          next = await newDocument();
+        }
+        // preserveDraft so we can immediately swap to the stashed draft
+        applySnapshot(next, true);
+        setActiveTabId(target.id);
+        // Restore the target's stashed draft so unsaved edits survive switching.
+        setLocalDraft(target.draft);
+        // Refresh tab metadata in case the file changed on disk.
+        setTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === target.id
+              ? {
+                  ...tab,
+                  source: next.activeDocumentSource ?? tab.source,
+                  name: next.activeDocumentName ?? tab.name,
+                  path: next.activeDocumentPath ?? tab.path,
+                }
+              : tab,
+          ),
+        );
+      } catch (error) {
+        console.error(error);
+      }
+    });
+  });
+
+  const handleCloseTab = useEffectEvent(async (targetId: string) => {
+    const targetIndex = tabs.findIndex((tab) => tab.id === targetId);
+    if (targetIndex < 0) return;
+
+    const remaining = tabs.filter((tab) => tab.id !== targetId);
+
+    // Closing the last tab → fall through to window-close behavior so the
+    // existing dirty-confirmation dialog runs and the user can save first.
+    if (remaining.length === 0) {
+      await handleWindowCloseCommand();
+      return;
+    }
+
+    if (targetId === activeTabId) {
+      // Pick a neighbor to activate first, then drop the closed tab.
+      const fallback = remaining[targetIndex] ?? remaining[targetIndex - 1] ?? remaining[0];
+      await switchToTab(fallback.id);
+      setTabs((prev) => prev.filter((tab) => tab.id !== targetId));
+    } else {
+      setTabs(remaining);
+    }
+  });
 
   const handleNativeMenuCommand = useEffectEvent(async (command: string) => {
     if (busy) {
@@ -1558,7 +1787,7 @@ export default function App() {
         await handleSaveAs();
         return;
       case MENU_COMMAND_CLOSE_WINDOW:
-        await handleWindowCloseCommand();
+        await handleCloseTabOrWindow();
         return;
       case MENU_COMMAND_QUIT_APP:
         await handleQuitCommand();
@@ -1731,7 +1960,7 @@ export default function App() {
 
       if (matchesShortcut(event, 'w')) {
         event.preventDefault();
-        void handleWindowCloseCommand();
+        void handleCloseTabOrWindow();
         return;
       }
 
@@ -1747,10 +1976,15 @@ export default function App() {
         return;
       }
 
-      // Reserve Cmd+0..9 for future tab switching — intercept so they don't
-      // bubble to other handlers, but do nothing for now.
+      // Cmd+1..9 → tab index 0..8, Cmd+0 → tab index 9. 11+ tabs have no
+      // shortcut; the keypress is still consumed so it doesn't fall through.
       if (event.key.length === 1 && /[0-9]/.test(event.key) && usesCommandModifier(event) && !event.shiftKey && !event.altKey) {
         event.preventDefault();
+        const tabIndex = event.key === '0' ? 9 : Number.parseInt(event.key, 10) - 1;
+        const target = tabs[tabIndex];
+        if (target && target.id !== activeTabId) {
+          void switchToTab(target.id);
+        }
         return;
       }
 
@@ -1772,7 +2006,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyboardShortcut);
       clearChordPrefix();
     };
-  }, [busy, localDraft, snapshot, settings]);
+  }, [busy, localDraft, snapshot, settings, tabs, activeTabId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1882,6 +2116,17 @@ export default function App() {
       await currentWindow.destroy();
     }
   };
+
+  // Cmd+W / File → Close: close the active tab when more than one is open;
+  // otherwise fall through to closing the window. The handleCloseTab path
+  // delegates back to handleWindowCloseCommand when the last tab is closed.
+  const handleCloseTabOrWindow = useEffectEvent(async () => {
+    if (tabs.length > 1 && activeTabId) {
+      await handleCloseTab(activeTabId);
+      return;
+    }
+    await handleWindowCloseCommand();
+  });
 
   const handleQuitCommand = async () => {
     let prevented = false;
@@ -2234,6 +2479,22 @@ export default function App() {
           />
         </div>
 
+      <div className="flex min-h-0 min-w-0 flex-col">
+        <Tabs
+          items={tabs.map((tab, index) => ({
+            id: tab.id,
+            name: tab.name,
+            isDirty:
+              tab.id === activeTabId
+                ? localDraft !== tab.source
+                : tab.draft !== tab.source,
+            shortcutLabel:
+              index < 9 ? `⌘${index + 1}` : index === 9 ? '⌘0' : null,
+          }))}
+          activeTabId={activeTabId}
+          onSelectTab={(id) => void switchToTab(id)}
+          onCloseTab={(id) => void handleCloseTab(id)}
+        />
       <EditorArea
         busy={busy}
         errorMessage={errorMessage}
@@ -2298,6 +2559,7 @@ export default function App() {
           </div>
         }
       />
+      </div>
       </div>
       <SettingsDialog
         open={isSettingsOpen}
