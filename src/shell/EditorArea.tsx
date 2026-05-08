@@ -223,19 +223,23 @@ export function EditorArea({
           </Empty>
         ) : null}
 
-        {activeDocumentOpen && currentMode === 'Wysiwyg' ? (
-          <div
-            data-testid="editor-surface-wysiwyg"
-            {...editorModeAttributes}
-            className={cn(
-              'markdown-surface min-h-0 flex-1 overflow-auto px-8 py-6',
-              editorModeClassName,
-            )}
-            style={editorSurfaceStyle}
-          >
-            {editorContent}
-          </div>
-        ) : null}
+        {/* Keep the Wysiwyg surface mounted at all times — Tiptap loses
+            cursor and content state if its view DOM is unmounted on mode
+            switch, which made Editor → WYSIWYG transitions feel jumpy.
+            Visibility is toggled via the `hidden` class instead. */}
+        <div
+          data-testid="editor-surface-wysiwyg"
+          {...editorModeAttributes}
+          className={cn(
+            'markdown-surface min-h-0 flex-1 overflow-auto px-8 py-6',
+            editorModeClassName,
+            !(activeDocumentOpen && currentMode === 'Wysiwyg') && 'hidden',
+          )}
+          style={editorSurfaceStyle}
+          aria-hidden={!(activeDocumentOpen && currentMode === 'Wysiwyg')}
+        >
+          {editorContent}
+        </div>
 
         {activeDocumentOpen && currentMode === 'Editor' ? (
           <div
