@@ -1266,6 +1266,45 @@ fn runtime_reports_error_when_recent_document_is_missing() {
     );
 }
 
+#[test]
+fn session_round_trips_open_tabs_and_active_tab_path() {
+    let temp = tempdir().unwrap();
+    let session_path = temp.path().join("session.json");
+
+    // v4.0-style session: no open_tabs / active_tab_path. The loader must
+    // tolerate the missing fields and report empty defaults.
+    fs::write(
+        &session_path,
+        r#"{"recent_documents":["/tmp/a.md"],"mode":"Editor","theme":{"kind":"BuiltInDark","custom_css":null}}"#,
+    )
+    .unwrap();
+    let loaded = markdowner_core::storage_test_helpers::load_workspace_session(&session_path)
+        .expect("load v4.0 session");
+    assert_eq!(loaded.open_tabs, Vec::<PathBuf>::new());
+    assert_eq!(loaded.active_tab_path, None);
+    assert_eq!(loaded.recent_documents, vec![PathBuf::from("/tmp/a.md")]);
+
+    markdowner_core::storage_test_helpers::persist_workspace_session_full(
+        &session_path,
+        &[PathBuf::from("/tmp/a.md")],
+        EditorMode::Editor,
+        &ThemeSelection::default(),
+        &[PathBuf::from("/tmp/a.md"), PathBuf::from("/tmp/b.md")],
+        Some(PathBuf::from("/tmp/b.md")),
+    )
+    .expect("persist with tabs");
+    let reloaded = markdowner_core::storage_test_helpers::load_workspace_session(&session_path)
+        .expect("reload");
+    assert_eq!(
+        reloaded.open_tabs,
+        vec![PathBuf::from("/tmp/a.md"), PathBuf::from("/tmp/b.md")],
+    );
+    assert_eq!(
+        reloaded.active_tab_path,
+        Some(PathBuf::from("/tmp/b.md")),
+    );
+}
+
 #[derive(Debug, Default)]
 struct RecordingAdapter {
     next_files: std::collections::VecDeque<PathBuf>,

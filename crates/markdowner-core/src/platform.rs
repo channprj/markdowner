@@ -199,6 +199,8 @@ impl EditorRuntime {
             self.workspace.recent_documents(),
             self.workspace.mode(),
             self.workspace.theme(),
+            &[],
+            None,
         ) {
             Ok(()) => {
                 self.workspace.clear_error();

@@ -20,3 +20,47 @@ pub use workspace::{
     WysiwygBlockPresentation, WysiwygBlockView,
 };
 pub mod settings;
+
+#[doc(hidden)]
+pub mod storage_test_helpers {
+    use std::path::{Path, PathBuf};
+
+    use crate::{EditorMode, ThemeSelection, platform::RuntimeError};
+
+    pub struct LoadedSession {
+        pub recent_documents: Vec<PathBuf>,
+        pub mode: EditorMode,
+        pub theme: ThemeSelection,
+        pub open_tabs: Vec<PathBuf>,
+        pub active_tab_path: Option<PathBuf>,
+    }
+
+    pub fn load_workspace_session(path: &Path) -> Result<LoadedSession, RuntimeError> {
+        let session = crate::storage::load_workspace_session(path)?;
+        Ok(LoadedSession {
+            recent_documents: session.recent_documents,
+            mode: session.mode,
+            theme: session.theme,
+            open_tabs: session.open_tabs,
+            active_tab_path: session.active_tab_path,
+        })
+    }
+
+    pub fn persist_workspace_session_full(
+        path: &Path,
+        recent_documents: &[PathBuf],
+        mode: EditorMode,
+        theme: &ThemeSelection,
+        open_tabs: &[PathBuf],
+        active_tab_path: Option<PathBuf>,
+    ) -> Result<(), RuntimeError> {
+        crate::storage::persist_workspace_session(
+            path,
+            recent_documents,
+            mode,
+            theme,
+            open_tabs,
+            active_tab_path.as_deref(),
+        )
+    }
+}

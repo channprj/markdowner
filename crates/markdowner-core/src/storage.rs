@@ -19,13 +19,19 @@ struct SerializedWorkspaceSession {
     mode: EditorMode,
     #[serde(default)]
     theme: ThemeSelection,
+    #[serde(default)]
+    open_tabs: Vec<String>,
+    #[serde(default)]
+    active_tab_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct WorkspaceSession {
-    pub(crate) recent_documents: Vec<PathBuf>,
-    pub(crate) mode: EditorMode,
-    pub(crate) theme: ThemeSelection,
+pub struct WorkspaceSession {
+    pub recent_documents: Vec<PathBuf>,
+    pub mode: EditorMode,
+    pub theme: ThemeSelection,
+    pub open_tabs: Vec<PathBuf>,
+    pub active_tab_path: Option<PathBuf>,
 }
 
 pub(crate) fn list_markdown_files(root: &Path) -> Result<Vec<PathBuf>, RuntimeError> {
@@ -35,7 +41,7 @@ pub(crate) fn list_markdown_files(root: &Path) -> Result<Vec<PathBuf>, RuntimeEr
     Ok(documents)
 }
 
-pub(crate) fn load_workspace_session(path: &Path) -> Result<WorkspaceSession, RuntimeError> {
+pub fn load_workspace_session(path: &Path) -> Result<WorkspaceSession, RuntimeError> {
     let raw = match fs::read_to_string(path) {
         Ok(raw) => raw,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(WorkspaceSession::default()),
@@ -62,14 +68,18 @@ pub(crate) fn load_workspace_session(path: &Path) -> Result<WorkspaceSession, Ru
             .collect(),
         mode: session.mode,
         theme: session.theme,
+        open_tabs: session.open_tabs.into_iter().map(PathBuf::from).collect(),
+        active_tab_path: session.active_tab_path.map(PathBuf::from),
     })
 }
 
-pub(crate) fn persist_workspace_session(
+pub fn persist_workspace_session(
     path: &Path,
     recent_documents: &[PathBuf],
     mode: EditorMode,
     theme: &ThemeSelection,
+    open_tabs: &[PathBuf],
+    active_tab_path: Option<&Path>,
 ) -> Result<(), RuntimeError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
@@ -87,6 +97,11 @@ pub(crate) fn persist_workspace_session(
             .collect(),
         mode,
         theme: theme.clone(),
+        open_tabs: open_tabs
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect(),
+        active_tab_path: active_tab_path.map(|path| path.to_string_lossy().into_owned()),
     };
     let payload = serde_json::to_string_pretty(&session).map_err(|error| {
         RuntimeError::new(format!(
