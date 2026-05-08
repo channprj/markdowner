@@ -1748,7 +1748,10 @@ export default function App() {
     };
   }, []);
 
+  const forceCloseRef = useRef(false);
+
   const closeTarget = async (target: CloseTarget) => {
+    forceCloseRef.current = true;
     if (target === 'app') {
       await quitApp();
       return;
@@ -1759,6 +1762,12 @@ export default function App() {
 
   const handleWindowCloseRequest = useEffectEvent(
     async (event: { preventDefault: () => void }, target: CloseTarget = 'window') => {
+      // Once the user picked Save (after a successful save) or Don't Save, let any
+      // re-entrant close request from Tauri pass through without re-prompting.
+      if (forceCloseRef.current) {
+        return;
+      }
+
       if (!hasUnsavedChanges) {
         return;
       }
@@ -1795,6 +1804,12 @@ export default function App() {
 
         if (isDiscardCloseDecision(decision)) {
           await closeTarget(target);
+          return;
+        }
+
+        if (decision !== undefined) {
+          // Unrecognized decision (e.g., Cancel or unexpected platform value) — keep window open.
+          console.warn('Unrecognized close decision:', decision);
         }
       } catch (error) {
         console.error(error);
