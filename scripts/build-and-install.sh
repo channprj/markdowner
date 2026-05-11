@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Build the Tauri app locally and install the resulting .app bundle.
+# Build the Tauri app locally and install the resulting .app bundle into the
+# system Applications folder (/Applications).
 # Usage:
-#   scripts/build-and-install.sh                    # release build, install to /Applications
-#   scripts/build-and-install.sh --path ~/Applications
-#   scripts/build-and-install.sh --debug            # debug build
-#   scripts/build-and-install.sh --no-build         # install an already-built bundle
+#   scripts/build-and-install.sh             # release build, install to /Applications
+#   scripts/build-and-install.sh --debug     # debug build
+#   scripts/build-and-install.sh --no-build  # install an already-built bundle
 
 set -euo pipefail
 
@@ -20,12 +20,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --debug) MODE="debug"; shift ;;
     --release) MODE="release"; shift ;;
-    --path)
-      [[ $# -ge 2 ]] || { echo "error: --path requires a value" >&2; exit 2; }
-      INSTALL_PATH="$2"
-      shift 2
-      ;;
-    --path=*) INSTALL_PATH="${1#--path=}"; shift ;;
     --no-build) DO_BUILD=0; shift ;;
     -h|--help)
       sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'
@@ -79,21 +73,13 @@ if [[ ! -d "${APP_BUNDLE}" ]]; then
   exit 1
 fi
 
-# Expand ~ if present in INSTALL_PATH
-INSTALL_PATH="${INSTALL_PATH/#\~/${HOME}}"
-
-if [[ ! -d "${INSTALL_PATH}" ]]; then
-  echo "==> Creating install directory: ${INSTALL_PATH}"
-  mkdir -p "${INSTALL_PATH}"
-fi
-
 DEST="${INSTALL_PATH%/}/Markdowner.app"
 
-# Determine whether destination needs sudo (e.g., /Applications is root-owned)
+# Determine whether destination needs sudo (/Applications is root-owned).
 SUDO=""
 if [[ ! -w "${INSTALL_PATH}" ]]; then
   if command -v sudo >/dev/null 2>&1; then
-    echo "==> Install path is not writable; using sudo for install"
+    echo "==> ${INSTALL_PATH} is not writable; using sudo for install"
     SUDO="sudo"
   else
     echo "error: install path '${INSTALL_PATH}' is not writable and sudo is unavailable" >&2
