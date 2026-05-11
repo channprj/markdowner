@@ -108,6 +108,7 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 const MARKDOWN_FILE_EXTENSIONS = ['md', 'markdown', 'mdown', 'mkd'];
 const WINDOW_TITLE = 'Markdowner';
 const MENU_COMMAND_EVENT = 'markdowner://menu-command';
+const SNAPSHOT_UPDATE_EVENT = 'markdowner://update-snapshot';
 const MENU_COMMAND_CLOSE_WINDOW = 'close-window';
 const MENU_COMMAND_QUIT_APP = 'quit-app';
 
@@ -413,6 +414,16 @@ function isDiscardCloseDecision(decision: unknown) {
     normalized === 'dont save' ||
     normalized === 'discard'
   );
+}
+
+function getErrorMessage(error: unknown, fallback = 'Operation failed') {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim().length > 0) {
+    return error;
+  }
+  return fallback;
 }
 
 function normalizeDisplayPath(path: string) {
@@ -1149,6 +1160,22 @@ export default function App() {
     });
   };
 
+  const reportOperationError = (error: unknown, fallback?: string) => {
+    const message = getErrorMessage(error, fallback);
+    startTransition(() => {
+      setSnapshot((current) => ({ ...current, lastError: message }));
+    });
+    return message;
+  };
+
+  const handleExternalSnapshot = useEffectEvent((next: AppSnapshot) => {
+    stashActiveTabDraft();
+    applySnapshot(next);
+    if (next.activeDocumentSource !== null) {
+      upsertActiveTabFromSnapshot(next);
+    }
+  });
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1180,7 +1207,7 @@ export default function App() {
               }
               return;
             } catch (error) {
-              console.error(error);
+              reportOperationError(error, 'Could not follow the system theme');
             }
           }
         }
@@ -1248,13 +1275,13 @@ export default function App() {
           }
         } catch (error) {
           if (!cancelled) {
-            console.error('[Markdowner] Failed to restore open tabs:', error);
+            reportOperationError(error, 'Could not restore previous tabs');
           }
         }
       })
       .catch((error) => {
         if (!cancelled) {
-          console.error(error);
+          reportOperationError(error, 'Could not start Markdowner');
         }
       });
 
@@ -1270,7 +1297,7 @@ export default function App() {
     if (changedKeys.includes('themeFollowSystem') && next.themeFollowSystem) {
       void setTheme(resolveOsTheme())
         .then((synced) => applySnapshot(synced, true))
-        .catch((error) => console.error(error));
+        .catch(() => undefined);
     }
     if (next.diagnosticsEnabled) {
       console.info('[Markdowner diagnostics]', 'settings.changed', {
@@ -1293,7 +1320,7 @@ export default function App() {
         const next = await setTheme(resolveOsTheme());
         applySnapshot(next, true);
       } catch (error) {
-        console.error(error);
+        reportOperationError(error, 'Could not follow the system theme');
       }
     };
     mediaQuery.addEventListener('change', handleOsThemeChange);
@@ -1323,7 +1350,7 @@ export default function App() {
       return active?.path ?? null;
     })();
     void saveOpenTabs({ openTabs: paths, activeTabPath: activePath }).catch((error) => {
-      console.error('[Markdowner] Failed to persist open tabs:', error);
+      console.warn('[Markdowner] Failed to persist open tabs:', error);
     });
   }, [tabs, activeTabId]);
 
@@ -1361,7 +1388,7 @@ export default function App() {
             setExternalCompareSource(null);
           });
         })
-        .catch((error) => console.error(error));
+        .catch(() => undefined);
     }, 180);
 
     return () => {
@@ -1478,10 +1505,12 @@ export default function App() {
     return () => window.cancelAnimationFrame(animationFrame);
   }, [settings.typewriterModeEnabled, currentMode, editor]);
 
-  const withBusy = async (action: () => Promise<void>) => {
+  const withBusy = async (action: () => Promise<void>, fallback?: string) => {
     setBusy(true);
     try {
       await action();
+    } catch (error) {
+      reportOperationError(error, fallback);
     } finally {
       setBusy(false);
     }
@@ -1534,6 +1563,15 @@ export default function App() {
     applySnapshot({ ...synced, mode: preserveMode }, true);
   };
 
+  const syncActiveDraftBestEffort = async (preserveMode: EditorMode = snapshot.mode) => {
+    try {
+      await syncActiveDraft(preserveMode);
+    } catch {
+      // The tab model already keeps the user's local draft. Navigation and
+      // view changes should not get stuck behind a best-effort backend sync.
+    }
+  };
+
   const handleNewDocument = async () => {
     // If an Untitled tab already exists, just switch to it instead of stacking
     // multiple Untitled drafts (Rust only models a single untitled document).
@@ -1545,7 +1583,7 @@ export default function App() {
 
     await withBusy(async () => {
       stashActiveTabDraft();
-      await syncActiveDraft();
+      await syncActiveDraftBestEffort();
       const next = await newDocument();
       applySnapshot(next);
       upsertActiveTabFromSnapshot(next);
@@ -1578,7 +1616,7 @@ export default function App() {
 
     await withBusy(async () => {
       stashActiveTabDraft();
-      await syncActiveDraft();
+      await syncActiveDraftBestEffort();
 
       // Accumulate new tabs locally so we can commit them in one batched
       // update at the end. Per-iteration setTabs would overwrite earlier
@@ -1634,7 +1672,7 @@ export default function App() {
     }
 
     await withBusy(async () => {
-      await syncActiveDraft();
+      await syncActiveDraftBestEffort();
       const next = await openWorkspace(selected);
       applySnapshot(next, true);
     });
@@ -1803,26 +1841,14 @@ export default function App() {
     applyModeOptimistically(nextMode);
 
     try {
-      if (
-        activeDocumentOpen &&
-        snapshot.activeDocumentSource !== null &&
-        localDraft !== snapshot.activeDocumentSource
-      ) {
-        const synced = await replaceActiveDocumentSource(localDraft);
-        if (modeRequestIdRef.current !== requestId) {
-          return;
-        }
-        applySnapshot({ ...synced, mode: nextMode }, true);
-      }
-
       const next = await setMode(nextMode);
       if (modeRequestIdRef.current !== requestId) {
         return;
       }
       applySnapshot({ ...next, mode: nextMode }, true);
     } catch (error) {
-      console.error(error);
       if (modeRequestIdRef.current === requestId) {
+        reportOperationError(error, 'Could not switch editor mode');
         applyModeOptimistically(previousMode);
       }
     }
@@ -1857,7 +1883,7 @@ export default function App() {
 
     await withBusy(async () => {
       stashActiveTabDraft();
-      await syncActiveDraft();
+      await syncActiveDraftBestEffort();
       const next = await openWorkspaceDocument(path);
       applySnapshot(next);
       upsertActiveTabFromSnapshot(next);
@@ -1873,7 +1899,7 @@ export default function App() {
 
     await withBusy(async () => {
       stashActiveTabDraft();
-      await syncActiveDraft();
+      await syncActiveDraftBestEffort();
       const next = await openDocument(path);
       applySnapshot(next);
       upsertActiveTabFromSnapshot(next);
@@ -1896,7 +1922,7 @@ export default function App() {
 
     await withBusy(async () => {
       stashActiveTabDraft();
-      await syncActiveDraft();
+      await syncActiveDraftBestEffort();
 
       try {
         if (target.kind === 'settings') {
@@ -1937,8 +1963,7 @@ export default function App() {
               : tab,
           ),
         );
-      } catch (error) {
-        console.error(error);
+      } catch {
         // The file disappeared between sessions — convert this tab to missing.
         setTabs((prev) =>
           prev.map((tab) =>
@@ -2356,7 +2381,32 @@ export default function App() {
         unlisten = nextUnlisten;
       })
       .catch((error) => {
-        console.error(error);
+        reportOperationError(error, 'Could not listen for native menu commands');
+      });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    listen<AppSnapshot>(SNAPSHOT_UPDATE_EVENT, (event) => {
+      handleExternalSnapshot(event.payload);
+    })
+      .then((nextUnlisten) => {
+        if (cancelled) {
+          nextUnlisten();
+          return;
+        }
+
+        unlisten = nextUnlisten;
+      })
+      .catch((error) => {
+        reportOperationError(error, 'Could not listen for external file opens');
       });
 
     return () => {
@@ -2442,7 +2492,7 @@ export default function App() {
           console.warn('Unrecognized close decision:', decision);
         }
       } catch (error) {
-        console.error(error);
+        reportOperationError(error, 'Could not close Markdowner');
       }
     },
   );
@@ -2514,7 +2564,7 @@ export default function App() {
         unlisten = nextUnlisten;
       })
       .catch((error) => {
-        console.error(error);
+        reportOperationError(error, 'Could not listen for close requests');
       });
 
     return () => {
@@ -2535,7 +2585,7 @@ export default function App() {
             const firstPath = paths[0];
             if (!firstPath) return;
             await withBusy(async () => {
-              await syncActiveDraft();
+              await syncActiveDraftBestEffort();
               const next = await openDroppedPath(firstPath);
               applySnapshot(next, true);
             });
@@ -2550,7 +2600,7 @@ export default function App() {
         unlisten = nextUnlisten;
       })
       .catch((error) => {
-        console.error('Failed to listen to drag-drop event:', error);
+        reportOperationError(error, 'Could not listen for dropped files');
       });
 
     return () => {

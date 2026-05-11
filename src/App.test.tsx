@@ -43,6 +43,9 @@ let closeRequestedHandler:
 let menuCommandHandler:
   | ((event: { payload: string }) => void | Promise<void>)
   | undefined;
+let updateSnapshotHandler:
+  | ((event: { payload: AppSnapshot }) => void | Promise<void>)
+  | undefined;
 
 vi.mock('./lib/desktop', () => ({
   bootstrap: bootstrapMock,
@@ -224,6 +227,7 @@ describe('App recent documents', () => {
     invokeMock.mockReset();
     closeRequestedHandler = undefined;
     menuCommandHandler = undefined;
+    updateSnapshotHandler = undefined;
     onCloseRequestedMock.mockImplementation(async (handler) => {
       closeRequestedHandler = handler;
       return vi.fn();
@@ -234,6 +238,9 @@ describe('App recent documents', () => {
     listenMock.mockImplementation(async (eventName, handler) => {
       if (eventName === 'markdowner://menu-command') {
         menuCommandHandler = handler;
+      }
+      if (eventName === 'markdowner://update-snapshot') {
+        updateSnapshotHandler = handler;
       }
 
       return vi.fn();
@@ -318,6 +325,34 @@ describe('App recent documents', () => {
       'aria-keyshortcuts',
       'Meta+Shift+O Control+Shift+O',
     );
+  });
+
+  it('surfaces open failures without leaving an unhandled runtime error', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+    openDialogMock.mockResolvedValue('/tmp/project/missing.md');
+    openDocumentMock.mockRejectedValue(
+      new Error("Could not read markdown file '/tmp/project/missing.md'"),
+    );
+    const runtimeErrors = captureRuntimeErrors();
+
+    try {
+      const { default: App } = await import('./App');
+
+      render(<App />);
+
+      const openFileButton = await screen.findByRole('button', { name: /^open file…$/i });
+      fireEvent.click(openFileButton);
+
+      expect(
+        await screen.findByText(/could not read markdown file '\/tmp\/project\/missing\.md'/i),
+      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.queryByRole('status', { name: /working/i })).not.toBeInTheDocument();
+      });
+      await runtimeErrors.expectClean();
+    } finally {
+      runtimeErrors.restore();
+    }
   });
 
   it('shows header loading feedback while creating a new document', async () => {
@@ -2074,6 +2109,42 @@ describe('App recent documents', () => {
     });
 
     expect(screen.getByTestId('editor-surface-preview')).toBeInTheDocument();
+  });
+
+  it('switches modes even when dirty draft sync fails', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
+    replaceActiveDocumentSourceMock.mockRejectedValueOnce(new Error('draft sync failed'));
+    setModeMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'SplitView',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    fireEvent.change(sourceEditor, { target: { value: '# Edited notes' } });
+
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    fireEvent.keyDown(window, { key: 's', metaKey: true });
+
+    await waitFor(() => {
+      expect(setModeMock).toHaveBeenCalledWith('SplitView');
+    });
+    expect(await screen.findByTestId('editor-surface-preview')).toBeInTheDocument();
+    expect(screen.getByLabelText('Source editor')).toHaveValue('# Edited notes');
   });
 
   it('opens the Document Stats dialog from the Command Palette', async () => {
@@ -3874,6 +3945,34 @@ describe('App recent documents', () => {
     await waitFor(() => {
       expect(openDocumentMock).toHaveBeenCalledWith('/tmp/project/meeting-notes.md');
     });
+  });
+
+  it('applies native update-snapshot events from external file opens', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(updateSnapshotHandler).toBeTypeOf('function');
+    });
+
+    await act(async () => {
+      await updateSnapshotHandler?.({
+        payload: baseSnapshot({
+          activeDocumentName: 'launched.md',
+          activeDocumentPath: '/tmp/project/launched.md',
+          activeDocumentSource: '# Launched from Finder',
+          mode: 'Editor',
+        }),
+      });
+    });
+
+    expect(await screen.findByLabelText('Source editor')).toHaveValue(
+      '# Launched from Finder',
+    );
+    expect(screen.getByRole('tab', { name: /launched\.md/i })).toBeInTheDocument();
   });
 
   it('closes the window from the native close menu command when document is clean', async () => {
