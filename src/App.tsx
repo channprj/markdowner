@@ -82,6 +82,7 @@ import {
   replaceSingleMatch,
   type FindReplaceOptions,
 } from './lib/findReplace';
+import { nextCursorPositionFromStatistics } from './lib/cursorPosition';
 import {
   DEFAULT_SETTINGS,
   OUTLINE_FONT_SIZE_MAX,
@@ -3257,11 +3258,9 @@ export default function App() {
               extensions={sourceEditorExtensions}
               onChange={(value) => setLocalDraft(value)}
               onStatistics={(stats) => {
-                const head = stats.selectionAsSingle.head;
-                setCursorPosition({
-                  line: stats.line.number,
-                  column: head - stats.line.from + 1,
-                });
+                setCursorPosition((current) =>
+                  nextCursorPositionFromStatistics(current, stats),
+                );
               }}
               onCreateEditor={(view) => {
                 sourceEditorViewRef.current = view;
