@@ -1680,7 +1680,7 @@ describe('App recent documents', () => {
     });
   });
 
-  it('closes the window on Cmd+W when the active tab has no edits', async () => {
+  it('closes the only tab on Cmd+W without prompting when the active tab has no local edits', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'meeting-notes.md',
@@ -1697,13 +1697,15 @@ describe('App recent documents', () => {
 
     render(<App />);
 
-    await screen.findAllByText(/^meeting-notes\.md/);
+    await screen.findByRole('textbox', { name: /source editor/i });
 
     fireEvent.keyDown(window, { key: 'w', metaKey: true });
 
     await waitFor(() => {
-      expect(destroyWindowMock).toHaveBeenCalled();
+      expect(screen.queryByRole('tablist', { name: /open documents/i })).toBeNull();
     });
+    expect(screen.getByRole('button', { name: /^new file$/i })).toBeInTheDocument();
+    expect(destroyWindowMock).not.toHaveBeenCalled();
     expect(messageMock).not.toHaveBeenCalled();
   });
 
@@ -4562,7 +4564,7 @@ describe('App recent documents', () => {
     }
   });
 
-  it('closes the window from the native close menu command when document is clean', async () => {
+  it('closes the only clean tab from the native close menu command without closing the window', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'meeting-notes.md',
@@ -4576,6 +4578,8 @@ describe('App recent documents', () => {
 
     render(<App />);
 
+    await screen.findByRole('textbox', { name: /source editor/i });
+
     await waitFor(() => {
       expect(menuCommandHandler).toBeTypeOf('function');
     });
@@ -4583,11 +4587,13 @@ describe('App recent documents', () => {
     await menuCommandHandler?.({ payload: 'close-window' });
 
     await waitFor(() => {
-      expect(destroyWindowMock).toHaveBeenCalled();
+      expect(screen.queryByRole('tablist', { name: /open documents/i })).toBeNull();
     });
+    expect(screen.getByRole('button', { name: /^new file$/i })).toBeInTheDocument();
+    expect(destroyWindowMock).not.toHaveBeenCalled();
   });
 
-  it('closes the window with Cmd+W when document is clean', async () => {
+  it('closes the only clean tab with Cmd+W without closing the window', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'meeting-notes.md',
@@ -4606,8 +4612,35 @@ describe('App recent documents', () => {
     fireEvent.keyDown(window, { key: 'w', metaKey: true });
 
     await waitFor(() => {
-      expect(destroyWindowMock).toHaveBeenCalled();
+      expect(screen.queryByRole('tablist', { name: /open documents/i })).toBeNull();
     });
+    expect(screen.getByRole('button', { name: /^new file$/i })).toBeInTheDocument();
+    expect(destroyWindowMock).not.toHaveBeenCalled();
+    expect(messageMock).not.toHaveBeenCalled();
+  });
+
+  it('closes the only clean tab from the tab close button without closing the window', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const tab = await screen.findByRole('tab', { name: /meeting-notes\.md/i });
+    fireEvent.click(within(tab).getByRole('button', { name: /close tab/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('tablist', { name: /open documents/i })).toBeNull();
+    });
+    expect(screen.getByRole('button', { name: /^new file$/i })).toBeInTheDocument();
+    expect(destroyWindowMock).not.toHaveBeenCalled();
     expect(messageMock).not.toHaveBeenCalled();
   });
 
@@ -4631,7 +4664,7 @@ describe('App recent documents', () => {
     expect(messageMock).not.toHaveBeenCalled();
   });
 
-  it('closes a dirty window from Cmd+W without saving when discard is selected', async () => {
+  it('closes the only dirty tab from Cmd+W without saving when discard is selected', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'meeting-notes.md',
@@ -4665,8 +4698,10 @@ describe('App recent documents', () => {
           title: 'Markdowner',
         },
       );
-      expect(destroyWindowMock).toHaveBeenCalled();
+      expect(screen.queryByRole('tablist', { name: /open documents/i })).toBeNull();
     });
+    expect(screen.getByRole('button', { name: /^new file$/i })).toBeInTheDocument();
+    expect(destroyWindowMock).not.toHaveBeenCalled();
     expect(saveActiveDocumentMock).not.toHaveBeenCalled();
     expect(saveActiveDocumentAsMock).not.toHaveBeenCalled();
     expect(quitAppMock).not.toHaveBeenCalled();

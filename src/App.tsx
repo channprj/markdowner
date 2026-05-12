@@ -1419,6 +1419,28 @@ export default function App() {
     });
   };
 
+  const clearActiveDocumentSurface = () => {
+    tabsRef.current = [];
+    activeTabIdRef.current = null;
+    preSettingsDocTabIdRef.current = null;
+    startTransition(() => {
+      setTabs([]);
+      setActiveTabId(null);
+      setLocalDraft('');
+      setExternalChangeMessage(null);
+      setShowExternalChangeActions(false);
+      setExternalCompareSource(null);
+      setSnapshot((current) => ({
+        ...current,
+        activeDocumentName: null,
+        activeDocumentPath: null,
+        activeDocumentSource: null,
+        activeDocumentDirty: false,
+        lastError: null,
+      }));
+    });
+  };
+
   const applyModeOptimistically = (mode: EditorMode) => {
     startTransition(() => {
       setSnapshot((current) => ({ ...current, mode }));
@@ -2013,6 +2035,53 @@ export default function App() {
     return true;
   };
 
+  const closeOnlyRemainingTab = useEffectEvent(async () => {
+    if (!hasActiveTabEdits) {
+      clearActiveDocumentSurface();
+      return;
+    }
+
+    if (busy) {
+      return;
+    }
+
+    try {
+      const decision = await message(
+        `Save changes to '${snapshot.activeDocumentName ?? 'Untitled.md'}' before closing?`,
+        {
+          title: WINDOW_TITLE,
+          kind: 'warning',
+          buttons: {
+            yes: 'Save',
+            no: "Don't Save",
+            cancel: 'Cancel',
+          },
+        },
+      );
+
+      if (isSaveCloseDecision(decision)) {
+        await withBusy(async () => {
+          const saved = await saveActiveDocumentForClose();
+          if (saved) {
+            clearActiveDocumentSurface();
+          }
+        });
+        return;
+      }
+
+      if (isDiscardCloseDecision(decision)) {
+        clearActiveDocumentSurface();
+        return;
+      }
+
+      if (decision !== undefined) {
+        console.warn('Unrecognized close decision:', decision);
+      }
+    } catch (error) {
+      reportOperationError(error, 'Could not close tab');
+    }
+  });
+
   const handleReloadActiveDocument = async () => {
     if (!activeDocumentOpen || !snapshot.activeDocumentPath) {
       return;
@@ -2273,6 +2342,11 @@ export default function App() {
     // screen, so we set activeTabId directly and never round-trip through
     // openDocument (which would refetch the previously-active doc).
     if (target.kind === 'settings') {
+      if (remaining.length === 0) {
+        clearActiveDocumentSurface();
+        return;
+      }
+
       if (targetId === activeTabId) {
         const restoreId = preSettingsDocTabIdRef.current;
         const restoreTab = restoreId
@@ -2287,10 +2361,10 @@ export default function App() {
       return;
     }
 
-    // Closing the last document tab → fall through to window-close behavior so
-    // the existing dirty-confirmation dialog runs and the user can save first.
+    // Closing the last document tab clears the document surface while keeping
+    // the application window open. Dirty documents still get the save prompt.
     if (remaining.length === 0) {
-      await handleWindowCloseCommand();
+      await closeOnlyRemainingTab();
       return;
     }
 
@@ -2752,7 +2826,7 @@ export default function App() {
         return;
       }
 
-      // Window close (Cmd+W) gates on the active tab; app quit (Cmd+Q) gates on
+      // Native window close gates on the active tab; app quit (Cmd+Q) gates on
       // any tab having edits, matching Zed's behavior.
       const requiresPrompt =
         target === 'app' ? hasAnyTabEdits : hasActiveTabEdits;
@@ -2832,19 +2906,18 @@ export default function App() {
   // Cmd+W / File → Close:
   // - 0 tabs (nothing open): close the window directly. There is nothing to
   //   be dirty about, so skip the close confirmation flow entirely.
-  // - 2+ tabs: close the active tab.
-  // - 1 tab: fall through to handleWindowCloseCommand so the dirty prompt
-  //   still runs for an unsaved active document.
+  // - 1+ tabs: close the active tab. The final tab leaves the window open on
+  //   the empty document surface after any required dirty confirmation.
   const handleCloseTabOrWindow = useEffectEvent(async () => {
     if (tabs.length === 0) {
       await getCurrentWindow().destroy();
       return;
     }
-    if (tabs.length > 1 && activeTabId) {
-      await handleCloseTab(activeTabId);
-      return;
+
+    const targetId = activeTabId ?? tabs[0]?.id;
+    if (targetId) {
+      await handleCloseTab(targetId);
     }
-    await handleWindowCloseCommand();
   });
 
   const handleQuitCommand = async () => {
