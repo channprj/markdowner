@@ -33,6 +33,7 @@ export interface EditorAreaProps {
   onOpenWorkspace?: () => void;
   localDraft: string;
   activeDocumentName: string | null;
+  findReplaceBar?: ReactNode;
   editorContent: ReactNode;
   sourceEditor: ReactNode;
   splitViewPreview: ReactNode;
@@ -64,6 +65,7 @@ export function EditorArea({
   onOpenWorkspace,
   localDraft,
   activeDocumentName,
+  findReplaceBar,
   editorContent,
   sourceEditor,
   splitViewPreview,
@@ -94,6 +96,8 @@ export function EditorArea({
   );
   return (
     <main className="relative flex h-full min-h-0 min-w-0 flex-col">
+      {findReplaceBar}
+
       {errorMessage ? (
         <Alert variant="destructive">
           <AlertTitle>Something went wrong</AlertTitle>

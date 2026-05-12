@@ -47,6 +47,7 @@ import { AppMenu } from '@/shell/AppMenu';
 import { CommandPalette, type CommandPaletteCommand } from '@/shell/CommandPalette';
 import { DocumentStatsDialog } from '@/shell/DocumentStatsDialog';
 import { EditorArea } from '@/shell/EditorArea';
+import { FindReplaceBar } from '@/shell/FindReplaceBar';
 import { Tabs } from '@/shell/Tabs';
 import { QuickOpen, type QuickOpenItem } from '@/shell/QuickOpen';
 import { SideBar, type OutlineItem, type SideBarPanel } from '@/shell/SideBar';
@@ -75,6 +76,12 @@ import {
   loadOpenTabs,
   saveOpenTabs,
 } from './lib/desktop';
+import {
+  findTextMatches,
+  replaceAllMatches,
+  replaceSingleMatch,
+  type FindReplaceOptions,
+} from './lib/findReplace';
 import {
   DEFAULT_SETTINGS,
   OUTLINE_FONT_SIZE_MAX,
@@ -701,6 +708,16 @@ export default function App() {
   const [isQuickOpenOpen, setIsQuickOpenOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isDocumentStatsOpen, setIsDocumentStatsOpen] = useState(false);
+  const [isFindReplaceOpen, setIsFindReplaceOpen] = useState(false);
+  const [isFindReplaceReplaceMode, setIsFindReplaceReplaceMode] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findReplacement, setFindReplacement] = useState('');
+  const [findOptions, setFindOptions] = useState<FindReplaceOptions>({
+    caseSensitive: false,
+    wholeWord: false,
+    regex: false,
+  });
+  const [activeFindMatchIndex, setActiveFindMatchIndex] = useState(0);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [debouncedLocalDraft, setDebouncedLocalDraft] = useState(localDraft);
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number }>({
@@ -1124,6 +1141,94 @@ export default function App() {
   }, [isResizingSidebar, sidebarWidth]);
 
   const currentMode = snapshot.mode;
+  const findResult = useMemo(
+    () => findTextMatches(localDraft, findQuery, findOptions),
+    [findOptions, findQuery, localDraft],
+  );
+  const findMatches = findResult.matches;
+  const findMatchCount = findMatches.length;
+  const activeFindMatch =
+    findMatchCount > 0 ? findMatches[Math.min(activeFindMatchIndex, findMatchCount - 1)] : undefined;
+  const canReplaceFindMatch = activeDocumentOpen && currentMode !== 'Wysiwyg';
+  const activeFindMatchNumber = findMatchCount > 0
+    ? Math.min(activeFindMatchIndex, findMatchCount - 1) + 1
+    : 0;
+
+  useEffect(() => {
+    if (activeFindMatchIndex >= findMatchCount) {
+      setActiveFindMatchIndex(0);
+    }
+  }, [activeFindMatchIndex, findMatchCount]);
+
+  useEffect(() => {
+    if (!isFindReplaceOpen || !activeDocumentOpen || currentMode === 'Wysiwyg') {
+      return;
+    }
+    if (!activeFindMatch) {
+      return;
+    }
+
+    focusSourceSelection(activeFindMatch.start, activeFindMatch.end);
+  }, [
+    activeDocumentOpen,
+    activeFindMatch,
+    currentMode,
+    isFindReplaceOpen,
+  ]);
+
+  useEffect(() => {
+    if (!activeDocumentOpen) {
+      setIsFindReplaceOpen(false);
+    }
+  }, [activeDocumentOpen]);
+
+  const openFindReplace = (replaceMode: boolean) => {
+    if (!activeDocumentOpen) {
+      return;
+    }
+
+    setIsFindReplaceOpen(true);
+    setIsFindReplaceReplaceMode(replaceMode);
+  };
+
+  const handleFindQueryChange = (query: string) => {
+    setFindQuery(query);
+    setActiveFindMatchIndex(0);
+  };
+
+  const handleFindOptionsChange = (options: FindReplaceOptions) => {
+    setFindOptions(options);
+    setActiveFindMatchIndex(0);
+  };
+
+  const handlePreviousFindMatch = () => {
+    if (findMatchCount === 0) return;
+    setActiveFindMatchIndex((current) => (current - 1 + findMatchCount) % findMatchCount);
+  };
+
+  const handleNextFindMatch = () => {
+    if (findMatchCount === 0) return;
+    setActiveFindMatchIndex((current) => (current + 1) % findMatchCount);
+  };
+
+  const handleReplaceFindMatch = () => {
+    if (!canReplaceFindMatch || !activeFindMatch) {
+      return;
+    }
+
+    setLocalDraft((current) => replaceSingleMatch(current, activeFindMatch, findReplacement));
+    setActiveFindMatchIndex((current) => Math.max(0, Math.min(current, findMatchCount - 2)));
+  };
+
+  const handleReplaceAllFindMatches = () => {
+    if (!canReplaceFindMatch || findMatchCount === 0) {
+      return;
+    }
+
+    setLocalDraft((current) => replaceAllMatches(current, findMatches, findReplacement));
+    setActiveFindMatchIndex(0);
+  };
+
   // The Rust-side activeDocumentDirty flag tracks "in-memory source != disk"
   // which stays true after edits even if the user undoes back to the original
   // content. For close/quit prompts we want a strict comparison against the
@@ -2282,6 +2387,35 @@ export default function App() {
         return;
       }
 
+      if (
+        usesCommandModifier(event) &&
+        event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'f'
+      ) {
+        event.preventDefault();
+        openFindReplace(true);
+        return;
+      }
+
+      if (matchesShortcut(event, 'f')) {
+        event.preventDefault();
+        openFindReplace(false);
+        return;
+      }
+
+      if (
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'h'
+      ) {
+        event.preventDefault();
+        openFindReplace(true);
+        return;
+      }
+
       if (matchesShortcut(event, 'p', { shift: true })) {
         event.preventDefault();
         setIsCommandPaletteOpen((prev) => !prev);
@@ -3009,6 +3143,29 @@ export default function App() {
         onOpenWorkspace={() => void handleOpenWorkspace()}
         localDraft={localDraft}
         activeDocumentName={snapshot.activeDocumentName}
+        findReplaceBar={
+          isFindReplaceOpen ? (
+            <FindReplaceBar
+              query={findQuery}
+              replacement={findReplacement}
+              replaceMode={isFindReplaceReplaceMode}
+              options={findOptions}
+              activeMatchNumber={activeFindMatchNumber}
+              matchCount={findMatchCount}
+              error={findResult.error}
+              canReplace={canReplaceFindMatch}
+              onQueryChange={handleFindQueryChange}
+              onReplacementChange={setFindReplacement}
+              onReplaceModeChange={setIsFindReplaceReplaceMode}
+              onOptionsChange={handleFindOptionsChange}
+              onPreviousMatch={handlePreviousFindMatch}
+              onNextMatch={handleNextFindMatch}
+              onReplace={handleReplaceFindMatch}
+              onReplaceAll={handleReplaceAllFindMatches}
+              onClose={() => setIsFindReplaceOpen(false)}
+            />
+          ) : null
+        }
         fontSize={settings.editorFontSize || DEFAULT_SETTINGS.editorFontSize}
         fontFamily={settings.editorFontFamily}
         focusModeEnabled={settings.focusModeEnabled}

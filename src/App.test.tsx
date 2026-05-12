@@ -2232,6 +2232,117 @@ describe('App recent documents', () => {
     expect(await screen.findByRole('dialog', { name: /document stats/i })).toBeInTheDocument();
   });
 
+  it('opens in-document Find with Cmd+F and selects the first source match', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'notes.md',
+        activeDocumentPath: '/tmp/project/notes.md',
+        activeDocumentSource: '# Alpha\n\nBeta alpha\nAlpha',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const sourceEditor = await screen.findByRole('textbox', { name: /source editor/i });
+
+    fireEvent.keyDown(window, { key: 'f', metaKey: true });
+
+    const search = await screen.findByRole('search', { name: /find and replace/i });
+    const findInput = within(search).getByRole('textbox', { name: /find text/i });
+
+    expect(findInput).toHaveFocus();
+
+    fireEvent.change(findInput, { target: { value: 'alpha' } });
+
+    await waitFor(() => {
+      expect(within(search).getByText('1 of 3')).toBeInTheDocument();
+      expect((sourceEditor as HTMLTextAreaElement).selectionStart).toBe(2);
+      expect((sourceEditor as HTMLTextAreaElement).selectionEnd).toBe(7);
+    });
+
+    fireEvent.click(within(search).getByRole('button', { name: /next match/i }));
+
+    await waitFor(() => {
+      expect(within(search).getByText('2 of 3')).toBeInTheDocument();
+      expect((sourceEditor as HTMLTextAreaElement).selectionStart).toBe(14);
+      expect((sourceEditor as HTMLTextAreaElement).selectionEnd).toBe(19);
+    });
+  });
+
+  it('replaces all regex source matches from the replace bar', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'tasks.md',
+        activeDocumentPath: '/tmp/project/tasks.md',
+        activeDocumentSource: 'todo 123\ntodo 456\nTODO 789',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const sourceEditor = await screen.findByRole('textbox', { name: /source editor/i });
+
+    fireEvent.keyDown(window, { key: 'f', metaKey: true, altKey: true });
+
+    const search = await screen.findByRole('search', { name: /find and replace/i });
+    const findInput = within(search).getByRole('textbox', { name: /find text/i });
+    const replaceInput = within(search).getByRole('textbox', { name: /replace text/i });
+
+    fireEvent.click(within(search).getByRole('button', { name: /use regular expression/i }));
+    fireEvent.change(findInput, { target: { value: 'todo (\\d+)' } });
+    fireEvent.change(replaceInput, { target: { value: 'done $1' } });
+
+    await waitFor(() => {
+      expect(within(search).getByText('1 of 3')).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(search).getByRole('button', { name: /^replace all$/i }));
+
+    await waitFor(() => {
+      expect(sourceEditor).toHaveValue('done 123\ndone 456\ndone 789');
+      expect(within(search).getByText('No matches')).toBeInTheDocument();
+    });
+  });
+
+  it('keeps WYSIWYG replacement disabled until a source-backed mode is active', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'notes.md',
+        activeDocumentPath: '/tmp/project/notes.md',
+        activeDocumentSource: '# Alpha\n\nAlpha',
+        mode: 'Wysiwyg',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByRole('tab', { name: /notes\.md/i });
+
+    fireEvent.keyDown(window, { key: 'h', ctrlKey: true });
+
+    const search = await screen.findByRole('search', { name: /find and replace/i });
+    const findInput = within(search).getByRole('textbox', { name: /find text/i });
+
+    fireEvent.change(findInput, { target: { value: 'alpha' } });
+
+    await waitFor(() => {
+      expect(within(search).getByText('1 of 2')).toBeInTheDocument();
+    });
+    expect(
+      within(search).getByText(/switch to editor or split view to replace/i),
+    ).toBeInTheDocument();
+    expect(within(search).getByRole('button', { name: /^replace$/i })).toBeDisabled();
+    expect(within(search).getByRole('button', { name: /^replace all$/i })).toBeDisabled();
+  });
+
   it('renders friendly mode labels in the app menu and status bar', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
