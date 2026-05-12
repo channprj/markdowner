@@ -4051,8 +4051,7 @@ describe('App recent documents', () => {
     });
   });
 
-  it('emits local diagnostics after Diagnostics Logging is enabled', async () => {
-    const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+  it('records local diagnostics after Diagnostics Logging is enabled', async () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {
         return {
@@ -4066,30 +4065,60 @@ describe('App recent documents', () => {
       return undefined;
     });
 
-    try {
-      const { default: App } = await import('./App');
+    const { default: App } = await import('./App');
 
-      render(<App />);
+    render(<App />);
 
-      fireEvent.keyDown(window, { key: ',', metaKey: true });
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
 
-      const dialog = await screen.findByTestId('settings-panel');
-      const diagnosticsToggle = within(dialog).getByLabelText(/diagnostics logging/i);
-      fireEvent.click(diagnosticsToggle);
+    const dialog = await screen.findByTestId('settings-panel');
+    const diagnosticsToggle = within(dialog).getByLabelText(/diagnostics logging/i);
+    fireEvent.click(diagnosticsToggle);
 
-      await waitFor(() => {
-        expect(consoleInfoSpy).toHaveBeenCalledWith(
-          '[Markdowner diagnostics]',
-          'settings.changed',
-          expect.objectContaining({
-            changedKeys: ['diagnosticsEnabled'],
-            diagnosticsEnabled: true,
-          }),
-        );
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('record_diagnostics_event', {
+        eventName: 'settings.changed',
+        payload: expect.objectContaining({
+          changedKeys: ['diagnosticsEnabled'],
+          diagnosticsEnabled: true,
+        }),
       });
-    } finally {
-      consoleInfoSpy.mockRestore();
-    }
+    });
+  });
+
+  it('does not record diagnostics events while Diagnostics Logging is disabled', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: true,
+          diagnosticsEnabled: false,
+        };
+      }
+      return undefined;
+    });
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+
+    const dialog = await screen.findByTestId('settings-panel');
+    const wordWrapToggle = within(dialog).getByLabelText(/word wrap/i);
+    fireEvent.click(wordWrapToggle);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_settings', {
+        settings: expect.objectContaining({ editorLineWrap: false }),
+      });
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      'record_diagnostics_event',
+      expect.anything(),
+    );
   });
 
   it('falls back to the default asset folder when the Settings dialog input is cleared', async () => {

@@ -5,12 +5,15 @@ use std::{
 
 use markdowner_core::{EditorMode, EditorRuntime, ThemeKind, ThemeSelection, WorkspaceState};
 use serde::Serialize;
+use serde_json::{Value, json};
 use tauri::{
     AppHandle, Emitter, Manager, Runtime, State,
     menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
 };
 
 use tauri_plugin_cli::CliExt;
+
+mod diagnostics;
 
 const MENU_COMMAND_EVENT: &str = "markdowner://menu-command";
 const MENU_FILE_ID: &str = "file";
@@ -344,7 +347,13 @@ fn settings_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
         .join("settings.json"))
 }
 
-fn load_desktop_settings(app_handle: &AppHandle) -> Result<markdowner_core::settings::Settings, String> {
+fn app_data_dir(app_handle: &AppHandle) -> Result<PathBuf, String> {
+    app_handle.path().app_data_dir().map_err(|e| e.to_string())
+}
+
+fn load_desktop_settings(
+    app_handle: &AppHandle,
+) -> Result<markdowner_core::settings::Settings, String> {
     let path = settings_path(app_handle)?;
     let raw = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
     let settings: markdowner_core::settings::Settings =
@@ -380,7 +389,8 @@ fn build_recent_menu<R: Runtime>(
         recent_menu_builder = recent_menu_builder.item(&empty_item);
     } else {
         for path in recent_documents {
-            let item = MenuItemBuilder::with_id(recent_document_menu_command(path), path).build(app)?;
+            let item =
+                MenuItemBuilder::with_id(recent_document_menu_command(path), path).build(app)?;
             recent_menu_builder = recent_menu_builder.item(&item);
         }
     }
@@ -424,7 +434,9 @@ fn menu_command_from_id(id: &str) -> Option<String> {
         MENU_COMMAND_OPEN_DOCUMENT => Some(MENU_COMMAND_OPEN_DOCUMENT.to_string()),
         MENU_COMMAND_OPEN_WORKSPACE => Some(MENU_COMMAND_OPEN_WORKSPACE.to_string()),
         MENU_COMMAND_SAVE_ACTIVE_DOCUMENT => Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT.to_string()),
-        MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS => Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS.to_string()),
+        MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS => {
+            Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS.to_string())
+        }
         MENU_COMMAND_CLOSE_WINDOW => Some(MENU_COMMAND_CLOSE_WINDOW.to_string()),
         MENU_COMMAND_QUIT_APP => Some(MENU_COMMAND_QUIT_APP.to_string()),
         MENU_COMMAND_SET_MODE_WYSIWYG => Some(MENU_COMMAND_SET_MODE_WYSIWYG.to_string()),
@@ -494,7 +506,10 @@ fn bootstrap(state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
 }
 
 #[tauri::command]
-fn new_document(state: State<'_, DesktopAppState>, app_handle: AppHandle) -> Result<AppSnapshot, String> {
+fn new_document(
+    state: State<'_, DesktopAppState>,
+    app_handle: AppHandle,
+) -> Result<AppSnapshot, String> {
     with_backend_and_menu(state, app_handle, DesktopBackend::new_document)
 }
 
@@ -504,7 +519,9 @@ fn open_document(
     state: State<'_, DesktopAppState>,
     app_handle: AppHandle,
 ) -> Result<AppSnapshot, String> {
-    with_backend_and_menu(state, app_handle, |backend| backend.open_document(Path::new(&path)))
+    with_backend_and_menu(state, app_handle, |backend| {
+        backend.open_document(Path::new(&path))
+    })
 }
 
 #[tauri::command]
@@ -594,13 +611,29 @@ fn import_theme(path: String, state: State<'_, DesktopAppState>) -> Result<AppSn
 }
 
 #[tauri::command]
-fn load_settings(app_handle: tauri::AppHandle) -> Result<markdowner_core::settings::Settings, String> {
+fn load_settings(
+    app_handle: tauri::AppHandle,
+) -> Result<markdowner_core::settings::Settings, String> {
     load_desktop_settings(&app_handle)
 }
 
 #[tauri::command]
-fn save_settings(settings: markdowner_core::settings::Settings, app_handle: tauri::AppHandle) -> Result<(), String> {
+fn save_settings(
+    settings: markdowner_core::settings::Settings,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let previous = load_desktop_settings(&app_handle).unwrap_or_default();
     let path = settings_path(&app_handle)?;
+    let diagnostics_dir = app_data_dir(&app_handle)?;
+
+    if previous.diagnostics_enabled && !settings.diagnostics_enabled {
+        diagnostics::write_diagnostics_event(
+            &diagnostics_dir,
+            "diagnostics.disabled",
+            json!({ "source": "settings" }),
+        )
+        .map_err(|e| e.to_string())?;
+    }
 
     let payload = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
 
@@ -612,7 +645,51 @@ fn save_settings(settings: markdowner_core::settings::Settings, app_handle: taur
     let temp_path = path.with_extension("tmp");
     std::fs::write(&temp_path, payload).map_err(|e| e.to_string())?;
     std::fs::rename(&temp_path, &path).map_err(|e| e.to_string())?;
+
+    if settings.diagnostics_enabled {
+        let event_name = if previous.diagnostics_enabled {
+            "settings.saved"
+        } else {
+            "diagnostics.enabled"
+        };
+        diagnostics::write_diagnostics_event(
+            &diagnostics_dir,
+            event_name,
+            json!({ "diagnosticsEnabled": true }),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
     Ok(())
+}
+
+#[tauri::command]
+fn diagnostics_status(
+    app_handle: tauri::AppHandle,
+) -> Result<diagnostics::DiagnosticsLogStatus, String> {
+    let settings = load_desktop_settings(&app_handle)?;
+    let diagnostics_dir = app_data_dir(&app_handle)?;
+    Ok(diagnostics::diagnostics_status(
+        &diagnostics_dir,
+        settings.diagnostics_enabled,
+    ))
+}
+
+#[tauri::command]
+fn record_diagnostics_event(
+    event_name: String,
+    payload: Value,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let settings = load_desktop_settings(&app_handle)?;
+    if !settings.diagnostics_enabled {
+        return Ok(());
+    }
+
+    let diagnostics_dir = app_data_dir(&app_handle)?;
+    diagnostics::write_diagnostics_event(&diagnostics_dir, &event_name, payload)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -669,7 +746,8 @@ pub fn run() {
             let mut state = DesktopAppState::new(session_store.clone(), startup_mode);
 
             if let Ok(backend) = state.0.get_mut() {
-                let has_persisted_session = session_store.as_ref().is_some_and(|path| path.exists());
+                let has_persisted_session =
+                    session_store.as_ref().is_some_and(|path| path.exists());
 
                 if has_persisted_session {
                     let _ = backend.restore_session();
@@ -712,6 +790,8 @@ pub fn run() {
             import_theme,
             load_settings,
             save_settings,
+            diagnostics_status,
+            record_diagnostics_event,
             load_open_tabs,
             save_open_tabs,
             open_dropped_path,
@@ -881,10 +961,8 @@ mod tests {
         )
         .unwrap();
 
-        let mut backend = DesktopBackend::new_with_mode(
-            Some(session_path),
-            markdowner_core::EditorMode::Editor,
-        );
+        let mut backend =
+            DesktopBackend::new_with_mode(Some(session_path), markdowner_core::EditorMode::Editor);
         backend.restore_session().unwrap();
 
         assert_eq!(backend.snapshot().mode, markdowner_core::EditorMode::Editor);
@@ -975,7 +1053,10 @@ mod tests {
     fn menu_command_mapping_accepts_open_recent_document_prefix() {
         let recent_command = "open-recent-document:/tmp/project/meeting-notes.md";
 
-        assert_eq!(menu_command_from_id(recent_command), Some(recent_command.to_string()));
+        assert_eq!(
+            menu_command_from_id(recent_command),
+            Some(recent_command.to_string())
+        );
     }
 
     #[test]

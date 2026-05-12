@@ -16,6 +16,11 @@ export interface Settings {
   diagnosticsEnabled: boolean;
 }
 
+export interface DiagnosticsLogStatus {
+  enabled: boolean;
+  logPath: string | null;
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   autoSave: false,
   editorFontSize: 14,
@@ -91,5 +96,31 @@ export async function saveSettings(settings: Settings): Promise<void> {
     await invoke('save_settings', { settings });
   } catch (error) {
     console.error('Failed to save settings:', error);
+  }
+}
+
+export async function diagnosticsStatus(): Promise<DiagnosticsLogStatus> {
+  try {
+    const result = await invoke<Partial<DiagnosticsLogStatus> | null | undefined>(
+      'diagnostics_status',
+    );
+    return {
+      enabled: Boolean(result?.enabled),
+      logPath: result?.logPath ?? null,
+    };
+  } catch (error) {
+    console.error('Failed to read diagnostics status:', error);
+    return { enabled: false, logPath: null };
+  }
+}
+
+export async function recordDiagnosticsEvent(
+  eventName: string,
+  payload: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    await invoke('record_diagnostics_event', { eventName, payload });
+  } catch (error) {
+    console.error('Failed to record diagnostics event:', error);
   }
 }

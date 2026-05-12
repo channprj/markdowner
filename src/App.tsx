@@ -90,6 +90,7 @@ import {
   OUTLINE_ROW_SPACING_MIN,
   type Settings,
   loadSettings,
+  recordDiagnosticsEvent,
   saveSettings,
 } from './lib/settings';
 import { moveTab } from './lib/tabs';
@@ -1521,17 +1522,20 @@ export default function App() {
   const handleSettingsChange = (next: Settings) => {
     const changedKeys = SETTINGS_KEYS.filter((key) => !Object.is(settings[key], next[key]));
     setSettings(next);
-    void saveSettings(next);
+    const saveSettingsPromise = saveSettings(next);
+    void saveSettingsPromise;
     if (changedKeys.includes('themeFollowSystem') && next.themeFollowSystem) {
       void setTheme(resolveOsTheme())
         .then((synced) => applySnapshot(synced, true))
         .catch(() => undefined);
     }
     if (next.diagnosticsEnabled) {
-      console.info('[Markdowner diagnostics]', 'settings.changed', {
-        changedKeys,
-        diagnosticsEnabled: next.diagnosticsEnabled,
-      });
+      void saveSettingsPromise.then(() =>
+        recordDiagnosticsEvent('settings.changed', {
+          changedKeys,
+          diagnosticsEnabled: next.diagnosticsEnabled,
+        }),
+      );
     }
   };
 
