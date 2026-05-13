@@ -21,6 +21,15 @@ export interface DiagnosticsLogStatus {
   logPath: string | null;
 }
 
+export interface CliLauncherInstallResult {
+  shellConfigPath: string;
+  aliasCommand: string;
+  alreadyInstalled: boolean;
+}
+
+export const CLI_ALIAS_COMMAND =
+  'alias markdowner="/Applications/Markdowner.app/Contents/MacOS/markdowner-desktop"';
+
 export const DEFAULT_SETTINGS: Settings = {
   autoSave: false,
   editorFontSize: 12,
@@ -96,6 +105,15 @@ export async function saveSettings(settings: Settings): Promise<void> {
     await invoke('save_settings', { settings });
   } catch (error) {
     console.error('Failed to save settings:', error);
+  }
+}
+
+export async function installCliLauncher(): Promise<CliLauncherInstallResult> {
+  try {
+    return await invoke<CliLauncherInstallResult>('install_cli_launcher');
+  } catch (error) {
+    console.error('Failed to install CLI launcher:', error);
+    throw error;
   }
 }
 

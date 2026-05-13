@@ -1,4 +1,5 @@
 use std::{
+    env,
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -37,12 +38,24 @@ const MENU_RECENT_ID: &str = "open-recent";
 const MENU_RECENT_TITLE: &str = "Open Recent";
 const MENU_RECENT_EMPTY_ID: &str = "open-recent-empty";
 const MENU_RECENT_EMPTY_LABEL: &str = "No Recent Documents";
+const CLI_LAUNCHER_DEFAULT_EXECUTABLE: &str =
+    "/Applications/Markdowner.app/Contents/MacOS/markdowner-desktop";
+const CLI_LAUNCHER_BEGIN_MARKER: &str = "# >>> markdowner CLI launcher >>>";
+const CLI_LAUNCHER_END_MARKER: &str = "# <<< markdowner CLI launcher <<<";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MenuCommandDescriptor {
     id: &'static str,
     label: &'static str,
     accelerator: Option<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CliLauncherInstallResult {
+    shell_config_path: String,
+    alias_command: String,
+    already_installed: bool,
 }
 
 const FILE_MENU_COMMANDS: &[MenuCommandDescriptor] = &[
@@ -375,6 +388,142 @@ fn settings_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
 
 fn app_data_dir(app_handle: &AppHandle) -> Result<PathBuf, String> {
     app_handle.path().app_data_dir().map_err(|e| e.to_string())
+}
+
+fn shell_config_path_for_shell(home_dir: &Path, shell: Option<&str>) -> PathBuf {
+    let shell_name = shell
+        .and_then(|value| Path::new(value).file_name())
+        .and_then(|value| value.to_str())
+        .unwrap_or("zsh");
+
+    match shell_name {
+        "bash" => home_dir.join(".bashrc"),
+        "zsh" => home_dir.join(".zshrc"),
+        _ => home_dir.join(".zshrc"),
+    }
+}
+
+fn user_home_dir() -> Result<PathBuf, String> {
+    env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .ok_or_else(|| "Could not determine home directory for CLI launcher install".to_string())
+}
+
+fn path_is_macos_app_executable(path: &Path) -> bool {
+    let components = path
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>();
+
+    components.windows(3).any(|window| {
+        window[0].ends_with(".app") && window[1] == "Contents" && window[2] == "MacOS"
+    })
+}
+
+fn cli_launcher_executable_path() -> PathBuf {
+    env::current_exe()
+        .ok()
+        .filter(|path| path_is_macos_app_executable(path))
+        .unwrap_or_else(|| PathBuf::from(CLI_LAUNCHER_DEFAULT_EXECUTABLE))
+}
+
+fn double_quote_shell_value(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(|character| match character {
+            '\\' => "\\\\".chars().collect::<Vec<_>>(),
+            '"' => "\\\"".chars().collect::<Vec<_>>(),
+            '$' => "\\$".chars().collect::<Vec<_>>(),
+            '`' => "\\`".chars().collect::<Vec<_>>(),
+            _ => vec![character],
+        })
+        .collect()
+}
+
+fn cli_launcher_alias_command_for_path(executable_path: &Path) -> String {
+    format!(
+        "alias markdowner=\"{}\"",
+        double_quote_shell_value(&executable_path.to_string_lossy())
+    )
+}
+
+fn cli_launcher_managed_block(alias_command: &str) -> String {
+    format!("{CLI_LAUNCHER_BEGIN_MARKER}\n{alias_command}\n{CLI_LAUNCHER_END_MARKER}\n")
+}
+
+fn remove_cli_launcher_managed_block(contents: &str) -> String {
+    let Some(start) = contents.find(CLI_LAUNCHER_BEGIN_MARKER) else {
+        return contents.to_string();
+    };
+    let Some(end_relative) = contents[start..].find(CLI_LAUNCHER_END_MARKER) else {
+        return contents.to_string();
+    };
+
+    let end = start + end_relative + CLI_LAUNCHER_END_MARKER.len();
+    let remove_end = if contents[end..].starts_with("\r\n") {
+        end + 2
+    } else if contents[end..].starts_with('\n') {
+        end + 1
+    } else {
+        end
+    };
+
+    format!("{}{}", &contents[..start], &contents[remove_end..])
+}
+
+fn append_cli_launcher_managed_block(mut contents: String, alias_command: &str) -> String {
+    if !contents.is_empty() && !contents.ends_with('\n') {
+        contents.push('\n');
+    }
+    if !contents.trim().is_empty() && !contents.ends_with("\n\n") {
+        contents.push('\n');
+    }
+    contents.push_str(&cli_launcher_managed_block(alias_command));
+    contents
+}
+
+fn install_cli_launcher_alias(
+    shell_config_path: &Path,
+    alias_command: &str,
+) -> Result<CliLauncherInstallResult, String> {
+    let existing = match std::fs::read_to_string(shell_config_path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.to_string()),
+    };
+    let managed_block = cli_launcher_managed_block(alias_command);
+    let already_installed = existing.contains(&managed_block)
+        || existing.lines().any(|line| line.trim() == alias_command);
+
+    if !already_installed {
+        if let Some(parent) = shell_config_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+
+        let next_contents = append_cli_launcher_managed_block(
+            remove_cli_launcher_managed_block(&existing),
+            alias_command,
+        );
+        std::fs::write(shell_config_path, next_contents).map_err(|e| e.to_string())?;
+    }
+
+    Ok(CliLauncherInstallResult {
+        shell_config_path: shell_config_path.display().to_string(),
+        alias_command: alias_command.to_string(),
+        already_installed,
+    })
+}
+
+#[tauri::command]
+fn install_cli_launcher() -> Result<CliLauncherInstallResult, String> {
+    let home_dir = user_home_dir()?;
+    let shell = env::var("SHELL").ok();
+    let shell_config_path = shell_config_path_for_shell(&home_dir, shell.as_deref());
+    let executable_path = cli_launcher_executable_path();
+    let alias_command = cli_launcher_alias_command_for_path(&executable_path);
+
+    install_cli_launcher_alias(&shell_config_path, &alias_command)
 }
 
 fn load_desktop_settings(
@@ -858,6 +1007,7 @@ pub fn run() {
             import_theme,
             load_settings,
             save_settings,
+            install_cli_launcher,
             diagnostics_status,
             record_diagnostics_event,
             load_open_tabs,
@@ -871,7 +1021,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, path::Path};
 
     use markdowner_core::ThemeKind;
     use tempfile::tempdir;
@@ -881,7 +1031,9 @@ mod tests {
         MENU_COMMAND_OPEN_DOCUMENT, MENU_COMMAND_OPEN_WORKSPACE, MENU_COMMAND_QUIT_APP,
         MENU_COMMAND_SAVE_ACTIVE_DOCUMENT, MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS,
         MENU_COMMAND_SET_MODE_SPLITVIEW, MENU_FILE_TITLE, MENU_VIEW_TITLE, TopLevelMenuSection,
-        VIEW_MENU_COMMANDS, menu_command_from_id, open_startup_path, top_level_menu_sections,
+        VIEW_MENU_COMMANDS, cli_launcher_alias_command_for_path, install_cli_launcher_alias,
+        menu_command_from_id, open_startup_path, shell_config_path_for_shell,
+        top_level_menu_sections,
     };
 
     #[test]
@@ -907,6 +1059,78 @@ mod tests {
         );
         assert_eq!(snapshot.mode, markdowner_core::EditorMode::SplitView);
         assert_eq!(snapshot.theme.kind(), ThemeKind::BuiltInDark);
+    }
+
+    #[test]
+    fn cli_launcher_alias_command_quotes_the_app_executable_path() {
+        let alias_command = cli_launcher_alias_command_for_path(Path::new(
+            "/Applications/Markdowner.app/Contents/MacOS/markdowner-desktop",
+        ));
+
+        assert_eq!(
+            alias_command,
+            "alias markdowner=\"/Applications/Markdowner.app/Contents/MacOS/markdowner-desktop\""
+        );
+    }
+
+    #[test]
+    fn shell_config_path_defaults_to_zshrc_for_macos_shells() {
+        let temp = tempdir().unwrap();
+
+        assert_eq!(
+            shell_config_path_for_shell(temp.path(), Some("/bin/zsh")),
+            temp.path().join(".zshrc")
+        );
+        assert_eq!(
+            shell_config_path_for_shell(temp.path(), Some("/bin/bash")),
+            temp.path().join(".bashrc")
+        );
+        assert_eq!(
+            shell_config_path_for_shell(temp.path(), None),
+            temp.path().join(".zshrc")
+        );
+    }
+
+    #[test]
+    fn install_cli_launcher_alias_writes_a_managed_shell_block() {
+        let temp = tempdir().unwrap();
+        let shell_config_path = temp.path().join(".zshrc");
+        fs::write(&shell_config_path, "export EDITOR=vim\n").unwrap();
+
+        let result = install_cli_launcher_alias(
+            &shell_config_path,
+            "alias markdowner=\"/Applications/Markdowner.app/Contents/MacOS/markdowner-desktop\"",
+        )
+        .unwrap();
+
+        assert!(!result.already_installed);
+        assert_eq!(
+            result.shell_config_path,
+            shell_config_path.display().to_string()
+        );
+
+        let contents = fs::read_to_string(&shell_config_path).unwrap();
+        assert!(contents.contains("# >>> markdowner CLI launcher >>>"));
+        assert!(contents.contains(
+            "alias markdowner=\"/Applications/Markdowner.app/Contents/MacOS/markdowner-desktop\""
+        ));
+        assert!(contents.contains("# <<< markdowner CLI launcher <<<"));
+        assert!(contents.starts_with("export EDITOR=vim\n"));
+    }
+
+    #[test]
+    fn install_cli_launcher_alias_is_idempotent() {
+        let temp = tempdir().unwrap();
+        let shell_config_path = temp.path().join(".zshrc");
+        let alias_command =
+            "alias markdowner=\"/Applications/Markdowner.app/Contents/MacOS/markdowner-desktop\"";
+
+        install_cli_launcher_alias(&shell_config_path, alias_command).unwrap();
+        let result = install_cli_launcher_alias(&shell_config_path, alias_command).unwrap();
+
+        assert!(result.already_installed);
+        let contents = fs::read_to_string(&shell_config_path).unwrap();
+        assert_eq!(contents.matches(alias_command).count(), 1);
     }
 
     #[test]

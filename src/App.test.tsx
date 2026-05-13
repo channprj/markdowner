@@ -3727,7 +3727,15 @@ describe('App recent documents', () => {
 
     const panel = await screen.findByTestId('settings-panel');
     const body = within(panel).getByTestId('settings-panel-body');
-    const aliasSnippet = within(panel).getByText(/^alias markdowner=/);
+    const cliLauncher = within(panel).getByTestId('settings-cli-launcher');
+    const cliControls = within(panel).getByTestId('settings-cli-controls');
+    const aliasSnippet = within(panel).getByTestId('settings-cli-alias-command');
+    const copyAliasButton = within(panel).getByRole('button', {
+      name: /copy cli alias command/i,
+    });
+    const installLauncherButton = within(panel).getByRole('button', {
+      name: /install cli launcher/i,
+    });
     const fontFamilyRow = within(panel).getByTestId('settings-field-font-family');
     const fontFamilyInput = within(panel).getByLabelText(/font family/i);
     const defaultModeToggle = within(panel).getByTestId('settings-default-mode-toggle');
@@ -3735,11 +3743,58 @@ describe('App recent documents', () => {
 
     expect(panel).toHaveClass('flex', 'min-h-0', 'overflow-hidden');
     expect(body).toHaveClass('overflow-y-auto');
-    expect(aliasSnippet).toHaveClass('whitespace-pre-wrap', 'break-all');
+    expect(cliLauncher).toHaveClass('min-w-0');
+    expect(cliControls).toHaveClass('grid', 'min-w-0');
+    expect(aliasSnippet).toHaveClass('block', 'min-w-0', 'whitespace-pre-wrap', 'break-all');
+    expect(copyAliasButton).toHaveClass('w-full');
+    expect(installLauncherButton).toHaveClass('w-full');
     expect(fontFamilyRow).toHaveClass('grid', 'gap-2');
     expect(fontFamilyInput).toHaveClass('w-full', 'min-w-0');
     expect(defaultModeToggle).toHaveClass('h-auto', 'w-full', 'flex-wrap');
     expect(pdfPaperSizeToggle).toHaveClass('h-auto', 'w-full', 'flex-wrap');
+  });
+
+  it('installs the CLI launcher from Settings', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: true,
+          defaultMode: 'Wysiwyg',
+          assetFolder: 'assets',
+          pdfPaperSize: 'A4',
+        };
+      }
+      if (command === 'install_cli_launcher') {
+        return {
+          shellConfigPath: '/Users/chann/.zshrc',
+          aliasCommand:
+            'alias markdowner="/Applications/Markdowner.app/Contents/MacOS/markdowner-desktop"',
+          alreadyInstalled: false,
+        };
+      }
+      return undefined;
+    });
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+
+    const panel = await screen.findByTestId('settings-panel');
+    fireEvent.click(
+      within(panel).getByRole('button', {
+        name: /install cli launcher/i,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('install_cli_launcher');
+    });
+    expect(within(panel).getByText(/installed in \/users\/chann\/\.zshrc/i)).toBeInTheDocument();
   });
 
   it('keeps the Settings reset action fixed at the bottom of the panel', async () => {

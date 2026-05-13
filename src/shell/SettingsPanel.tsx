@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, Terminal } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -7,11 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import {
+  CLI_ALIAS_COMMAND,
   DEFAULT_SETTINGS,
   OUTLINE_FONT_SIZE_MAX,
   OUTLINE_FONT_SIZE_MIN,
   OUTLINE_ROW_SPACING_MAX,
   OUTLINE_ROW_SPACING_MIN,
+  installCliLauncher,
   type Settings,
 } from '@/lib/settings';
 
@@ -21,9 +23,6 @@ export interface SettingsPanelProps {
   settings: Settings;
   onSettingsChange: (settings: Settings) => void;
 }
-
-const CLI_ALIAS_COMMAND =
-  'alias markdowner="/Applications/Markdowner.app/Contents/MacOS/markdowner"';
 
 const switchFieldClass = 'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4';
 const inputFieldClass =
@@ -36,6 +35,9 @@ const toggleItemClass = 'min-w-0 flex-1 basis-[5.75rem] sm:flex-none sm:basis-au
 
 export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps) {
   const [aliasCopied, setAliasCopied] = useState(false);
+  const [cliLauncherInstalling, setCliLauncherInstalling] = useState(false);
+  const [cliLauncherMessage, setCliLauncherMessage] = useState('');
+  const [cliLauncherError, setCliLauncherError] = useState(false);
 
   const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
     onSettingsChange({ ...settings, [key]: value });
@@ -45,9 +47,33 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
     try {
       await navigator.clipboard.writeText(CLI_ALIAS_COMMAND);
       setAliasCopied(true);
+      setCliLauncherError(false);
+      setCliLauncherMessage('Copied to clipboard');
       window.setTimeout(() => setAliasCopied(false), 1600);
     } catch (error) {
       console.error('Failed to copy CLI alias:', error);
+      setCliLauncherError(true);
+      setCliLauncherMessage('Could not copy alias command');
+    }
+  };
+
+  const handleInstallCliLauncher = async () => {
+    setCliLauncherInstalling(true);
+    setCliLauncherError(false);
+    setCliLauncherMessage('');
+    try {
+      const result = await installCliLauncher();
+      setCliLauncherMessage(
+        result.alreadyInstalled
+          ? `Already installed in ${result.shellConfigPath}`
+          : `Installed in ${result.shellConfigPath}`,
+      );
+    } catch (error) {
+      console.error('Failed to install CLI launcher:', error);
+      setCliLauncherError(true);
+      setCliLauncherMessage('Could not install CLI launcher');
+    } finally {
+      setCliLauncherInstalling(false);
     }
   };
 
@@ -89,36 +115,57 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
         data-testid="settings-panel-body"
         className="mx-auto grid w-full max-w-2xl flex-1 gap-4 overflow-y-auto px-6 py-6"
       >
-        <div className="grid gap-2">
+        <div data-testid="settings-cli-launcher" className="grid min-w-0 gap-2">
           <h4 className="text-sm font-medium leading-none">CLI Launcher</h4>
           <p className="text-sm text-muted-foreground">
-            To use the markdowner CLI, add this to your shell config:
+            Install the markdowner command in your shell config or copy the alias manually.
           </p>
-          <button
-            type="button"
-            onClick={handleCopyAlias}
-            aria-label="Copy CLI alias command"
-            title={aliasCopied ? 'Copied!' : 'Click to copy'}
-            data-testid="settings-cli-alias-copy"
-            className="group relative flex w-full items-start justify-between gap-2 rounded bg-muted p-2 text-left transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          <div
+            data-testid="settings-cli-controls"
+            className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-start"
           >
-            <code className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-xs">
-              {CLI_ALIAS_COMMAND}
-            </code>
-            <span
-              aria-hidden="true"
-              className="mt-0.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
+            <div
+              data-testid="settings-cli-alias-copy"
+              className="min-w-0 overflow-hidden rounded bg-muted p-2"
             >
-              {aliasCopied ? (
-                <Check className="h-3.5 w-3.5" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
-              )}
-            </span>
-            <span className="sr-only" aria-live="polite">
-              {aliasCopied ? 'Copied to clipboard' : ''}
-            </span>
-          </button>
+              <code
+                data-testid="settings-cli-alias-command"
+                className="block min-w-0 whitespace-pre-wrap break-all font-mono text-xs leading-5"
+              >
+                {CLI_ALIAS_COMMAND}
+              </code>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleCopyAlias}
+              aria-label="Copy CLI alias command"
+              title={aliasCopied ? 'Copied!' : 'Copy alias command'}
+              className="w-full sm:w-auto"
+            >
+              {aliasCopied ? <Check /> : <Copy />}
+              Copy
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleInstallCliLauncher}
+              disabled={cliLauncherInstalling}
+              aria-label="Install CLI Launcher"
+              className="w-full sm:w-auto"
+            >
+              <Terminal />
+              {cliLauncherInstalling ? 'Installing' : 'Install'}
+            </Button>
+          </div>
+          <p
+            data-testid="settings-cli-launcher-status"
+            aria-live="polite"
+            className={`min-h-5 text-xs ${cliLauncherError ? 'text-destructive' : 'text-muted-foreground'}`}
+          >
+            {cliLauncherMessage}
+          </p>
         </div>
         <Separator />
         <div className="grid gap-3">
