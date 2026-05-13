@@ -2,5 +2,10 @@
   "identifier": "default",
   "description": "Default desktop capabilities for Markdowner.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-start-dragging", "dialog:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "dialog:default",
+    "window-state:default"
+  ]
 }

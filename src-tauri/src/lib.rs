@@ -886,6 +886,24 @@ fn open_startup_path(backend: &mut DesktopBackend, path: &Path) -> Result<(), St
     Ok(())
 }
 
+// Resolve a CLI path argument against an optional working directory. Relative
+// paths must be anchored to the shell's CWD so commands like
+// `markdowner README.md` open the file the user expects.
+fn resolve_cli_path(raw: &str, cwd: Option<&Path>) -> PathBuf {
+    let candidate = Path::new(raw);
+    if candidate.is_absolute() {
+        return candidate.to_path_buf();
+    }
+    let base = match cwd {
+        Some(path) => Some(path.to_path_buf()),
+        None => env::current_dir().ok(),
+    };
+    match base {
+        Some(base) => base.join(candidate),
+        None => candidate.to_path_buf(),
+    }
+}
+
 fn with_backend<T>(
     state: State<'_, DesktopAppState>,
     operation: impl FnOnce(&mut DesktopBackend) -> Result<T, String>,
@@ -1127,29 +1145,40 @@ fn quit_app(app_handle: AppHandle) {
 }
 
 pub fn run() {
+    // Capture the shell's working directory before Tauri initializes so
+    // relative paths like `markdowner README.md` resolve against where the
+    // user launched the command, not the app bundle.
+    let startup_cwd = env::current_dir().ok();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_cli::init())
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_focus();
                 if argv.len() > 1 {
-                    let path_str = &argv[1];
-                    let path = Path::new(path_str);
+                    let cwd_path = Path::new(&cwd);
+                    let cwd_arg = if cwd_path.as_os_str().is_empty() {
+                        None
+                    } else {
+                        Some(cwd_path)
+                    };
+                    let resolved = resolve_cli_path(&argv[1], cwd_arg);
                     let state = app.state::<DesktopAppState>();
                     if let Ok(mut backend) = state.0.lock() {
-                        let _ = open_startup_path(&mut backend, path);
+                        let _ = open_startup_path(&mut backend, &resolved);
                         let _ = window.emit("markdowner://update-snapshot", backend.snapshot());
                     }
                 }
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .on_menu_event(|app, event| {
             if let Some(command) = menu_command_from_id(event.id().as_ref()) {
                 let _ = app.emit(MENU_COMMAND_EVENT, command);
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
             let session_store = session_store_path(app.handle());
             let startup_mode = load_desktop_settings(app.handle())
                 .map(|settings| settings.default_mode)
@@ -1164,12 +1193,14 @@ pub fn run() {
                     let _ = backend.restore_session();
                 }
 
-                // Open CLI arguments if provided
+                // Open CLI arguments if provided. Resolve relative paths
+                // against the shell's working directory (captured before any
+                // window setup), not the app bundle CWD.
                 if let Ok(matches) = app.cli().matches() {
                     if let Some(arg_data) = matches.args.get("path") {
                         if let Some(val) = arg_data.value.as_str() {
-                            let path = Path::new(val);
-                            let _ = open_startup_path(backend, path);
+                            let resolved = resolve_cli_path(val, startup_cwd.as_deref());
+                            let _ = open_startup_path(backend, &resolved);
                         }
                     }
                 }
@@ -1227,7 +1258,7 @@ mod tests {
         MENU_COMMAND_SAVE_ACTIVE_DOCUMENT, MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS,
         MENU_COMMAND_SET_MODE_SPLITVIEW, MENU_FILE_TITLE, MENU_VIEW_TITLE, TopLevelMenuSection,
         VIEW_MENU_COMMANDS, cli_launcher_alias_command_for_path, install_cli_launcher_alias,
-        menu_command_from_id, open_startup_path, shell_config_path_for_shell,
+        menu_command_from_id, open_startup_path, resolve_cli_path, shell_config_path_for_shell,
         top_level_menu_sections,
     };
 
@@ -1668,5 +1699,25 @@ mod tests {
         let payload = backend.load_open_tabs().expect("load ok");
         assert!(payload.open_tabs.is_empty());
         assert!(payload.active_tab_path.is_none());
+    }
+
+    #[test]
+    fn resolve_cli_path_anchors_relative_paths_to_the_provided_cwd() {
+        let temp = tempdir().unwrap();
+        let cwd = temp.path();
+
+        let resolved = resolve_cli_path("README.md", Some(cwd));
+
+        assert_eq!(resolved, cwd.join("README.md"));
+    }
+
+    #[test]
+    fn resolve_cli_path_preserves_absolute_paths_regardless_of_cwd() {
+        let temp = tempdir().unwrap();
+        let absolute = temp.path().join("notes.md");
+
+        let resolved = resolve_cli_path(absolute.to_str().unwrap(), Some(Path::new("/tmp/ignored")));
+
+        assert_eq!(resolved, absolute);
     }
 }
