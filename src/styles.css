@@ -182,10 +182,14 @@
   }
   .markdown-surface th,
   .markdown-surface td {
-    @apply border border-border px-3 py-2 text-left;
+    @apply border border-border px-3 py-1 text-left leading-snug;
   }
   .markdown-surface th {
     @apply bg-muted font-semibold;
+  }
+  .markdown-surface th > p,
+  .markdown-surface td > p {
+    @apply my-0;
   }
   .markdown-surface img {
     @apply max-w-full rounded-lg;
