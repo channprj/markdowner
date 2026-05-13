@@ -87,24 +87,48 @@ export function FindReplaceBar({
     onOptionsChange({ ...options, [key]: !options[key] });
   };
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const handleContainerKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // Don't leak shortcuts to the editor; Enter handling is per-input below.
     event.stopPropagation();
     if (event.key === 'Escape') {
       event.preventDefault();
       onClose();
+    }
+  };
+
+  // Find input: Enter commits a pending query, then subsequent Enter presses
+  // navigate to next/previous match — matches VS Code's Find behavior.
+  const handleFindKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') {
       return;
     }
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      if (hasPendingQuery) {
-        onQueryChange(inputValue);
-        return;
-      }
-      if (event.shiftKey) {
-        onPreviousMatch();
-      } else {
-        onNextMatch();
-      }
+    event.preventDefault();
+    if (hasPendingQuery) {
+      onQueryChange(inputValue);
+      return;
+    }
+    if (event.shiftKey) {
+      onPreviousMatch();
+    } else {
+      onNextMatch();
+    }
+  };
+
+  // Replace input: Enter performs Replace on the current match; Cmd/Ctrl+Enter
+  // (or Alt+Enter) performs Replace All. Pressing Enter never triggers replace
+  // unless the user is focused inside this input.
+  const handleReplaceKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') {
+      return;
+    }
+    event.preventDefault();
+    if (replaceDisabled) {
+      return;
+    }
+    if (event.metaKey || event.ctrlKey || event.altKey) {
+      onReplaceAll();
+    } else {
+      onReplace();
     }
   };
 
@@ -113,7 +137,7 @@ export function FindReplaceBar({
       role="search"
       aria-label="Find and replace"
       className="absolute right-3 top-3 z-30 w-[min(34rem,calc(100%-1.5rem))] rounded-md border border-border bg-popover p-2 text-popover-foreground shadow-sm"
-      onKeyDown={handleKeyDown}
+      onKeyDown={handleContainerKeyDown}
     >
       <div className="flex min-w-0 items-center gap-1.5">
         <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -125,6 +149,7 @@ export function FindReplaceBar({
           ref={findInputRef}
           value={inputValue}
           onChange={(event) => setInputValue(event.target.value)}
+          onKeyDown={handleFindKeyDown}
           placeholder="Find"
           className="h-7 min-w-0 flex-1 text-sm"
           aria-invalid={error ? true : undefined}
@@ -184,45 +209,44 @@ export function FindReplaceBar({
         </Button>
       </div>
 
-      <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
-        <div className="w-4 shrink-0" aria-hidden="true" />
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          {replaceMode ? (
-            <>
-              <label className="sr-only" htmlFor="markdowner-replace-text">
-                Replace text
-              </label>
-              <Input
-                id="markdowner-replace-text"
-                value={replacement}
-                onChange={(event) => onReplacementChange(event.target.value)}
-                placeholder="Replace"
-                className="h-7 min-w-0 flex-1 text-sm"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={replaceDisabled}
-                onClick={onReplace}
-              >
-                Replace
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={replaceDisabled}
-                onClick={onReplaceAll}
-              >
-                Replace All
-              </Button>
-            </>
-          ) : (
-            <div className="min-h-7 flex-1" aria-hidden="true" />
-          )}
+      {replaceMode ? (
+        <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
+          <div className="w-4 shrink-0" aria-hidden="true" />
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <label className="sr-only" htmlFor="markdowner-replace-text">
+              Replace text
+            </label>
+            <Input
+              id="markdowner-replace-text"
+              value={replacement}
+              onChange={(event) => onReplacementChange(event.target.value)}
+              onKeyDown={handleReplaceKeyDown}
+              placeholder="Replace"
+              className="h-7 min-w-0 flex-1 text-sm"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={replaceDisabled}
+              onClick={onReplace}
+              title="Replace (Enter)"
+            >
+              Replace
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={replaceDisabled}
+              onClick={onReplaceAll}
+              title="Replace All (⌘Enter)"
+            >
+              Replace All
+            </Button>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="mt-1.5 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1">
