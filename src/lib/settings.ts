@@ -23,11 +23,11 @@ export interface DiagnosticsLogStatus {
 
 export const DEFAULT_SETTINGS: Settings = {
   autoSave: false,
-  editorFontSize: 14,
+  editorFontSize: 12,
   editorFontFamily: '',
   editorLineWrap: true,
-  outlineFontSize: 13,
-  outlineRowSpacing: 2,
+  outlineFontSize: 12,
+  outlineRowSpacing: 0,
   defaultMode: 'Wysiwyg',
   focusModeEnabled: false,
   typewriterModeEnabled: false,

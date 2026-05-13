@@ -27,8 +27,8 @@ impl Default for Settings {
             editor_font_size: 0,
             editor_font_family: String::new(),
             editor_line_wrap: true,
-            outline_font_size: 13,
-            outline_row_spacing: 2,
+            outline_font_size: 12,
+            outline_row_spacing: 0,
             default_mode: EditorMode::Wysiwyg,
             focus_mode_enabled: false,
             typewriter_mode_enabled: false,
@@ -55,8 +55,8 @@ mod tests {
             parsed.editor_line_wrap,
             "missing editorLineWrap should default to true"
         );
-        assert_eq!(parsed.outline_font_size, 13);
-        assert_eq!(parsed.outline_row_spacing, 2);
+        assert_eq!(parsed.outline_font_size, 12);
+        assert_eq!(parsed.outline_row_spacing, 0);
     }
 
     #[test]

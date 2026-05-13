@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { Check, Copy } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -20,17 +22,33 @@ export interface SettingsPanelProps {
   onSettingsChange: (settings: Settings) => void;
 }
 
+const CLI_ALIAS_COMMAND =
+  'alias markdowner="/Applications/Markdowner.app/Contents/MacOS/markdowner"';
+
 const switchFieldClass = 'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4';
 const inputFieldClass =
-  'grid gap-2 sm:grid-cols-[minmax(8rem,1fr)_minmax(0,14rem)] sm:items-center';
+  'grid gap-2 sm:grid-cols-[11rem_minmax(0,1fr)] sm:items-center sm:gap-4';
+const inputControlClass = 'h-8 w-full min-w-0 sm:max-w-[18rem]';
 const toggleFieldClass =
-  'grid gap-2 sm:grid-cols-[minmax(8rem,1fr)_minmax(0,1fr)] sm:items-center';
-const toggleGroupClass = 'h-auto w-full min-w-0 flex-wrap justify-start sm:justify-end';
+  'grid gap-2 sm:grid-cols-[11rem_minmax(0,1fr)] sm:items-center sm:gap-4';
+const toggleGroupClass = 'h-auto w-full min-w-0 flex-wrap justify-start';
 const toggleItemClass = 'min-w-0 flex-1 basis-[5.75rem] sm:flex-none sm:basis-auto';
 
 export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps) {
+  const [aliasCopied, setAliasCopied] = useState(false);
+
   const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
     onSettingsChange({ ...settings, [key]: value });
+  };
+
+  const handleCopyAlias = async () => {
+    try {
+      await navigator.clipboard.writeText(CLI_ALIAS_COMMAND);
+      setAliasCopied(true);
+      window.setTimeout(() => setAliasCopied(false), 1600);
+    } catch (error) {
+      console.error('Failed to copy CLI alias:', error);
+    }
   };
 
   const handleBoundedNumberChange = <K extends keyof Settings>(
@@ -76,9 +94,31 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
           <p className="text-sm text-muted-foreground">
             To use the markdowner CLI, add this to your shell config:
           </p>
-          <pre className="min-w-0 whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-xs">
-            alias markdowner="/Applications/Markdowner.app/Contents/MacOS/markdowner"
-          </pre>
+          <button
+            type="button"
+            onClick={handleCopyAlias}
+            aria-label="Copy CLI alias command"
+            title={aliasCopied ? 'Copied!' : 'Click to copy'}
+            data-testid="settings-cli-alias-copy"
+            className="group relative flex w-full items-start justify-between gap-2 rounded bg-muted p-2 text-left transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <code className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-xs">
+              {CLI_ALIAS_COMMAND}
+            </code>
+            <span
+              aria-hidden="true"
+              className="mt-0.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
+            >
+              {aliasCopied ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+            </span>
+            <span className="sr-only" aria-live="polite">
+              {aliasCopied ? 'Copied to clipboard' : ''}
+            </span>
+          </button>
         </div>
         <Separator />
         <div className="grid gap-3">
@@ -100,7 +140,7 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
               type="number"
               min={8}
               max={48}
-              className="h-8 w-full min-w-0"
+              className={inputControlClass}
               value={fontSizeValue}
               onChange={(event) => {
                 const parsed = Number.parseInt(event.target.value, 10);
@@ -118,7 +158,7 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
               id="font-family"
               type="text"
               placeholder="System default"
-              className="h-8 w-full min-w-0"
+              className={inputControlClass}
               value={settings.editorFontFamily}
               onChange={(event) => handleSettingChange('editorFontFamily', event.target.value)}
             />
@@ -131,7 +171,7 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
               type="number"
               min={OUTLINE_FONT_SIZE_MIN}
               max={OUTLINE_FONT_SIZE_MAX}
-              className="h-8 w-full min-w-0"
+              className={inputControlClass}
               value={outlineFontSizeValue}
               onChange={(event) => {
                 handleBoundedNumberChange(
@@ -152,7 +192,7 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
               type="number"
               min={OUTLINE_ROW_SPACING_MIN}
               max={OUTLINE_ROW_SPACING_MAX}
-              className="h-8 w-full min-w-0"
+              className={inputControlClass}
               value={outlineRowSpacingValue}
               onChange={(event) => {
                 handleBoundedNumberChange(
@@ -172,7 +212,7 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
               id="asset-folder"
               type="text"
               placeholder={DEFAULT_SETTINGS.assetFolder}
-              className="h-8 w-full min-w-0"
+              className={inputControlClass}
               value={settings.assetFolder}
               onChange={(event) => {
                 const nextValue = event.target.value.trim();
