@@ -330,9 +330,14 @@ section[data-mode='Wysiwyg'] {
   color: var(--popover-foreground);
   border: 1px solid var(--border);
   box-shadow:
-    0 10px 32px rgba(0, 0, 0, 0.18),
-    0 2px 4px rgba(0, 0, 0, 0.08);
+    0 12px 36px rgba(0, 0, 0, 0.22),
+    0 2px 6px rgba(0, 0, 0, 0.08);
   font-size: 13px;
+  animation: slash-menu-in 120ms ease-out;
+}
+@keyframes slash-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .slash-command-list {
   display: flex;
@@ -359,6 +364,10 @@ section[data-mode='Wysiwyg'] {
 .slash-command-item:hover,
 .slash-command-item.is-active {
   background: var(--muted);
+}
+.slash-command-item.is-active {
+  outline: 1px solid var(--ring);
+  outline-offset: -1px;
 }
 .slash-command-icon {
   display: flex;
@@ -412,10 +421,15 @@ section[data-mode='Wysiwyg'] {
   color: var(--popover-foreground);
   border: 1px solid var(--border);
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.16),
+    0 10px 28px rgba(0, 0, 0, 0.2),
     0 2px 4px rgba(0, 0, 0, 0.08);
-  transform: translate(-50%, -100%);
+  transform: translate(-50%, calc(-100% - 6px));
   user-select: none;
+  animation: selection-toolbar-in 90ms ease-out;
+}
+@keyframes selection-toolbar-in {
+  from { opacity: 0; transform: translate(-50%, calc(-100% - 2px)); }
+  to { opacity: 1; transform: translate(-50%, calc(-100% - 6px)); }
 }
 .selection-toolbar-button {
   display: inline-flex;
@@ -434,7 +448,17 @@ section[data-mode='Wysiwyg'] {
   background: var(--muted);
   color: var(--foreground);
 }
+.selection-toolbar-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
 .selection-toolbar-button.is-active {
   background: var(--muted);
   color: var(--primary);
+}
+.selection-toolbar-separator {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--border);
 }

@@ -206,6 +206,7 @@ export function SelectionToolbar({ editor, enabled = true }: Props) {
       >
         <Code className="size-4" />
       </ToolbarButton>
+      <span aria-hidden className="selection-toolbar-separator" />
       <ToolbarButton
         label="Link"
         active={isActive('link')}
