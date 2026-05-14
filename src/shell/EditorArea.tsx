@@ -301,9 +301,6 @@ export function EditorArea({
               className="notion-editor-shell"
             >
               <header className="notion-page-header">
-                <div className="notion-page-icon" aria-hidden="true">
-                  #
-                </div>
                 <h1 className="notion-page-title">{notionPageTitle}</h1>
               </header>
               <div className="notion-editor-content">

@@ -242,9 +242,6 @@
   .notion-page-header {
     @apply mx-auto w-full max-w-[760px] pb-4 pt-8;
   }
-  .notion-page-icon {
-    @apply mb-4 flex size-12 items-center justify-center rounded-md bg-muted text-2xl font-semibold text-muted-foreground;
-  }
   .markdown-surface .notion-page-title {
     @apply my-0 text-[40px] font-bold leading-tight tracking-normal text-foreground;
   }
