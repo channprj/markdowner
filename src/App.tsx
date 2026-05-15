@@ -802,9 +802,27 @@ export default function App() {
   const chordPrefixActiveRef = useRef(false);
   const chordPrefixTimerRef = useRef<number | null>(null);
   const isFindReplaceOpenRef = useRef(false);
+  // Tracks the most recent focused element inside the Explorer so Cmd+0 can
+  // restore the user's last position instead of jumping to the first row.
+  const lastExplorerFocusRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     isFindReplaceOpenRef.current = isFindReplaceOpen;
   }, [isFindReplaceOpen]);
+
+  // Remember the most recent focused element inside the Explorer so Cmd+0
+  // can restore that exact row instead of jumping to the first tree button.
+  useEffect(() => {
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      const explorerRoot = target.closest?.('[data-explorer-root]');
+      if (!explorerRoot) return;
+      lastExplorerFocusRef.current = target;
+    };
+    document.addEventListener('focusin', handleFocusIn);
+    return () => document.removeEventListener('focusin', handleFocusIn);
+  }, []);
+
   const clearChordPrefix = () => {
     chordPrefixActiveRef.current = false;
     if (chordPrefixTimerRef.current !== null) {
@@ -1115,27 +1133,58 @@ export default function App() {
     }
   });
 
-  /** Move keyboard focus into the Explorer sidebar (VS Code "Show Explorer" parity). */
+  /**
+   * Move keyboard focus into the Explorer sidebar (VS Code "Show Explorer"
+   * parity). Restores the last focused row when available so toggling Cmd+0
+   * back and forth keeps the caret in place; otherwise falls back to the first
+   * tree button / open editor / filter input.
+   */
   const focusExplorerTree = () => {
-    // Defer one frame so the sidebar fade-in completes and the tree is visible.
-    requestAnimationFrame(() => {
+    const restoreLast = () => {
+      const remembered = lastExplorerFocusRef.current;
+      if (
+        remembered &&
+        remembered.isConnected &&
+        remembered.closest('[data-explorer-root]')
+      ) {
+        remembered.focus({ preventScroll: false });
+        return true;
+      }
+      return false;
+    };
+
+    const focusFallback = () => {
       const root = document.querySelector<HTMLElement>('[data-explorer-root]');
-      if (!root) return;
+      if (!root) return false;
       const firstTreeButton = root.querySelector<HTMLButtonElement>(
         '[data-testid="explorer-workspace-tree"] button',
       );
       if (firstTreeButton) {
         firstTreeButton.focus();
-        return;
+        return true;
       }
       const firstOpenEditor = root.querySelector<HTMLButtonElement>(
         '[data-testid="explorer-open-editors"] button',
       );
       if (firstOpenEditor) {
         firstOpenEditor.focus();
-        return;
+        return true;
       }
-      root.querySelector<HTMLInputElement>('[data-explorer-filter]')?.focus();
+      const filter = root.querySelector<HTMLInputElement>('[data-explorer-filter]');
+      if (filter) {
+        filter.focus();
+        return true;
+      }
+      return false;
+    };
+
+    // Try synchronously first — when the Explorer is already mounted this
+    // avoids the one-frame visual hop. Defer to rAF only when needed (e.g.
+    // sidebar just became visible).
+    if (restoreLast() || focusFallback()) return;
+    requestAnimationFrame(() => {
+      if (restoreLast()) return;
+      focusFallback();
     });
   };
 
@@ -1159,22 +1208,33 @@ export default function App() {
    * the user just selected.
    */
   const focusActiveEditor = () => {
-    requestAnimationFrame(() => {
+    const tryFocus = () => {
       if (currentMode === 'Wysiwyg') {
         const proseMirror = document.querySelector<HTMLElement>(
           '[data-testid="editor-surface-wysiwyg"] .ProseMirror',
         );
-        proseMirror?.focus();
-        return;
+        if (proseMirror) {
+          proseMirror.focus();
+          return true;
+        }
+        return false;
       }
       if (sourceEditorViewRef.current) {
         sourceEditorViewRef.current.focus();
-        return;
+        return true;
       }
       const sourceTextarea = sourceEditorContainerRef.current?.querySelector('textarea');
       if (sourceTextarea instanceof HTMLTextAreaElement) {
         sourceTextarea.focus();
+        return true;
       }
+      return false;
+    };
+    // Synchronous attempt first to avoid a perceptible one-frame hop. Defer to
+    // rAF as a fallback if the target surface hasn't mounted yet.
+    if (tryFocus()) return;
+    requestAnimationFrame(() => {
+      tryFocus();
     });
   };
 
