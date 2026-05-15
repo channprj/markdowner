@@ -51,6 +51,7 @@ import { CommandPalette, type CommandPaletteCommand } from '@/shell/CommandPalet
 import { DocumentStatsDialog } from '@/shell/DocumentStatsDialog';
 import { EditorArea } from '@/shell/EditorArea';
 import { FindReplaceBar } from '@/shell/FindReplaceBar';
+import { ShortcutsDialog } from '@/shell/ShortcutsDialog';
 import { Tabs } from '@/shell/Tabs';
 import { QuickOpen, type QuickOpenItem } from '@/shell/QuickOpen';
 import {
@@ -760,6 +761,7 @@ export default function App() {
   const [isQuickOpenOpen, setIsQuickOpenOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isDocumentStatsOpen, setIsDocumentStatsOpen] = useState(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isFindReplaceOpen, setIsFindReplaceOpen] = useState(false);
   const [isFindReplaceReplaceMode, setIsFindReplaceReplaceMode] = useState(false);
   const [findQuery, setFindQuery] = useState('');
@@ -799,6 +801,10 @@ export default function App() {
   const lastAnnouncedTabIdRef = useRef<string | null>(null);
   const chordPrefixActiveRef = useRef(false);
   const chordPrefixTimerRef = useRef<number | null>(null);
+  const isFindReplaceOpenRef = useRef(false);
+  useEffect(() => {
+    isFindReplaceOpenRef.current = isFindReplaceOpen;
+  }, [isFindReplaceOpen]);
   const clearChordPrefix = () => {
     chordPrefixActiveRef.current = false;
     if (chordPrefixTimerRef.current !== null) {
@@ -2773,6 +2779,22 @@ export default function App() {
         return;
       }
 
+      // Global Escape: dismiss the Find/Replace bar from anywhere. The bar's
+      // own container handler stops propagation when focus is inside it, so
+      // this branch only runs when focus is elsewhere (editor, sidebar, etc.).
+      if (
+        event.key === 'Escape' &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        isFindReplaceOpenRef.current
+      ) {
+        event.preventDefault();
+        setIsFindReplaceOpen(false);
+        return;
+      }
+
       // Resolve a pending Cmd+K chord (Cmd+K → Cmd+W/E/S, with or without the
       // second Cmd held). This must run before single-key handlers so the
       // second stroke is not consumed by, e.g., the Cmd+W close-window shortcut.
@@ -2833,6 +2855,12 @@ export default function App() {
       if (matchesShortcut(event, ',')) {
         event.preventDefault();
         void toggleSettingsTab();
+        return;
+      }
+
+      if (matchesShortcut(event, '/')) {
+        event.preventDefault();
+        setIsShortcutsOpen((prev) => !prev);
         return;
       }
 
@@ -3813,6 +3841,7 @@ export default function App() {
         documentPath={snapshot.activeDocumentPath}
         stats={documentStats}
       />
+      <ShortcutsDialog open={isShortcutsOpen} onOpenChange={setIsShortcutsOpen} />
 
       <StatusBar
         mode={formatEditorMode(currentMode)}
