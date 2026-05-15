@@ -15,7 +15,39 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { FindReplaceOptions } from '@/lib/findReplace';
-import { KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useRef } from 'react';
+import {
+  KeyboardEvent as ReactKeyboardEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+
+type ExplorerSectionId = 'editors' | 'workspace' | 'recent';
+
+const COLLAPSED_SECTIONS_STORAGE_KEY = 'markdowner.explorer.collapsedSections';
+
+function readCollapsedSections(): Record<ExplorerSectionId, boolean> {
+  const defaults: Record<ExplorerSectionId, boolean> = {
+    editors: false,
+    workspace: false,
+    recent: false,
+  };
+  if (typeof window === 'undefined') return defaults;
+  try {
+    const raw = window.localStorage.getItem(COLLAPSED_SECTIONS_STORAGE_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Partial<Record<ExplorerSectionId, boolean>>;
+    return {
+      editors: Boolean(parsed.editors),
+      workspace: Boolean(parsed.workspace),
+      recent: Boolean(parsed.recent),
+    };
+  } catch {
+    return defaults;
+  }
+}
 
 export type SideBarPanel = 'files' | 'search' | 'outline';
 
@@ -137,6 +169,30 @@ export function SideBar({
   const outlinePaddingY = Math.max(2, outlineRowSpacing + 2);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const workspaceSectionTitle = workspaceName ? workspaceName.toUpperCase() : 'NO FOLDER OPENED';
+
+  const [collapsedSections, setCollapsedSections] = useState<Record<ExplorerSectionId, boolean>>(
+    readCollapsedSections,
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(
+        COLLAPSED_SECTIONS_STORAGE_KEY,
+        JSON.stringify(collapsedSections),
+      );
+    } catch {
+      // Ignore quota / privacy-mode errors.
+    }
+  }, [collapsedSections]);
+
+  const toggleSection = useCallback((id: ExplorerSectionId) => {
+    setCollapsedSections((prev) => ({ ...prev, [id]: !prev[id] }));
+  }, []);
+
+  const editorsCollapsed = collapsedSections.editors;
+  const workspaceCollapsed = collapsedSections.workspace;
+  const recentCollapsed = collapsedSections.recent;
 
   /**
    * Arrow-key navigation for the Explorer rows. Up/Down moves focus between
@@ -467,11 +523,28 @@ export function SideBar({
           </div>
 
           <section className="explorer-section border-t border-sidebar-border/70">
-            <div className="explorer-section-header">
-              <ChevronDown className="size-3.5 shrink-0" aria-hidden="true" />
+            <button
+              type="button"
+              className="explorer-section-header w-full text-left hover:bg-sidebar-accent/40"
+              aria-expanded={!editorsCollapsed}
+              aria-controls="explorer-section-editors"
+              onClick={() => toggleSection('editors')}
+            >
+              <ChevronDown
+                className={cn(
+                  'size-3.5 shrink-0 transition-transform',
+                  editorsCollapsed && '-rotate-90',
+                )}
+                aria-hidden="true"
+              />
               <span className="truncate">OPEN EDITORS</span>
-            </div>
-            <div data-testid="explorer-open-editors" className="flex flex-col py-1">
+            </button>
+            {editorsCollapsed ? null : (
+            <div
+              id="explorer-section-editors"
+              data-testid="explorer-open-editors"
+              className="flex flex-col py-1"
+            >
               {openEditors.length === 0 ? (
                 <p className="px-5 py-1.5 text-xs text-muted-foreground/70">No open editors</p>
               ) : (
@@ -510,14 +583,32 @@ export function SideBar({
                 ))
               )}
             </div>
+            )}
           </section>
 
-          <section className="explorer-section flex min-h-0 flex-1 flex-col border-t border-sidebar-border/70">
-            <div className="explorer-section-header">
-              <ChevronDown className="size-3.5 shrink-0" aria-hidden="true" />
+          <section
+            className={cn(
+              'explorer-section flex flex-col border-t border-sidebar-border/70',
+              workspaceCollapsed ? 'shrink-0' : 'min-h-0 flex-1',
+            )}
+          >
+            <button
+              type="button"
+              className="explorer-section-header w-full text-left hover:bg-sidebar-accent/40"
+              aria-expanded={!workspaceCollapsed}
+              aria-controls="explorer-section-workspace"
+              onClick={() => toggleSection('workspace')}
+            >
+              <ChevronDown
+                className={cn(
+                  'size-3.5 shrink-0 transition-transform',
+                  workspaceCollapsed && '-rotate-90',
+                )}
+                aria-hidden="true"
+              />
               <span className="truncate">{workspaceSectionTitle}</span>
-            </div>
-            {workspaceTreeLength === 0 ? (
+            </button>
+            {workspaceCollapsed ? null : workspaceTreeLength === 0 ? (
               <p className="px-5 py-1.5 text-xs text-muted-foreground/70">
                 Open a folder to populate the file tree.
               </p>
@@ -537,7 +628,11 @@ export function SideBar({
                   <p className="px-3 text-xs text-muted-foreground">No files match this filter.</p>
                 ) : (
                   <ScrollArea className="min-h-0 flex-1">
-                    <div data-testid="explorer-workspace-tree" className="flex flex-col py-1">
+                    <div
+                      id="explorer-section-workspace"
+                      data-testid="explorer-workspace-tree"
+                      className="flex flex-col py-1"
+                    >
                       {renderWorkspaceTreeNodes()}
                     </div>
                   </ScrollArea>
@@ -549,14 +644,26 @@ export function SideBar({
           <Separator />
 
           <section className="explorer-section flex shrink-0 flex-col border-t border-sidebar-border/70">
-            <div className="explorer-section-header">
-              <ChevronDown className="size-3.5 shrink-0" aria-hidden="true" />
+            <button
+              type="button"
+              className="explorer-section-header w-full text-left hover:bg-sidebar-accent/40"
+              aria-expanded={!recentCollapsed}
+              aria-controls="explorer-section-recent"
+              onClick={() => toggleSection('recent')}
+            >
+              <ChevronDown
+                className={cn(
+                  'size-3.5 shrink-0 transition-transform',
+                  recentCollapsed && '-rotate-90',
+                )}
+                aria-hidden="true"
+              />
               <span className="truncate">RECENT</span>
-            </div>
-            {recentDocuments.length === 0 ? (
+            </button>
+            {recentCollapsed ? null : recentDocuments.length === 0 ? (
               <p className="px-5 py-1.5 text-xs text-muted-foreground/70">Recent documents will appear here.</p>
             ) : (
-              <div className="flex flex-col py-1">
+              <div id="explorer-section-recent" className="flex flex-col py-1">
                 {recentDocuments.slice(0, 5).map((path) => {
                   const isActive = path === activeDocumentPath;
                   return (
