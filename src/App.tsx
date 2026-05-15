@@ -881,9 +881,10 @@ export default function App() {
   const chordPrefixActiveRef = useRef(false);
   const chordPrefixTimerRef = useRef<number | null>(null);
   const isFindReplaceOpenRef = useRef(false);
-  // Tracks the most recent focused element inside the Explorer so Cmd+0 can
+  // Tracks the most recent focused row inside sidebar panels so shortcuts can
   // restore the user's last position instead of jumping to the first row.
   const lastExplorerFocusRef = useRef<HTMLElement | null>(null);
+  const lastOutlineFocusRef = useRef<HTMLElement | null>(null);
   // Mirror of the markdown most recently emitted by the Tiptap editor. The
   // localDraft <-> editor sync effect compares against this instead of
   // re-reading editor.getMarkdown(), which can change between keystrokes due
@@ -902,8 +903,13 @@ export default function App() {
       const target = event.target as HTMLElement | null;
       if (!target) return;
       const explorerRoot = target.closest?.('[data-explorer-root]');
-      if (!explorerRoot) return;
-      lastExplorerFocusRef.current = target;
+      if (explorerRoot) {
+        lastExplorerFocusRef.current = target;
+      }
+      const outlineRoot = target.closest?.('[data-outline-root]');
+      if (outlineRoot) {
+        lastOutlineFocusRef.current = target;
+      }
     };
     document.addEventListener('focusin', handleFocusIn);
     return () => document.removeEventListener('focusin', handleFocusIn);
@@ -997,7 +1003,11 @@ export default function App() {
   // activeDocumentOpen=false right after a fresh open.
   const upsertActiveTabFromSnapshot = (
     next: AppSnapshot,
-    options: { reuseTabId?: string | null; markStartupTabsReady?: boolean } = {},
+    options: {
+      reuseTabId?: string | null;
+      markStartupTabsReady?: boolean;
+      preserveSettingsActive?: boolean;
+    } = {},
   ) => {
     const path = next.activeDocumentPath ?? null;
     const name = next.activeDocumentName ?? 'Untitled';
@@ -1053,10 +1063,11 @@ export default function App() {
     }
 
     tabsRef.current = newTabs;
-    // If the user has opened the Settings tab while this async path was in
-    // flight, don't yank focus away — just keep the doc tab in the tab strip.
+    // Startup can finish after the user has already opened Settings. In that
+    // narrow path, keep Settings active while still adding the document tab.
     const currentActive = activeTabIdRef.current;
     const currentActiveIsSettings =
+      options.preserveSettingsActive === true &&
       currentActive !== null &&
       newTabs.some((tab) => tab.id === currentActive && tab.kind === 'settings');
     const committedActiveId = currentActiveIsSettings ? currentActive : newActiveId;
@@ -1285,6 +1296,33 @@ export default function App() {
     requestAnimationFrame(() => {
       if (restoreLast()) return;
       focusFallback();
+    });
+  };
+
+  const focusOutlineTree = () => {
+    const tryFocus = () => {
+      const root = document.querySelector<HTMLElement>('[data-outline-root]');
+      if (!root) return false;
+
+      const remembered = lastOutlineFocusRef.current;
+      if (remembered && remembered.isConnected && remembered.closest('[data-outline-root]')) {
+        remembered.focus({ preventScroll: false });
+        return true;
+      }
+
+      const firstOutlineRow = root.querySelector<HTMLButtonElement>('[data-outline-row]');
+      if (firstOutlineRow) {
+        firstOutlineRow.focus();
+        return true;
+      }
+
+      root.focus({ preventScroll: false });
+      return true;
+    };
+
+    if (tryFocus()) return;
+    requestAnimationFrame(() => {
+      tryFocus();
     });
   };
 
@@ -1658,6 +1696,7 @@ export default function App() {
         link: {
           openOnClick: false,
         },
+        trailingNode: false,
       }),
       Image,
       Table.configure({ resizable: true }),
@@ -2001,7 +2040,10 @@ export default function App() {
 
         applySnapshot(next);
         if (next.activeDocumentSource !== null) {
-          upsertActiveTabFromSnapshot(next, { markStartupTabsReady: true });
+          upsertActiveTabFromSnapshot(next, {
+            markStartupTabsReady: true,
+            preserveSettingsActive: true,
+          });
           return;
         }
 
@@ -3284,12 +3326,16 @@ export default function App() {
         return;
       }
 
-      // Cmd+0 toggles between the Explorer and the active editor. When focus
-      // is already inside the Explorer the keypress sends focus back to the
-      // active editor surface (CodeMirror or TipTap); otherwise it opens the
-      // Explorer and focuses the file tree (VS Code "Show Explorer").
+      // Cmd+0 toggles between the Explorer and the active editor. When Outline
+      // is already visible, it focuses the Outline rows instead of replacing
+      // the current sidebar panel with Explorer. When focus is already inside
+      // the Explorer, Cmd+0 sends focus back to the active editor surface.
       if (event.key === '0' && usesCommandModifier(event) && !event.shiftKey && !event.altKey) {
         event.preventDefault();
+        if (isSidebarOpen && sidebarPanel === 'outline') {
+          focusOutlineTree();
+          return;
+        }
         if (isFocusInsideExplorer()) {
           focusActiveEditor();
         } else {
@@ -3348,7 +3394,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyboardShortcut);
       clearChordPrefix();
     };
-  }, [busy, localDraft, snapshot, settings, tabs, activeTabId]);
+  }, [busy, isSidebarOpen, localDraft, sidebarPanel, snapshot, settings, tabs, activeTabId]);
 
   useEffect(() => {
     let cancelled = false;

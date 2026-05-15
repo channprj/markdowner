@@ -266,6 +266,33 @@ export function SideBar({
     }
   };
 
+  const handleOutlineKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+
+    const active = (event.target as HTMLElement | null) ?? null;
+    if (!active?.matches('[data-outline-row]')) return;
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      active.click();
+      return;
+    }
+
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+
+    const aside = event.currentTarget;
+    const rows = Array.from(aside.querySelectorAll<HTMLElement>('[data-outline-row]'));
+    const currentIndex = rows.indexOf(active);
+    if (currentIndex < 0) return;
+
+    event.preventDefault();
+    const nextIndex =
+      event.key === 'ArrowDown'
+        ? Math.min(currentIndex + 1, rows.length - 1)
+        : Math.max(currentIndex - 1, 0);
+    rows[nextIndex]?.focus();
+  };
+
   useEffect(() => {
     if (!isOpen || !showSearch) return;
     searchInputRef.current?.focus();
@@ -278,7 +305,11 @@ export function SideBar({
     <aside
       aria-label={showOutline ? 'Outline' : showSearch ? 'Search' : 'Explorer'}
       data-explorer-root={showExplorer ? '' : undefined}
-      onKeyDown={showExplorer ? handleExplorerKeyDown : undefined}
+      data-outline-root={showOutline ? '' : undefined}
+      tabIndex={showOutline ? -1 : undefined}
+      onKeyDown={
+        showExplorer ? handleExplorerKeyDown : showOutline ? handleOutlineKeyDown : undefined
+      }
       className={cn(
         'flex min-h-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground transition-opacity duration-300 ease-in-out',
         'explorer-sidebar',
@@ -309,6 +340,7 @@ export function SideBar({
                     <button
                       key={item.id}
                       type="button"
+                      data-outline-row=""
                       className="explorer-tree-row flex w-full items-center text-left transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
                       style={{
                         fontSize: `${outlineFontSize}px`,

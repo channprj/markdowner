@@ -860,6 +860,46 @@ describe('App recent documents', () => {
     });
   });
 
+  it('focuses and navigates Outline rows with Cmd+0, arrows, and Enter', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: ['# Agenda', '', '## Decisions', 'Notes'].join('\n'),
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const sourceEditor = await screen.findByLabelText('Source editor');
+
+    fireEvent.keyDown(window, { key: 'D', metaKey: true, shiftKey: true });
+    const outline = await screen.findByRole('complementary', { name: /outline/i });
+    const agenda = await within(outline).findByRole('button', { name: /^agenda$/i });
+    const decisions = within(outline).getByRole('button', { name: /^decisions$/i });
+
+    sourceEditor.focus();
+    fireEvent.keyDown(window, { key: '0', metaKey: true });
+
+    await waitFor(() => {
+      expect(agenda).toHaveFocus();
+    });
+
+    fireEvent.keyDown(agenda, { key: 'ArrowDown' });
+    expect(decisions).toHaveFocus();
+
+    fireEvent.keyDown(decisions, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(sourceEditor).toHaveFocus();
+      expect((sourceEditor as HTMLTextAreaElement).selectionStart).toBe(13);
+      expect((sourceEditor as HTMLTextAreaElement).selectionEnd).toBe(13);
+    });
+  });
+
   it('exposes Split View source and preview panes as named landmark regions', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
@@ -2668,6 +2708,30 @@ describe('App recent documents', () => {
     });
 
     expect(editor.commands.setContent).not.toHaveBeenCalled();
+  });
+
+  it('disables Tiptap trailing nodes so headings and list items do not create an automatic blank line', async () => {
+    const editor = createMockTiptapEditor('', []);
+    tiptapMockState.editor = editor;
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'notes.md',
+        activeDocumentPath: '/tmp/project/notes.md',
+        activeDocumentSource: '',
+        mode: 'Wysiwyg',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByTestId('mock-tiptap-editor');
+
+    const starterKit = tiptapMockState.lastOptions.extensions.find(
+      (extension: any) => extension?.name === 'starterKit',
+    );
+    expect(starterKit?.options?.trailingNode).toBe(false);
   });
 
   it('moves WYSIWYG PageDown two line-heights above the page target', async () => {
@@ -5086,6 +5150,50 @@ describe('App recent documents', () => {
 
     await waitFor(() => {
       expect(openDocumentMock).toHaveBeenCalledWith('/tmp/project/meeting-notes.md');
+    });
+  });
+
+  it('activates a document opened while the Settings tab is active', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'current.md',
+        activeDocumentPath: '/tmp/project/current.md',
+        activeDocumentSource: '# Current',
+        recentDocuments: ['/tmp/project/next.md'],
+        mode: 'Editor',
+      }),
+    );
+    openDocumentMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'next.md',
+        activeDocumentPath: '/tmp/project/next.md',
+        activeDocumentSource: '# Next',
+        recentDocuments: ['/tmp/project/next.md'],
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByRole('tab', { name: /current\.md/i });
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+    expect(await screen.findByTestId('settings-panel')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(menuCommandHandler).toBeTypeOf('function');
+    });
+
+    await menuCommandHandler?.({ payload: 'open-recent-document:/tmp/project/next.md' });
+
+    await waitFor(() => {
+      expect(openDocumentMock).toHaveBeenCalledWith('/tmp/project/next.md');
+      expect(screen.getByRole('tab', { name: /next\.md/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      expect(screen.queryByTestId('settings-panel')).not.toBeInTheDocument();
     });
   });
 
