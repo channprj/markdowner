@@ -473,7 +473,7 @@ export function SideBar({
             </div>
             <div data-testid="explorer-open-editors" className="flex flex-col py-1">
               {openEditors.length === 0 ? (
-                <p className="px-5 py-1.5 text-xs text-muted-foreground">No open editors</p>
+                <p className="px-5 py-1.5 text-xs text-muted-foreground/70">No open editors</p>
               ) : (
                 openEditors.map((item) => (
                   <div
@@ -518,7 +518,7 @@ export function SideBar({
               <span className="truncate">{workspaceSectionTitle}</span>
             </div>
             {workspaceTreeLength === 0 ? (
-              <p className="text-xs text-muted-foreground">
+              <p className="px-5 py-1.5 text-xs text-muted-foreground/70">
                 Open a folder to populate the file tree.
               </p>
             ) : (
@@ -554,7 +554,7 @@ export function SideBar({
               <span className="truncate">RECENT</span>
             </div>
             {recentDocuments.length === 0 ? (
-              <p className="px-5 py-1.5 text-xs text-muted-foreground">Recent documents will appear here.</p>
+              <p className="px-5 py-1.5 text-xs text-muted-foreground/70">Recent documents will appear here.</p>
             ) : (
               <div className="flex flex-col py-1">
                 {recentDocuments.slice(0, 5).map((path) => {
