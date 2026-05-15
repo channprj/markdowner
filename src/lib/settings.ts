@@ -5,6 +5,7 @@ export interface Settings {
   editorFontSize: number;
   editorFontFamily: string;
   editorLineWrap: boolean;
+  editorWrapColumn: number;
   outlineFontSize: number;
   outlineRowSpacing: number;
   defaultMode: 'Editor' | 'Wysiwyg' | 'SplitView';
@@ -50,6 +51,7 @@ export const DEFAULT_SETTINGS: Settings = {
   editorFontSize: 12,
   editorFontFamily: '',
   editorLineWrap: true,
+  editorWrapColumn: 120,
   outlineFontSize: 12,
   outlineRowSpacing: 0,
   defaultMode: 'Wysiwyg',
@@ -65,6 +67,8 @@ export const OUTLINE_FONT_SIZE_MIN = 10;
 export const OUTLINE_FONT_SIZE_MAX = 18;
 export const OUTLINE_ROW_SPACING_MIN = 0;
 export const OUTLINE_ROW_SPACING_MAX = 8;
+export const EDITOR_WRAP_COLUMN_MIN = 40;
+export const EDITOR_WRAP_COLUMN_MAX = 240;
 
 function normalizeBoundedInteger(
   value: unknown,
@@ -97,6 +101,12 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): Setting
   if (typeof merged.editorLineWrap !== 'boolean') {
     merged.editorLineWrap = DEFAULT_SETTINGS.editorLineWrap;
   }
+  merged.editorWrapColumn = normalizeBoundedInteger(
+    merged.editorWrapColumn,
+    DEFAULT_SETTINGS.editorWrapColumn,
+    EDITOR_WRAP_COLUMN_MIN,
+    EDITOR_WRAP_COLUMN_MAX,
+  );
   if (typeof merged.assetFolder !== 'string' || merged.assetFolder.trim().length === 0) {
     merged.assetFolder = DEFAULT_SETTINGS.assetFolder;
   } else {

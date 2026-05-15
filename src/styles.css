@@ -237,10 +237,12 @@
     @apply bg-background px-5 pb-6 pt-2;
   }
   .notion-editor-shell {
-    @apply mx-auto flex min-h-full w-full max-w-[860px] flex-col;
+    @apply mx-auto flex min-h-full w-full flex-col;
+    max-width: var(--editor-wrap-column, 120ch);
   }
   .notion-editor-content {
-    @apply mx-auto w-full max-w-[760px] pb-24 pt-4;
+    @apply mx-auto w-full pb-24 pt-4;
+    max-width: var(--editor-wrap-column, 120ch);
   }
   .notion-editor-content .ProseMirror {
     @apply min-h-[55vh] px-0 pt-0 pb-2 text-[17px] leading-7 outline-none;
@@ -314,6 +316,23 @@ section[data-mode='Wysiwyg'] {
 }
 .editor-pane-source .cm-scroller {
   scroll-padding-block: 4ex;
+}
+
+/* Word wrap = on (Editor & SplitView): cap the CodeMirror content at the
+   configured wrap column so long lines break at the same place WYSIWYG does.
+   Word wrap = off: leave .cm-content unconstrained and let it scroll
+   horizontally — the EditorView.lineWrapping extension is already absent so
+   nothing else needs to change. */
+.editor-pane-source[data-line-wrap='true'] .cm-content {
+  max-width: var(--editor-wrap-column, 120ch);
+}
+
+/* Word wrap = off (WYSIWYG): drop the column cap so paragraphs fill the
+   whole editor pane. The default rule on .notion-editor-shell/.notion-editor-content
+   already pulls the column from --editor-wrap-column when wrap is on. */
+.editor-pane-wysiwyg[data-line-wrap='false'] .notion-editor-shell,
+.editor-pane-wysiwyg[data-line-wrap='false'] .notion-editor-content {
+  max-width: none;
 }
 
 /* Notion-style slash-command launcher (portal to body). */

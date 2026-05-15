@@ -45,6 +45,8 @@ export interface EditorAreaProps {
   fontFamily?: string;
   focusModeEnabled?: boolean;
   typewriterModeEnabled?: boolean;
+  lineWrap?: boolean;
+  wrapColumn?: number;
 }
 
 export function EditorArea({
@@ -76,14 +78,23 @@ export function EditorArea({
   fontFamily,
   focusModeEnabled = false,
   typewriterModeEnabled = false,
+  lineWrap = true,
+  wrapColumn,
 }: EditorAreaProps) {
-  const editorSurfaceStyle: CSSProperties = {};
+  // Cast the style record so we can carry our custom property
+  // (`--editor-wrap-column`) without TypeScript complaining about an
+  // unknown CSS field.
+  const editorSurfaceStyle: CSSProperties & Record<string, string | number> = {};
   if (fontSize && Number.isFinite(fontSize) && fontSize > 0) {
     editorSurfaceStyle.fontSize = `${fontSize}px`;
   }
   if (fontFamily && fontFamily.trim().length > 0) {
     editorSurfaceStyle.fontFamily = fontFamily;
   }
+  if (wrapColumn && Number.isFinite(wrapColumn) && wrapColumn > 0) {
+    editorSurfaceStyle['--editor-wrap-column'] = `${wrapColumn}ch`;
+  }
+  const lineWrapAttribute = lineWrap ? 'true' : 'false';
   const editorModeAttributes = {
     'data-focus-mode': String(focusModeEnabled),
     'data-typewriter-mode': String(typewriterModeEnabled),
@@ -235,6 +246,7 @@ export function EditorArea({
           ref={splitSourceRef}
           data-testid="editor-surface-source"
           {...editorModeAttributes}
+          data-line-wrap={lineWrapAttribute}
           role="region"
           aria-label="Markdown source"
           className={cn(
@@ -277,6 +289,7 @@ export function EditorArea({
         <div
           data-testid="editor-surface-wysiwyg"
           {...editorModeAttributes}
+          data-line-wrap={lineWrapAttribute}
           className={cn(
             'editor-pane editor-pane-wysiwyg markdown-surface notion-wysiwyg-surface min-h-0 overflow-auto',
             editorModeClassName,

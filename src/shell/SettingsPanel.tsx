@@ -10,6 +10,8 @@ import {
   CLI_ALIAS_COMMAND,
   CLI_BINARY_INSTALL_PATH,
   DEFAULT_SETTINGS,
+  EDITOR_WRAP_COLUMN_MAX,
+  EDITOR_WRAP_COLUMN_MIN,
   OUTLINE_FONT_SIZE_MAX,
   OUTLINE_FONT_SIZE_MIN,
   OUTLINE_ROW_SPACING_MAX,
@@ -448,6 +450,32 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
               id="line-wrap"
               checked={settings.editorLineWrap}
               onCheckedChange={(checked) => handleSettingChange('editorLineWrap', checked)}
+            />
+          </div>
+
+          <div className={inputFieldClass}>
+            <Label htmlFor="wrap-column" className="text-sm">
+              Wrap Column
+            </Label>
+            <Input
+              id="wrap-column"
+              type="number"
+              inputMode="numeric"
+              min={EDITOR_WRAP_COLUMN_MIN}
+              max={EDITOR_WRAP_COLUMN_MAX}
+              step={1}
+              disabled={!settings.editorLineWrap}
+              value={settings.editorWrapColumn}
+              onChange={(event) => {
+                const raw = Number.parseInt(event.target.value, 10);
+                if (!Number.isFinite(raw)) return;
+                const clamped = Math.min(
+                  EDITOR_WRAP_COLUMN_MAX,
+                  Math.max(EDITOR_WRAP_COLUMN_MIN, raw),
+                );
+                handleSettingChange('editorWrapColumn', clamped);
+              }}
+              className={inputControlClass}
             />
           </div>
 
