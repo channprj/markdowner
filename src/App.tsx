@@ -722,6 +722,46 @@ function centerSourceEditorLine(view: EditorView) {
   }
 }
 
+/**
+ * Move the ProseMirror caret by one viewport-page (PageUp/PageDown parity).
+ * Browser contenteditable surfaces only scroll on these keys by default — this
+ * brings the caret along the way and extends the selection when `extend` is
+ * true (Shift+PageUp/Down).
+ */
+function movePageInProseMirror(
+  view: any,
+  direction: 1 | -1,
+  extend: boolean,
+): boolean {
+  const state = view?.state;
+  if (!state) return false;
+  const head = state.selection.head;
+  const headCoords = view.coordsAtPos(head);
+
+  // The Wysiwyg pane wraps `view.dom` in an `overflow-auto` container, so its
+  // clientHeight matches the visible viewport. Fall back gracefully when
+  // running inside a test harness or unusual layout.
+  const viewportHeight =
+    view.dom.parentElement?.clientHeight ||
+    view.dom.clientHeight ||
+    window.innerHeight;
+  if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return false;
+
+  // Leave a small overlap so the reader keeps a line of context.
+  const step = direction * Math.max(viewportHeight * 0.9, 40);
+  const targetY = headCoords.top + step;
+  const found = view.posAtCoords({ left: headCoords.left, top: targetY });
+  const targetPos = found?.pos ?? (direction > 0 ? state.doc.content.size : 0);
+
+  const SelectionCtor = state.selection.constructor as {
+    create: (doc: any, anchor: number, head?: number) => any;
+  };
+  const anchor = extend ? state.selection.anchor : targetPos;
+  const nextSelection = SelectionCtor.create(state.doc, anchor, targetPos);
+  view.dispatch(state.tr.setSelection(nextSelection).scrollIntoView());
+  return true;
+}
+
 function centerTiptapEditorLine(editor: any) {
   const scrollElement = document.querySelector('[data-testid="editor-surface-wysiwyg"]');
   if (!scrollElement || scrollElement.clientHeight <= 0) return;
@@ -1577,6 +1617,17 @@ export default function App() {
     editorProps: {
       attributes: {
         class: `editor-surface tiptap-surface ${MARKDOWN_CONTENT_SCOPE_CLASS}`,
+      },
+      handleKeyDown: (view, event) => {
+        if (event.key !== 'PageUp' && event.key !== 'PageDown') return false;
+        if (event.ctrlKey || event.metaKey || event.altKey) return false;
+        const direction: 1 | -1 = event.key === 'PageDown' ? 1 : -1;
+        const handled = movePageInProseMirror(view, direction, event.shiftKey);
+        if (handled) {
+          event.preventDefault();
+          return true;
+        }
+        return false;
       },
     },
     onUpdate: ({ editor: nextEditor }) => {
