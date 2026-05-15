@@ -195,7 +195,10 @@
   }
   .markdown-surface th,
   .markdown-surface td {
-    @apply border border-border px-3 py-1 text-left leading-snug;
+    @apply border border-border px-3 text-left leading-snug;
+    /* Vertical padding scales with the cell's font size so condensed rows
+       stay condensed at any zoom level. */
+    padding-block: 0.2em;
   }
   .markdown-surface th {
     @apply bg-muted font-semibold;
@@ -203,6 +206,7 @@
   .markdown-surface th > p,
   .markdown-surface td > p {
     @apply my-0;
+    min-height: 0;
   }
   .markdown-surface img {
     @apply max-w-full rounded-lg;
@@ -277,6 +281,7 @@
   }
   .notion-editor-content .ProseMirror blockquote {
     @apply my-3 border-l-[3px] border-muted-foreground/40 pl-4 text-muted-foreground;
+    border-radius: 0;
   }
   .notion-editor-content .ProseMirror pre {
     @apply my-3 rounded-md border border-border bg-muted/70 p-4;
