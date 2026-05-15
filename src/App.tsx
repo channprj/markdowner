@@ -630,9 +630,9 @@ type EditorModeOption = {
 };
 
 const EDITOR_MODE_OPTIONS: EditorModeOption[] = [
-  { mode: 'Editor', label: 'Editor', shortcutSymbol: '⌘K ⌘E', shortcutText: 'Cmd+K Cmd+E', ariaKeyshortcuts: 'Meta+K Meta+E' },
-  { mode: 'Wysiwyg', label: 'WYSIWYG', shortcutSymbol: '⌘K ⌘W', shortcutText: 'Cmd+K Cmd+W', ariaKeyshortcuts: 'Meta+K Meta+W' },
-  { mode: 'SplitView', label: 'Split View', shortcutSymbol: '⌘K ⌘S', shortcutText: 'Cmd+K Cmd+S', ariaKeyshortcuts: 'Meta+K Meta+S' },
+  { mode: 'Wysiwyg', label: 'WYSIWYG', shortcutSymbol: '⌥1', shortcutText: 'Opt+1', ariaKeyshortcuts: 'Alt+Digit1' },
+  { mode: 'Editor', label: 'Editor', shortcutSymbol: '⌥2', shortcutText: 'Opt+2', ariaKeyshortcuts: 'Alt+Digit2' },
+  { mode: 'SplitView', label: 'Split View', shortcutSymbol: '⌥3', shortcutText: 'Opt+3', ariaKeyshortcuts: 'Alt+Digit3' },
 ];
 const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>;
 
@@ -1062,20 +1062,29 @@ export default function App() {
     return sourceLineStartOffsets[lineNumber - 1] ?? localDraft.length;
   };
 
-  const focusSourceSelection = (selectionStart: number, selectionEnd = selectionStart) => {
+  const focusSourceSelection = (
+    selectionStart: number,
+    selectionEnd = selectionStart,
+    options: { focusEditor?: boolean } = {},
+  ) => {
     const nextSelectionStart = clampSelectionOffset(selectionStart, localDraft.length);
     const nextSelectionEnd = clampSelectionOffset(selectionEnd, localDraft.length);
     const selection = { anchor: nextSelectionStart, head: nextSelectionEnd };
+    const shouldFocus = options.focusEditor !== false;
 
     if (sourceEditorViewRef.current) {
       sourceEditorViewRef.current.dispatch({ selection, scrollIntoView: true });
-      sourceEditorViewRef.current.focus();
+      if (shouldFocus) {
+        sourceEditorViewRef.current.focus();
+      }
       return;
     }
 
     const sourceTextarea = sourceEditorContainerRef.current?.querySelector('textarea');
     if (sourceTextarea instanceof HTMLTextAreaElement) {
-      sourceTextarea.focus();
+      if (shouldFocus) {
+        sourceTextarea.focus();
+      }
       sourceTextarea.setSelectionRange(nextSelectionStart, nextSelectionEnd);
     }
   };
@@ -1144,27 +1153,28 @@ export default function App() {
   };
 
   /**
-   * Move keyboard focus to a tab chip by index. The chip uses
-   * `tabIndex={isActive ? 0 : -1}`, so after `switchToTab` resolves the
-   * targeted chip is focusable; defer one frame so React commits the
-   * `aria-selected` swap before we focus.
+   * Move keyboard focus into the active editor surface (CodeMirror or TipTap)
+   * based on the current mode. Used by Cmd+0 (toggle back to editor) and
+   * Cmd+1..9 (jump-to-tab from Explorer) so the caret lands on the document
+   * the user just selected.
    */
-  const focusTabChipByIndex = (index: number) => {
+  const focusActiveEditor = () => {
     requestAnimationFrame(() => {
-      const chips = document.querySelectorAll<HTMLElement>(
-        '[role="tablist"][aria-label="Open documents"] [role="tab"]',
-      );
-      chips[index]?.focus();
-    });
-  };
-
-  /** Focus the currently active tab chip. */
-  const focusActiveTabChip = () => {
-    requestAnimationFrame(() => {
-      const active = document.querySelector<HTMLElement>(
-        '[role="tablist"][aria-label="Open documents"] [role="tab"][aria-selected="true"]',
-      );
-      active?.focus();
+      if (currentMode === 'Wysiwyg') {
+        const proseMirror = document.querySelector<HTMLElement>(
+          '[data-testid="editor-surface-wysiwyg"] .ProseMirror',
+        );
+        proseMirror?.focus();
+        return;
+      }
+      if (sourceEditorViewRef.current) {
+        sourceEditorViewRef.current.focus();
+        return;
+      }
+      const sourceTextarea = sourceEditorContainerRef.current?.querySelector('textarea');
+      if (sourceTextarea instanceof HTMLTextAreaElement) {
+        sourceTextarea.focus();
+      }
     });
   };
 
@@ -1230,7 +1240,22 @@ export default function App() {
     setSearchError(null);
 
     try {
-      const paths = snapshot.workspaceDocuments;
+      // Combine workspace files with open tab paths so the search also covers
+      // documents the user opened from outside the workspace folder.
+      const seen = new Set<string>();
+      const paths: string[] = [];
+      for (const path of snapshot.workspaceDocuments) {
+        if (path && !seen.has(path)) {
+          seen.add(path);
+          paths.push(path);
+        }
+      }
+      for (const tab of tabs) {
+        if (tab.path && !seen.has(tab.path)) {
+          seen.add(tab.path);
+          paths.push(tab.path);
+        }
+      }
       const result = await searchWorkspace(searchQuery, searchOptions, paths);
       if (searchRequestIdRef.current !== requestId) return;
       setSearchResults(result.files);
@@ -1247,6 +1272,21 @@ export default function App() {
       }
     }
   });
+
+  // Debounced auto-search: re-run the workspace search ~200 ms after the user
+  // stops typing or changes search options, mirroring VS Code's incremental
+  // Find-in-Files behaviour so the user does not have to press Enter.
+  useEffect(() => {
+    if (searchQuery.trim().length === 0) {
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      void handleRunWorkspaceSearch();
+    }, 200);
+    return () => {
+      window.clearTimeout(handle);
+    };
+  }, [searchQuery, searchOptions]);
 
   const handleSelectSearchMatch = useEffectEvent(
     async (file: SearchResultFile, match: SearchResultMatch | undefined) => {
@@ -1531,14 +1571,17 @@ export default function App() {
       return;
     }
 
+    // Keep keyboard focus on the find input so Enter keeps cycling through
+    // matches instead of being swallowed by the editor (where it would insert
+    // a newline that overwrites the active selection).
     if (currentMode === 'Wysiwyg') {
       if (editor && isWysiwygFindMatch(activeFindMatch)) {
-        selectWysiwygFindMatch(editor, activeFindMatch);
+        selectWysiwygFindMatch(editor, activeFindMatch, { focusEditor: false });
       }
       return;
     }
 
-    focusSourceSelection(activeFindMatch.start, activeFindMatch.end);
+    focusSourceSelection(activeFindMatch.start, activeFindMatch.end, { focusEditor: false });
   }, [
     activeDocumentOpen,
     activeFindMatch,
@@ -2849,6 +2892,7 @@ export default function App() {
       if (matchesShortcut(event, 'e', { shift: true })) {
         event.preventDefault();
         handleShowExplorerPanel();
+        focusExplorerTree();
         return;
       }
 
@@ -3030,14 +3074,14 @@ export default function App() {
         return;
       }
 
-      // Cmd+0 toggles between the Explorer and the active tab. When focus is
-      // already inside the Explorer the keypress sends focus back to the tab
-      // chip the user came from; otherwise it opens the Explorer and focuses
-      // the file tree (VS Code "Show Explorer").
+      // Cmd+0 toggles between the Explorer and the active editor. When focus
+      // is already inside the Explorer the keypress sends focus back to the
+      // active editor surface (CodeMirror or TipTap); otherwise it opens the
+      // Explorer and focuses the file tree (VS Code "Show Explorer").
       if (event.key === '0' && usesCommandModifier(event) && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         if (isFocusInsideExplorer()) {
-          focusActiveTabChip();
+          focusActiveEditor();
         } else {
           handleShowExplorerPanel();
           focusExplorerTree();
@@ -3046,19 +3090,18 @@ export default function App() {
       }
 
       // Cmd+1..9 → tab index 0..8. 10+ tabs have no shortcut; the keypress is
-      // still consumed so it doesn't fall through. When fired from inside the
-      // Explorer we also move keyboard focus onto the targeted tab chip so the
-      // user lands on the editor surface they just selected.
+      // still consumed so it doesn't fall through. Regardless of where focus
+      // started, send the caret into the editor surface for the targeted tab
+      // so the user can resume typing immediately.
       if (event.key.length === 1 && /[1-9]/.test(event.key) && usesCommandModifier(event) && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         const tabIndex = Number.parseInt(event.key, 10) - 1;
         const target = tabs[tabIndex];
-        const wasInExplorer = isFocusInsideExplorer();
         if (target && target.id !== activeTabId) {
           void switchToTab(target.id);
         }
-        if (target && wasInExplorer) {
-          focusTabChipByIndex(tabIndex);
+        if (target) {
+          focusActiveEditor();
         }
         return;
       }

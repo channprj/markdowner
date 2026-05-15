@@ -129,12 +129,13 @@ export function findWysiwygTextMatches(
 export function selectWysiwygFindMatch(
   editor: WysiwygEditorLike | null | undefined,
   match: WysiwygFindMatch,
+  options: { focusEditor?: boolean } = {},
 ) {
   const didSelect = editor?.commands?.setTextSelection?.({
     from: match.wysiwygFrom,
     to: match.wysiwygTo,
   });
-  if (didSelect !== false) {
+  if (didSelect !== false && options.focusEditor !== false) {
     editor?.view?.focus?.();
   }
 }

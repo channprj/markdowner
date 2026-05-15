@@ -411,7 +411,7 @@ export function SideBar({
               </p>
             )
           ) : (
-            <p className="text-xs text-muted-foreground">Press Enter to search</p>
+            <p className="text-xs text-muted-foreground">Type to search workspace and open files</p>
           )}
           {searchResults.length > 0 ? (
             <ScrollArea className="max-h-[520px] pr-1">

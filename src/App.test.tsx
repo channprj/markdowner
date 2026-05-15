@@ -1630,9 +1630,9 @@ describe('App recent documents', () => {
     const wysiwygToggle = within(menu).getByRole('menuitemradio', { name: 'WYSIWYG' });
     const splitToggle = within(menu).getByRole('menuitemradio', { name: 'Split View' });
 
-    expect(editorToggle).toHaveAttribute('aria-keyshortcuts', 'Meta+K Meta+E');
-    expect(wysiwygToggle).toHaveAttribute('aria-keyshortcuts', 'Meta+K Meta+W');
-    expect(splitToggle).toHaveAttribute('aria-keyshortcuts', 'Meta+K Meta+S');
+    expect(editorToggle).toHaveAttribute('aria-keyshortcuts', 'Alt+Digit2');
+    expect(wysiwygToggle).toHaveAttribute('aria-keyshortcuts', 'Alt+Digit1');
+    expect(splitToggle).toHaveAttribute('aria-keyshortcuts', 'Alt+Digit3');
   });
 
   it('exposes aria-keyshortcuts on the ActivityBar Explorer/Search/Settings buttons', async () => {
@@ -2647,13 +2647,13 @@ describe('App recent documents', () => {
     const wysiwygToggle = within(menu).getByRole('menuitemradio', { name: 'WYSIWYG' });
     const splitToggle = within(menu).getByRole('menuitemradio', { name: 'Split View' });
 
-    expect(editorToggle).toHaveAttribute('title', 'Editor (Cmd+K Cmd+E)');
-    expect(wysiwygToggle).toHaveAttribute('title', 'WYSIWYG (Cmd+K Cmd+W)');
-    expect(splitToggle).toHaveAttribute('title', 'Split View (Cmd+K Cmd+S)');
+    expect(editorToggle).toHaveAttribute('title', 'Editor (Opt+2)');
+    expect(wysiwygToggle).toHaveAttribute('title', 'WYSIWYG (Opt+1)');
+    expect(splitToggle).toHaveAttribute('title', 'Split View (Opt+3)');
 
     const toggles = within(menu).getAllByRole('menuitemradio');
-    expect(toggles[0]).toBe(editorToggle);
-    expect(toggles[1]).toBe(wysiwygToggle);
+    expect(toggles[0]).toBe(wysiwygToggle);
+    expect(toggles[1]).toBe(editorToggle);
     expect(toggles[2]).toBe(splitToggle);
 
     expect(splitToggle).toHaveAttribute('aria-checked', 'true');
