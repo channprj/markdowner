@@ -750,13 +750,51 @@ function movePageInProseMirror(
 
   // Leave a small overlap so the reader keeps a line of context.
   const step = direction * Math.max(viewportHeight * 0.9, 40);
-  const targetY = headCoords.top + step;
+  const computedStyle = window.getComputedStyle(view.dom);
+  const parsedLineHeight = Number.parseFloat(computedStyle.lineHeight);
+  const parsedFontSize = Number.parseFloat(computedStyle.fontSize);
+  const fallbackLineHeight = Number.isFinite(parsedFontSize) && parsedFontSize > 0
+    ? parsedFontSize * 1.4
+    : 20;
+  const lineHeight = Number.isFinite(parsedLineHeight) && parsedLineHeight > 0
+    ? parsedLineHeight
+    : fallbackLineHeight;
+  const targetY = headCoords.top + step - lineHeight * 2;
   const found = view.posAtCoords({ left: headCoords.left, top: targetY });
   const targetPos = found?.pos ?? (direction > 0 ? state.doc.content.size : 0);
 
   const SelectionCtor = state.selection.constructor as {
     create: (doc: any, anchor: number, head?: number) => any;
   };
+  const anchor = extend ? state.selection.anchor : targetPos;
+  const nextSelection = SelectionCtor.create(state.doc, anchor, targetPos);
+  view.dispatch(state.tr.setSelection(nextSelection).scrollIntoView());
+  return true;
+}
+
+function moveLineBoundaryInProseMirror(
+  view: any,
+  boundary: 'start' | 'end',
+  extend: boolean,
+): boolean {
+  const state = view?.state;
+  const dom = view?.dom as HTMLElement | undefined;
+  if (!state || !dom) return false;
+
+  const head = state.selection.head;
+  const headCoords = view.coordsAtPos(head);
+  const editorRect = dom.getBoundingClientRect();
+  const targetY = (headCoords.top + headCoords.bottom) / 2;
+  const targetX = boundary === 'start'
+    ? editorRect.left + 1
+    : editorRect.right - 1;
+  const found = view.posAtCoords({ left: targetX, top: targetY });
+  if (!found || typeof found.pos !== 'number') return false;
+
+  const SelectionCtor = state.selection.constructor as {
+    create: (doc: any, anchor: number, head?: number) => any;
+  };
+  const targetPos = found.pos;
   const anchor = extend ? state.selection.anchor : targetPos;
   const nextSelection = SelectionCtor.create(state.doc, anchor, targetPos);
   view.dispatch(state.tr.setSelection(nextSelection).scrollIntoView());
@@ -1627,10 +1665,24 @@ export default function App() {
         class: `editor-surface tiptap-surface ${MARKDOWN_CONTENT_SCOPE_CLASS}`,
       },
       handleKeyDown: (view, event) => {
-        if (event.key !== 'PageUp' && event.key !== 'PageDown') return false;
+        if (
+          event.key !== 'PageUp' &&
+          event.key !== 'PageDown' &&
+          event.key !== 'Home' &&
+          event.key !== 'End'
+        ) return false;
         if (event.ctrlKey || event.metaKey || event.altKey) return false;
-        const direction: 1 | -1 = event.key === 'PageDown' ? 1 : -1;
-        const handled = movePageInProseMirror(view, direction, event.shiftKey);
+        const handled = event.key === 'Home' || event.key === 'End'
+          ? moveLineBoundaryInProseMirror(
+              view,
+              event.key === 'Home' ? 'start' : 'end',
+              event.shiftKey,
+            )
+          : movePageInProseMirror(
+              view,
+              event.key === 'PageDown' ? 1 : -1,
+              event.shiftKey,
+            );
         if (handled) {
           event.preventDefault();
           return true;

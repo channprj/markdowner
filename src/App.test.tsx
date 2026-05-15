@@ -2563,6 +2563,155 @@ describe('App recent documents', () => {
     expect(editor.commands.setContent).not.toHaveBeenCalled();
   });
 
+  it('moves WYSIWYG PageDown two line-heights above the page target', async () => {
+    const editor = createMockTiptapEditor('Line 1\nLine 2\nLine 3', [
+      { text: 'Line 1', from: 1 },
+      { text: 'Line 2', from: 8 },
+      { text: 'Line 3', from: 15 },
+    ]);
+    const parent = document.createElement('div');
+    Object.defineProperty(parent, 'clientHeight', {
+      configurable: true,
+      value: 500,
+    });
+    const dom = document.createElement('div');
+    dom.style.lineHeight = '20px';
+    parent.appendChild(dom);
+    const createSelection = vi.fn((_doc, anchor: number, head: number) => ({ anchor, head }));
+    const transaction = {
+      setSelection: vi.fn(() => transaction),
+      scrollIntoView: vi.fn(() => transaction),
+    };
+    editor.view.dom = dom;
+    editor.view.coordsAtPos = vi.fn(() => ({ top: 100, bottom: 120, left: 44, right: 64 }));
+    editor.view.posAtCoords = vi.fn(({ top }: { left: number; top: number }) => ({
+      pos: Math.round(top),
+    }));
+    editor.state = {
+      doc: { content: { size: 1000 } },
+      selection: {
+        anchor: 25,
+        head: 25,
+        constructor: { create: createSelection },
+      },
+      tr: transaction,
+    };
+    editor.view.state = editor.state;
+    tiptapMockState.editor = editor;
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'paging.md',
+        activeDocumentPath: '/tmp/project/paging.md',
+        activeDocumentSource: 'Line 1\nLine 2\nLine 3',
+        mode: 'Wysiwyg',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByTestId('mock-tiptap-editor');
+
+    const event = {
+      key: 'PageDown',
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      preventDefault: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    const handled = tiptapMockState.lastOptions.editorProps.handleKeyDown(editor.view, event);
+
+    expect(handled).toBe(true);
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(editor.view.posAtCoords).toHaveBeenCalledWith({ left: 44, top: 510 });
+    expect(createSelection).toHaveBeenCalledWith(editor.state.doc, 510, 510);
+    expect(transaction.setSelection).toHaveBeenCalledWith({ anchor: 510, head: 510 });
+    expect(editor.view.dispatch).toHaveBeenCalledWith(transaction);
+  });
+
+  it('moves WYSIWYG Home and End to the current visual line boundaries', async () => {
+    const editor = createMockTiptapEditor('Alpha beta gamma', [
+      { text: 'Alpha beta gamma', from: 1 },
+    ]);
+    const dom = document.createElement('div');
+    dom.getBoundingClientRect = vi.fn(() => ({
+      x: 10,
+      y: 80,
+      width: 300,
+      height: 80,
+      top: 80,
+      right: 310,
+      bottom: 160,
+      left: 10,
+      toJSON: () => ({}),
+    }));
+    const createSelection = vi.fn((_doc, anchor: number, head: number) => ({ anchor, head }));
+    const transaction = {
+      setSelection: vi.fn(() => transaction),
+      scrollIntoView: vi.fn(() => transaction),
+    };
+    editor.view.dom = dom;
+    editor.view.coordsAtPos = vi.fn(() => ({ top: 100, bottom: 120, left: 140, right: 150 }));
+    editor.view.posAtCoords = vi.fn(({ left }: { left: number; top: number }) => ({
+      pos: left < 100 ? 3 : 33,
+    }));
+    editor.state = {
+      doc: { content: { size: 100 } },
+      selection: {
+        anchor: 18,
+        head: 18,
+        constructor: { create: createSelection },
+      },
+      tr: transaction,
+    };
+    editor.view.state = editor.state;
+    tiptapMockState.editor = editor;
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'line.md',
+        activeDocumentPath: '/tmp/project/line.md',
+        activeDocumentSource: 'Alpha beta gamma',
+        mode: 'Wysiwyg',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByTestId('mock-tiptap-editor');
+
+    const homeEvent = {
+      key: 'Home',
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      preventDefault: vi.fn(),
+    } as unknown as KeyboardEvent;
+    const endEvent = {
+      key: 'End',
+      shiftKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      preventDefault: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    expect(tiptapMockState.lastOptions.editorProps.handleKeyDown(editor.view, homeEvent)).toBe(
+      true,
+    );
+    expect(editor.view.posAtCoords).toHaveBeenLastCalledWith({ left: 11, top: 110 });
+    expect(createSelection).toHaveBeenLastCalledWith(editor.state.doc, 3, 3);
+
+    expect(tiptapMockState.lastOptions.editorProps.handleKeyDown(editor.view, endEvent)).toBe(true);
+    expect(editor.view.posAtCoords).toHaveBeenLastCalledWith({ left: 309, top: 110 });
+    expect(createSelection).toHaveBeenLastCalledWith(editor.state.doc, 33, 33);
+  });
+
   it('replaces all WYSIWYG RTL matches through a ProseMirror text transaction', async () => {
     const editor = createMockTiptapEditor('مرحبا beta مرحبا', [
       { text: 'مرحبا beta مرحبا', from: 1 },
