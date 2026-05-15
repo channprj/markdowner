@@ -202,6 +202,20 @@ export function SideBar({
    * through untouched.
    */
   const handleExplorerKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (
+      event.key === 'ArrowDown' &&
+      (event.metaKey || event.ctrlKey) &&
+      !event.altKey &&
+      !event.shiftKey
+    ) {
+      const active = (event.target as HTMLElement | null) ?? null;
+      if (active?.matches('[data-explorer-row]')) {
+        event.preventDefault();
+        active.click();
+      }
+      return;
+    }
+
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
 

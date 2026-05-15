@@ -1002,6 +1002,75 @@ describe('App recent documents', () => {
     window.localStorage.removeItem('markdowner.sidebarOpen');
   });
 
+  it('moves Explorer row focus with arrows after Cmd+0 and opens the focused file with Cmd+Down', async () => {
+    window.localStorage.removeItem('markdowner.sidebarOpen');
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'draft.md',
+        rootDir: '/tmp/project',
+        workspaceDocuments: [
+          '/tmp/project/guides/draft.md',
+          '/tmp/project/guides/reference/api.md',
+        ],
+        activeDocumentPath: '/tmp/project/guides/draft.md',
+        activeDocumentSource: '# Draft',
+      }),
+    );
+    openWorkspaceDocumentMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'api.md',
+        rootDir: '/tmp/project',
+        workspaceDocuments: [
+          '/tmp/project/guides/draft.md',
+          '/tmp/project/guides/reference/api.md',
+        ],
+        activeDocumentPath: '/tmp/project/guides/reference/api.md',
+        activeDocumentSource: '# API',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByRole('tab', { name: /draft\.md/i });
+
+    fireEvent.keyDown(window, { key: '0', metaKey: true });
+
+    const explorer = await screen.findByRole('complementary', { name: /explorer/i });
+    const guides = await within(explorer).findByRole('button', { name: /^guides$/i });
+
+    await waitFor(() => {
+      expect(guides).toHaveFocus();
+    });
+
+    fireEvent.keyDown(guides, { key: 'ArrowDown' });
+    const draft = within(explorer).getByRole('button', { name: /draft\.md/i });
+    await waitFor(() => {
+      expect(draft).toHaveFocus();
+    });
+
+    fireEvent.keyDown(draft, { key: 'ArrowDown' });
+    const reference = within(explorer).getByRole('button', { name: /^reference$/i });
+    await waitFor(() => {
+      expect(reference).toHaveFocus();
+    });
+
+    fireEvent.keyDown(reference, { key: 'ArrowDown' });
+    const api = within(explorer).getByRole('button', { name: /api\.md/i });
+    await waitFor(() => {
+      expect(api).toHaveFocus();
+    });
+
+    fireEvent.keyDown(api, { key: 'ArrowDown', metaKey: true });
+
+    await waitFor(() => {
+      expect(openWorkspaceDocumentMock).toHaveBeenCalledWith(
+        '/tmp/project/guides/reference/api.md',
+      );
+    });
+  });
+
   it('collapses and re-expands workspace folders from the sidebar', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
