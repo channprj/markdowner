@@ -2522,6 +2522,47 @@ describe('App recent documents', () => {
     });
   });
 
+  it('does not push editor-authored WYSIWYG updates back into Tiptap during IME composition', async () => {
+    const editor = createMockTiptapEditor('# 안녕하세요', [{ text: '안녕하세요', from: 1 }]);
+    tiptapMockState.editor = editor;
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'korean.md',
+        activeDocumentPath: '/tmp/project/korean.md',
+        activeDocumentSource: '# 안녕하세요',
+        mode: 'Wysiwyg',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByTestId('mock-tiptap-editor');
+    await waitFor(() => {
+      expect(editor.commands.setContent).toHaveBeenCalledWith('# 안녕하세요', {
+        contentType: 'markdown',
+        emitUpdate: false,
+      });
+    });
+
+    editor.commands.setContent.mockClear();
+    editor.getMarkdown
+      .mockReturnValueOnce('# 안')
+      .mockReturnValue('# 안\n안녕하세요!');
+
+    act(() => {
+      tiptapMockState.lastOptions.onUpdate({ editor });
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(editor.commands.setContent).not.toHaveBeenCalled();
+  });
+
   it('replaces all WYSIWYG RTL matches through a ProseMirror text transaction', async () => {
     const editor = createMockTiptapEditor('مرحبا beta مرحبا', [
       { text: 'مرحبا beta مرحبا', from: 1 },

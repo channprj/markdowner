@@ -44,6 +44,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { SelectionToolbar } from '@/components/wysiwyg/SelectionToolbar';
 import { SlashCommandMenu } from '@/components/wysiwyg/SlashCommandMenu';
+import { TableToolbar } from '@/components/wysiwyg/TableToolbar';
 import { cn } from '@/lib/utils';
 import { ActivityBar } from '@/shell/ActivityBar';
 import { AppMenu } from '@/shell/AppMenu';
@@ -845,6 +846,13 @@ export default function App() {
   // Tracks the most recent focused element inside the Explorer so Cmd+0 can
   // restore the user's last position instead of jumping to the first row.
   const lastExplorerFocusRef = useRef<HTMLElement | null>(null);
+  // Mirror of the markdown most recently emitted by the Tiptap editor. The
+  // localDraft <-> editor sync effect compares against this instead of
+  // re-reading editor.getMarkdown(), which can change between keystrokes due
+  // to markdown renormalization and would otherwise cause setContent to fire
+  // mid-typing — breaking IME composition (e.g. typing Korean "안녕하세요"
+  // would split into two lines).
+  const lastEditorMarkdownRef = useRef<string>('');
   useEffect(() => {
     isFindReplaceOpenRef.current = isFindReplaceOpen;
   }, [isFindReplaceOpen]);
@@ -1632,7 +1640,12 @@ export default function App() {
     },
     onUpdate: ({ editor: nextEditor }) => {
       if (currentMode === 'Wysiwyg') {
-        setLocalDraft(nextEditor.getMarkdown());
+        const markdown = nextEditor.getMarkdown();
+        // Record the editor-authored markdown so the sync effect doesn't
+        // mistake this for an external change and clobber the active IME
+        // composition.
+        lastEditorMarkdownRef.current = markdown;
+        setLocalDraft(markdown);
       }
       if (settings.typewriterModeEnabled && currentMode === 'Wysiwyg') {
         window.requestAnimationFrame(() => centerTiptapEditorLine(nextEditor));
@@ -2158,16 +2171,23 @@ export default function App() {
       return;
     }
 
-    const markdownFromEditor = editor.getMarkdown();
-    if (markdownFromEditor !== localDraft) {
-      // emitUpdate:false prevents Tiptap from firing onUpdate, which would
-      // setLocalDraft to a possibly-renormalized markdown string and
-      // re-trigger this effect indefinitely (React error #185).
-      editor.commands.setContent(localDraft || '', {
-        contentType: 'markdown',
-        emitUpdate: false,
-      });
+    // Only push localDraft into the editor when it changed *externally* (file
+    // load, undo from menu, drag-and-drop, …). Editor-authored updates are
+    // tracked via lastEditorMarkdownRef in onUpdate, so we skip the costly
+    // setContent in that case — which would otherwise interrupt IME
+    // composition and produce duplicated/split-line output.
+    if (localDraft === lastEditorMarkdownRef.current) {
+      return;
     }
+
+    // emitUpdate:false prevents Tiptap from firing onUpdate, which would
+    // setLocalDraft to a possibly-renormalized markdown string and
+    // re-trigger this effect indefinitely (React error #185).
+    lastEditorMarkdownRef.current = localDraft;
+    editor.commands.setContent(localDraft || '', {
+      contentType: 'markdown',
+      emitUpdate: false,
+    });
   }, [editor, localDraft]);
 
   const previewSource = activeDocumentOpen
@@ -3937,6 +3957,7 @@ export default function App() {
             <EditorContent editor={editor} />
             <SlashCommandMenu editor={editor} enabled={currentMode === 'Wysiwyg'} />
             <SelectionToolbar editor={editor} enabled={currentMode === 'Wysiwyg'} />
+            <TableToolbar editor={editor} enabled={currentMode === 'Wysiwyg'} />
           </>
         }
         sourceEditor={

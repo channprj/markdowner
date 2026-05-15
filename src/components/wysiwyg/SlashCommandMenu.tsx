@@ -158,6 +158,7 @@ export function SlashCommandMenu({ editor, enabled = true }: Props) {
   const [menu, setMenu] = useState<MenuState>({ open: false });
   const [activeIndex, setActiveIndex] = useState(0);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const itemRefs = useRef<Array<HTMLLIElement | null>>([]);
 
   const filteredItems = useMemo(() => {
     if (!menu.open) return SLASH_ITEMS;
@@ -179,6 +180,16 @@ export function SlashCommandMenu({ editor, enabled = true }: Props) {
       setActiveIndex(0);
     }
   }, [activeIndex, filteredItems.length, menu.open]);
+
+  // Keep the active item visible while the user arrows through the list.
+  // Without this the selection highlight slides off-screen because the menu
+  // body has a capped max-height and overflows.
+  useEffect(() => {
+    if (!menu.open) return;
+    const safeIndex = Math.min(activeIndex, filteredItems.length - 1);
+    const node = itemRefs.current[safeIndex];
+    node?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex, filteredItems, menu.open]);
 
   // Watch editor transactions and recompute menu state.
   useEffect(() => {
@@ -352,7 +363,13 @@ export function SlashCommandMenu({ editor, enabled = true }: Props) {
             const Icon = item.icon;
             const isActive = index === Math.min(activeIndex, filteredItems.length - 1);
             return (
-              <li key={item.id} role="presentation">
+              <li
+                key={item.id}
+                role="presentation"
+                ref={(node) => {
+                  itemRefs.current[index] = node;
+                }}
+              >
                 <button
                   type="button"
                   role="menuitem"
