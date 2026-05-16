@@ -892,6 +892,11 @@ export default function App() {
   // mid-typing — breaking IME composition (e.g. typing Korean "안녕하세요"
   // would split into two lines).
   const lastEditorMarkdownRef = useRef<string>('');
+  // Tracks which tab's content the editor currently displays. Allows the
+  // sync effect to detect tab switches even when both tabs share identical
+  // markdown (e.g. a fresh untitled doc after closing another empty one),
+  // which the markdown-only comparison would silently skip.
+  const lastEditorActiveTabIdRef = useRef<string | null>(null);
   const isWysiwygComposingRef = useRef(false);
   const wysiwygCompositionFlushTimerRef = useRef<number | null>(null);
   // Wall-clock timestamp of the most recent WYSIWYG compositionend. Used to
@@ -989,6 +994,16 @@ export default function App() {
   useEffect(() => {
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
+  // Monotonic counter for file/tab operations. Each open/new/switch flow
+  // captures the value at start; after every async hop it re-checks against
+  // the current value and aborts if a newer operation has begun. Without
+  // this guard, two overlapping flows (e.g. CMD+N fired while a close-then-
+  // switch is mid-await) commit state in arrival order rather than user
+  // intent order, leaving the editor on the previous file's contents.
+  const editorOpRequestIdRef = useRef(0);
+  const nextEditorOpRequest = () => ++editorOpRequestIdRef.current;
+  const isEditorOpStale = (token: number) =>
+    editorOpRequestIdRef.current !== token;
   // Tracks the document tab that was active immediately before the settings
   // tab was opened. Closing the settings tab restores this without
   // round-tripping through Rust (the snapshot never changed while settings
@@ -2481,12 +2496,19 @@ export default function App() {
       return;
     }
 
+    const tabChanged = activeTabId !== lastEditorActiveTabIdRef.current;
+
     // Only push localDraft into the editor when it changed *externally* (file
     // load, undo from menu, drag-and-drop, …). Editor-authored updates are
     // tracked via lastEditorMarkdownRef in onUpdate, so we skip the costly
     // setContent in that case — which would otherwise interrupt IME
     // composition and produce duplicated/split-line output.
-    if (localDraft === lastEditorMarkdownRef.current) {
+    //
+    // Exception: when the active tab changes, always re-sync. Otherwise two
+    // tabs with identical markdown (two empty drafts, two copies of the same
+    // file, …) would leave the editor showing the previous tab's ProseMirror
+    // state — which is exactly the "previous file's content reappears" bug.
+    if (!tabChanged && localDraft === lastEditorMarkdownRef.current) {
       return;
     }
 
@@ -2505,11 +2527,12 @@ export default function App() {
     // setLocalDraft to a possibly-renormalized markdown string and
     // re-trigger this effect indefinitely (React error #185).
     lastEditorMarkdownRef.current = localDraft;
+    lastEditorActiveTabIdRef.current = activeTabId;
     editor.commands.setContent(localDraft || '', {
       contentType: 'markdown',
       emitUpdate: false,
     });
-  }, [editor, localDraft]);
+  }, [editor, localDraft, activeTabId]);
 
   const previewSource = activeDocumentOpen
     ? debouncedLocalDraft
@@ -2638,10 +2661,13 @@ export default function App() {
       return;
     }
 
+    const token = nextEditorOpRequest();
     await withBusy(async () => {
       stashActiveTabDraft();
       await syncActiveDraftBestEffort();
+      if (isEditorOpStale(token)) return;
       const next = await newDocument();
+      if (isEditorOpStale(token)) return;
       applySnapshot(next);
       upsertActiveTabFromSnapshot(next);
     });
@@ -2671,9 +2697,11 @@ export default function App() {
       }
     }
 
+    const token = nextEditorOpRequest();
     await withBusy(async () => {
       stashActiveTabDraft();
       await syncActiveDraftBestEffort();
+      if (isEditorOpStale(token)) return;
 
       // Accumulate new tabs locally so we can commit them in one batched
       // update at the end. Per-iteration setTabs would overwrite earlier
@@ -2690,6 +2718,7 @@ export default function App() {
           continue;
         }
         const next = await openDocument(path);
+        if (isEditorOpStale(token)) return;
         const tab: DocumentTab = {
           id: generateTabId(),
           kind: 'document',
@@ -2985,10 +3014,13 @@ export default function App() {
       return;
     }
 
+    const token = nextEditorOpRequest();
     await withBusy(async () => {
       stashActiveTabDraft();
       await syncActiveDraftBestEffort();
+      if (isEditorOpStale(token)) return;
       const next = await openWorkspaceDocument(path);
+      if (isEditorOpStale(token)) return;
       applySnapshot(next);
       upsertActiveTabFromSnapshot(next);
     });
@@ -3001,10 +3033,13 @@ export default function App() {
       return;
     }
 
+    const token = nextEditorOpRequest();
     await withBusy(async () => {
       stashActiveTabDraft();
       await syncActiveDraftBestEffort();
+      if (isEditorOpStale(token)) return;
       const next = await openDocument(path);
+      if (isEditorOpStale(token)) return;
       applySnapshot(next);
       upsertActiveTabFromSnapshot(next);
     });
@@ -3030,9 +3065,11 @@ export default function App() {
     const target = tabs.find((tab) => tab.id === targetId);
     if (!target) return;
 
+    const token = nextEditorOpRequest();
     await withBusy(async () => {
       stashActiveTabDraft();
       await syncActiveDraftBestEffort();
+      if (isEditorOpStale(token)) return;
 
       try {
         if (target.kind === 'settings') {
@@ -3054,6 +3091,7 @@ export default function App() {
         } else {
           next = await newDocument();
         }
+        if (isEditorOpStale(token)) return;
         // preserveDraft so we can immediately swap to the stashed draft
         applySnapshot(next, true);
         setActiveTabId(target.id);
@@ -3074,6 +3112,7 @@ export default function App() {
           ),
         );
       } catch {
+        if (isEditorOpStale(token)) return;
         // The file disappeared between sessions — convert this tab to missing.
         setTabs((prev) =>
           prev.map((tab) =>
