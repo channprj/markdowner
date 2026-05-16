@@ -1899,24 +1899,32 @@ export default function App() {
         }
         return false;
       },
-      handleTextInput: (_view: any, _from: number, _to: number, text: string) => {
+      handleTextInput: (view: any, from: number, to: number, text: string) => {
         // CJK IME duplicate-syllable guard. When transitioning from one Hangul
-        // syllable to the next, WebKit's IME duplicates the previous syllable
-        // in the DOM as a regular text insertion (no compositionupdate). The
-        // domObserver.flush() that ProseMirror runs inside compositionstart
-        // then dispatches it via handleTextInput, producing `안안녕하세요`
-        // for input `안녕하세요`. Drop the duplicate when it matches the most
-        // recent compositionend payload within a short window.
+        // syllable to the next, WebKit re-inserts the just-committed syllable
+        // into the DOM as a regular text mutation (no compositionupdate). When
+        // ProseMirror's flush inside the next compositionstart runs
+        // readDOMChange, the diff fed to `handleTextInput` is either the
+        // duplicate alone (e.g. `안`) or the duplicate concatenated with the
+        // first jamo of the next syllable (e.g. `안ㄴ`). Strip the leading
+        // duplicate before letting the insert proceed.
+        const lastData = lastWysiwygCompositionDataRef.current;
         if (
-          text.length > 0 &&
-          text === lastWysiwygCompositionDataRef.current &&
-          Date.now() - lastWysiwygCompositionEndAtRef.current < 300
+          lastData &&
+          text.startsWith(lastData) &&
+          Date.now() - lastWysiwygCompositionEndAtRef.current < 400
         ) {
-          // Consume the duplicate so the default insertText path is skipped.
-          // Clear the captured data so a legitimately-typed identical sequence
-          // (e.g. user genuinely typing the same syllable twice) still works
-          // on subsequent inputs.
+          // Consume the captured data so a genuinely repeated syllable in a
+          // later insert is not also stripped.
           lastWysiwygCompositionDataRef.current = '';
+          const cleaned = text.slice(lastData.length);
+          if (cleaned.length === 0) {
+            // Entire insert was the duplicate — swallow it outright.
+            return true;
+          }
+          // Insert only the non-duplicate remainder ourselves so the default
+          // path doesn't add the leading duplicate back in.
+          view.dispatch(view.state.tr.insertText(cleaned, from, to));
           return true;
         }
         return false;
