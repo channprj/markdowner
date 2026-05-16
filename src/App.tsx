@@ -4441,7 +4441,26 @@ export default function App() {
           onCloseTab={(id) => void handleCloseTab(id)}
         />
       {isSettingsTabActive ? (
-        <SettingsPanel settings={settings} onSettingsChange={handleSettingsChange} />
+        <SettingsPanel
+          settings={settings}
+          onSettingsChange={handleSettingsChange}
+          currentTheme={
+            settings.themeFollowSystem
+              ? 'system'
+              : snapshot.theme.kind === 'BuiltInDark'
+                ? 'dark'
+                : 'light'
+          }
+          onThemeChange={(choice) => {
+            if (choice === 'system') {
+              void handleFollowSystemTheme();
+            } else if (choice === 'dark') {
+              void handleSetTheme('BuiltInDark');
+            } else {
+              void handleSetTheme('BuiltInLight');
+            }
+          }}
+        />
       ) : null}
       <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', isSettingsTabActive && 'hidden')}>
       <EditorArea

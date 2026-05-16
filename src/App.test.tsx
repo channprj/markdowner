@@ -1598,12 +1598,15 @@ describe('App recent documents', () => {
     fireEvent.keyDown(window, { key: ',', metaKey: true });
 
     const dialog = await screen.findByTestId('settings-panel');
-    const systemThemeToggle = within(dialog).getByLabelText(/follow system theme/i);
+    const themeToggleGroup = within(dialog).getByTestId('settings-theme-toggle');
+    const systemThemeToggle = within(themeToggleGroup).getByRole('radio', {
+      name: /system/i,
+    });
     // Wait for the mocked load_settings (themeFollowSystem: false) to settle
-    // before clicking, otherwise the click toggles the initial DEFAULT_SETTINGS
-    // value (true → false) and the "follow system" branch never fires.
+    // before clicking, otherwise the toggle group renders with "system" already
+    // selected and clicking it is a no-op.
     await waitFor(() => {
-      expect(systemThemeToggle).toHaveAttribute('aria-checked', 'false');
+      expect(systemThemeToggle).toHaveAttribute('data-state', 'off');
     });
     fireEvent.click(systemThemeToggle);
 

@@ -24,9 +24,15 @@ import {
 
 export type { Settings } from '@/lib/settings';
 
+export type ThemeChoice = 'system' | 'light' | 'dark';
+
 export interface SettingsPanelProps {
   settings: Settings;
   onSettingsChange: (settings: Settings) => void;
+  /** Resolved choice (system / light / dark) from snapshot + settings. */
+  currentTheme: ThemeChoice;
+  /** Switches between system tracking and an explicit light/dark theme. */
+  onThemeChange: (theme: ThemeChoice) => void;
 }
 
 const switchFieldClass = 'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4';
@@ -40,7 +46,12 @@ const toggleItemClass = 'min-w-0 flex-1 basis-[5.75rem] sm:flex-none sm:basis-au
 const sectionBodyClass = 'flex flex-col gap-4';
 const sectionGroupClass = 'flex flex-col gap-3';
 
-export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps) {
+export function SettingsPanel({
+  settings,
+  onSettingsChange,
+  currentTheme,
+  onThemeChange,
+}: SettingsPanelProps) {
   const [cliBinary, setCliBinary] = useState<CliBinaryStatus>({
     installPath: CLI_BINARY_INSTALL_PATH,
     targetExecutable: '',
@@ -459,13 +470,46 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
             </ToggleGroup>
           </div>
 
-          <div className={switchFieldClass}>
-            <Label htmlFor="theme-follow-system" className="text-sm">Follow System Theme</Label>
-            <Switch
-              id="theme-follow-system"
-              checked={settings.themeFollowSystem}
-              onCheckedChange={(checked) => handleSettingChange('themeFollowSystem', checked)}
-            />
+          <div className={toggleFieldClass}>
+            <Label htmlFor="theme-choice" className="text-sm">Theme</Label>
+            <ToggleGroup
+              id="theme-choice"
+              data-testid="settings-theme-toggle"
+              type="single"
+              value={currentTheme}
+              onValueChange={(value) => {
+                if (!value) return;
+                onThemeChange(value as ThemeChoice);
+              }}
+              variant="outline"
+              size="sm"
+              className={toggleGroupClass}
+            >
+              <ToggleGroupItem
+                value="system"
+                aria-label="System"
+                title="Follow OS theme"
+                className={toggleItemClass}
+              >
+                System
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="light"
+                aria-label="Light"
+                title="Light theme"
+                className={toggleItemClass}
+              >
+                Light
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="dark"
+                aria-label="Dark"
+                title="Dark theme"
+                className={toggleItemClass}
+              >
+                Dark
+              </ToggleGroupItem>
+            </ToggleGroup>
           </div>
 
           <div className={toggleFieldClass}>
