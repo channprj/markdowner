@@ -1794,17 +1794,18 @@ export default function App() {
       },
       handleKeyDown: (view: any, event: KeyboardEvent) => {
         // CJK IME guard: ProseMirror's readDOMChange synthesises an Enter
-        // keypress via view.someProp("handleKeyDown", f => f(view, keyEvent(13,
-        // "Enter"))) whenever a composition flush sees block-level DOM nodes
-        // it didn't dispatch itself. WebKit's Korean IME injects an empty <p>
-        // after the heading between syllables, which trips that heuristic and
-        // splits `# 안녕하세요` into `# 안` + paragraph `안녕하세요` after every
-        // syllable. The synthesised event has isTrusted=false, never bubbles
-        // through the real key pipeline, and only fires inside the ~500 ms
-        // window around an active/just-ended composition — so swallow it then.
+        // keypress via `view.someProp("handleKeyDown", f => f(view, keyEvent(13,
+        // "Enter")))` whenever a composition flush sees block-level DOM nodes
+        // it didn't dispatch. WebKit Korean IME injects an empty <p> after
+        // the heading between syllables and copies the previous syllable into
+        // it, which trips that heuristic and would split `# 안녕하세요` into
+        // a heading + paragraph. The synthetic event is built via
+        // `document.createEvent("Event")` — it is NOT a KeyboardEvent — so
+        // `event instanceof KeyboardEvent` reliably distinguishes it from a
+        // real Enter press regardless of how Tauri reports `isTrusted`.
         if (
           event.key === 'Enter' &&
-          (event as KeyboardEvent).isTrusted === false &&
+          !(event instanceof KeyboardEvent) &&
           (isWysiwygComposingRef.current ||
             (view as { composing?: boolean }).composing ||
             Date.now() - lastWysiwygCompositionEndAtRef.current < 500)
