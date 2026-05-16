@@ -616,3 +616,210 @@ section[data-minimap='on'] .editor-pane-wysiwyg .notion-editor-content,
 section[data-minimap='on'] .editor-pane-preview {
   padding-right: 120px;
 }
+
+/* Code block node-view shell: keeps the language picker visually attached to
+   the pre element while staying out of the contentEditable region. */
+.code-block-view {
+  position: relative;
+  margin: 1rem 0;
+  border-radius: 0.5rem;
+  background: var(--muted);
+  overflow: hidden;
+}
+.code-block-view > pre {
+  margin: 0;
+  padding: 1rem;
+  background: transparent;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.code-block-view > pre > code {
+  display: block;
+  background: transparent;
+  padding: 0;
+  font-family: inherit;
+}
+.code-block-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+.code-block-language-select {
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.code-block-language-select:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.code-block-language-select:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* highlight.js token palette — tuned to match the editor's neutral surface in
+   both light and dark themes. Token classes follow the standard hljs naming
+   so any lowlight-supported grammar lights up automatically. */
+.hljs-comment,
+.hljs-quote {
+  color: #6a737d;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-link {
+  color: #d73a49;
+}
+.hljs-function .hljs-keyword {
+  color: #d73a49;
+}
+.hljs-subst {
+  color: var(--foreground);
+}
+.hljs-string,
+.hljs-doctag {
+  color: #032f62;
+}
+.hljs-title,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: #6f42c1;
+}
+.hljs-number,
+.hljs-meta,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-symbol,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-bullet,
+.hljs-attribute,
+.hljs-variable {
+  color: #005cc5;
+}
+.hljs-regexp,
+.hljs-link {
+  color: #032f62;
+}
+.hljs-tag {
+  color: #22863a;
+}
+.hljs-deletion,
+.hljs-addition {
+  display: inline-block;
+  width: 100%;
+}
+.hljs-deletion {
+  background: #ffeef0;
+}
+.hljs-addition {
+  background: #f0fff4;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
+@media (prefers-color-scheme: dark) {
+  .hljs-comment,
+  .hljs-quote {
+    color: #8b949e;
+  }
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-literal,
+  .hljs-section,
+  .hljs-link {
+    color: #ff7b72;
+  }
+  .hljs-string,
+  .hljs-doctag {
+    color: #a5d6ff;
+  }
+  .hljs-title,
+  .hljs-name,
+  .hljs-selector-id,
+  .hljs-selector-class {
+    color: #d2a8ff;
+  }
+  .hljs-number,
+  .hljs-meta,
+  .hljs-built_in,
+  .hljs-builtin-name,
+  .hljs-symbol,
+  .hljs-template-tag,
+  .hljs-template-variable,
+  .hljs-type,
+  .hljs-bullet,
+  .hljs-attribute,
+  .hljs-variable {
+    color: #79c0ff;
+  }
+  .hljs-tag {
+    color: #7ee787;
+  }
+  .hljs-deletion {
+    background: #67060c;
+  }
+  .hljs-addition {
+    background: #033a16;
+  }
+}
+:root.dark .hljs-comment,
+:root.dark .hljs-quote {
+  color: #8b949e;
+}
+:root.dark .hljs-keyword,
+:root.dark .hljs-selector-tag,
+:root.dark .hljs-literal,
+:root.dark .hljs-section,
+:root.dark .hljs-link {
+  color: #ff7b72;
+}
+:root.dark .hljs-string,
+:root.dark .hljs-doctag {
+  color: #a5d6ff;
+}
+:root.dark .hljs-title,
+:root.dark .hljs-name,
+:root.dark .hljs-selector-id,
+:root.dark .hljs-selector-class {
+  color: #d2a8ff;
+}
+:root.dark .hljs-number,
+:root.dark .hljs-meta,
+:root.dark .hljs-built_in,
+:root.dark .hljs-builtin-name,
+:root.dark .hljs-symbol,
+:root.dark .hljs-template-tag,
+:root.dark .hljs-template-variable,
+:root.dark .hljs-type,
+:root.dark .hljs-bullet,
+:root.dark .hljs-attribute,
+:root.dark .hljs-variable {
+  color: #79c0ff;
+}
+:root.dark .hljs-tag {
+  color: #7ee787;
+}
+:root.dark .hljs-deletion {
+  background: #67060c;
+}
+:root.dark .hljs-addition {
+  background: #033a16;
+}

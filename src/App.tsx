@@ -16,6 +16,7 @@ import TaskList from '@tiptap/extension-task-list';
 import { Markdown } from '@tiptap/markdown';
 import { EditorContent, useEditor, type Editor as TiptapEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import { createCodeBlockExtension } from '@/components/wysiwyg/codeBlockExtension';
 import CodeMirror, { EditorView } from '@uiw/react-codemirror';
 import { ChevronDown, ChevronRight, FileText, FolderOpen } from 'lucide-react';
 import type {
@@ -1849,7 +1850,11 @@ export default function App() {
           openOnClick: false,
         },
         trailingNode: false,
+        // The default CodeBlock is replaced by CodeBlockLowlight below so the
+        // editor gains syntax highlighting + a per-block language picker.
+        codeBlock: false,
       }),
+      createCodeBlockExtension(),
       Image,
       Table.configure({ resizable: true }),
       TableRow,
