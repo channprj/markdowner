@@ -17,6 +17,7 @@ import { Markdown } from '@tiptap/markdown';
 import { EditorContent, useEditor, type Editor as TiptapEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { createCodeBlockExtension } from '@/components/wysiwyg/codeBlockExtension';
+import { PreventTableHoverSelection } from '@/components/wysiwyg/preventTableHoverSelection';
 import CodeMirror, { EditorView } from '@uiw/react-codemirror';
 import { ChevronDown, ChevronRight, FileText, FolderOpen } from 'lucide-react';
 import type {
@@ -1860,6 +1861,7 @@ export default function App() {
       TableRow,
       TableHeader,
       TableCell,
+      PreventTableHoverSelection,
       TaskList,
       TaskItem.configure({ nested: true }),
       Markdown.configure({
