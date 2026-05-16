@@ -164,6 +164,24 @@ export function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps
         data-testid="settings-panel-body"
         className={`mx-auto w-full max-w-2xl flex-1 overflow-y-auto px-6 py-6 ${sectionBodyClass}`}
       >
+        <div
+          data-testid="settings-app-version"
+          className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-4 py-3"
+        >
+          <div className="flex flex-col">
+            <span className="text-sm font-medium leading-tight">Markdowner</span>
+            <span className="font-mono text-xs text-muted-foreground">
+              v{__APP_VERSION__}
+            </span>
+          </div>
+          <span
+            data-testid="settings-app-version-channel"
+            className="rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300"
+          >
+            Beta
+          </span>
+        </div>
+        <Separator />
         <div data-testid="settings-cli-binary" className="flex min-w-0 flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
             <h4 className="text-sm font-medium leading-none">CLI Binary (mdner)</h4>
