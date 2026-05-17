@@ -679,7 +679,8 @@ section[data-minimap='on'] .editor-pane-preview {
 }
 .code-block-view > pre {
   margin: 0;
-  padding: 1rem;
+  /* Leave room on the right for the floating language selector. */
+  padding: 1rem 9rem 1rem 1rem;
   background: transparent;
   overflow: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -692,22 +693,41 @@ section[data-minimap='on'] .editor-pane-preview {
   padding: 0;
   font-family: inherit;
 }
+/* Float the toolbar inside the codeblock at the top-right so the language
+   selector reads as a chip attached to the code rather than a header bar. */
 .code-block-toolbar {
+  position: absolute;
+  top: 6px;
+  right: 6px;
   display: flex;
   justify-content: flex-end;
-  padding: 4px 6px;
-  border-bottom: 1px solid var(--border);
+  padding: 0;
+  border-bottom: none;
   user-select: none;
+  z-index: 1;
 }
 .code-block-language-select {
-  background: var(--background);
+  background: color-mix(in oklab, var(--background) 80%, transparent);
   color: var(--foreground);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 6px;
-  font-size: 11px;
+  border-radius: 6px;
+  padding: 2px 24px 2px 8px;
+  min-width: 8.5rem;
+  font-size: 12px;
   font-family: inherit;
   cursor: pointer;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  appearance: none;
+  /* Inline chevron so the picker reads as a select even with appearance:none. */
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.code-block-language-select:hover {
+  background-color: var(--background);
 }
 .code-block-language-select:focus-visible {
   outline: 2px solid var(--ring);
@@ -874,3 +894,246 @@ section[data-minimap='on'] .editor-pane-preview {
 :root.dark .hljs-addition {
   background: #033a16;
 }
+
+/* Code-block highlighting toggle: when the user disables highlighting via
+   Settings, neutralise every hljs token colour back to the surface
+   foreground so the code reads as plain monospaced text. The selectors are
+   chained so they override every theme override below. */
+:root[data-cb-highlight="off"] .code-block-view :is(
+  .hljs,
+  .hljs-comment,
+  .hljs-quote,
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-literal,
+  .hljs-section,
+  .hljs-link,
+  .hljs-function .hljs-keyword,
+  .hljs-subst,
+  .hljs-string,
+  .hljs-doctag,
+  .hljs-title,
+  .hljs-name,
+  .hljs-selector-id,
+  .hljs-selector-class,
+  .hljs-number,
+  .hljs-meta,
+  .hljs-built_in,
+  .hljs-builtin-name,
+  .hljs-symbol,
+  .hljs-template-tag,
+  .hljs-template-variable,
+  .hljs-type,
+  .hljs-bullet,
+  .hljs-attribute,
+  .hljs-variable,
+  .hljs-regexp,
+  .hljs-tag,
+  .hljs-emphasis,
+  .hljs-strong
+) {
+  color: inherit !important;
+  font-style: normal !important;
+  font-weight: inherit !important;
+  background: transparent !important;
+}
+
+/* Per-theme palettes. Each block scopes hljs tokens by the user-selected
+   theme on :root[data-cb-theme="…"], so the theme picker in Settings has
+   immediate visual effect without re-rendering React. The block colour
+   sits on .code-block-view (chrome) so the toolbar/picker also flips. */
+:root[data-cb-highlight="on"][data-cb-theme="github-light"] .code-block-view {
+  background: #f6f8fa;
+  color: #24292f;
+}
+:root[data-cb-theme="github-light"] .hljs-comment,
+:root[data-cb-theme="github-light"] .hljs-quote { color: #6a737d; font-style: italic; }
+:root[data-cb-theme="github-light"] .hljs-keyword,
+:root[data-cb-theme="github-light"] .hljs-selector-tag,
+:root[data-cb-theme="github-light"] .hljs-literal,
+:root[data-cb-theme="github-light"] .hljs-section,
+:root[data-cb-theme="github-light"] .hljs-link { color: #d73a49; }
+:root[data-cb-theme="github-light"] .hljs-string,
+:root[data-cb-theme="github-light"] .hljs-doctag { color: #032f62; }
+:root[data-cb-theme="github-light"] .hljs-title,
+:root[data-cb-theme="github-light"] .hljs-name,
+:root[data-cb-theme="github-light"] .hljs-selector-id,
+:root[data-cb-theme="github-light"] .hljs-selector-class { color: #6f42c1; }
+:root[data-cb-theme="github-light"] .hljs-number,
+:root[data-cb-theme="github-light"] .hljs-meta,
+:root[data-cb-theme="github-light"] .hljs-built_in,
+:root[data-cb-theme="github-light"] .hljs-symbol,
+:root[data-cb-theme="github-light"] .hljs-template-tag,
+:root[data-cb-theme="github-light"] .hljs-template-variable,
+:root[data-cb-theme="github-light"] .hljs-type,
+:root[data-cb-theme="github-light"] .hljs-attribute,
+:root[data-cb-theme="github-light"] .hljs-variable { color: #005cc5; }
+:root[data-cb-theme="github-light"] .hljs-tag { color: #22863a; }
+
+:root[data-cb-highlight="on"][data-cb-theme="github-dark"] .code-block-view {
+  background: #0d1117;
+  color: #c9d1d9;
+}
+:root[data-cb-theme="github-dark"] .hljs-comment,
+:root[data-cb-theme="github-dark"] .hljs-quote { color: #8b949e; font-style: italic; }
+:root[data-cb-theme="github-dark"] .hljs-keyword,
+:root[data-cb-theme="github-dark"] .hljs-selector-tag,
+:root[data-cb-theme="github-dark"] .hljs-literal,
+:root[data-cb-theme="github-dark"] .hljs-section,
+:root[data-cb-theme="github-dark"] .hljs-link { color: #ff7b72; }
+:root[data-cb-theme="github-dark"] .hljs-string,
+:root[data-cb-theme="github-dark"] .hljs-doctag { color: #a5d6ff; }
+:root[data-cb-theme="github-dark"] .hljs-title,
+:root[data-cb-theme="github-dark"] .hljs-name,
+:root[data-cb-theme="github-dark"] .hljs-selector-id,
+:root[data-cb-theme="github-dark"] .hljs-selector-class { color: #d2a8ff; }
+:root[data-cb-theme="github-dark"] .hljs-number,
+:root[data-cb-theme="github-dark"] .hljs-meta,
+:root[data-cb-theme="github-dark"] .hljs-built_in,
+:root[data-cb-theme="github-dark"] .hljs-symbol,
+:root[data-cb-theme="github-dark"] .hljs-template-tag,
+:root[data-cb-theme="github-dark"] .hljs-template-variable,
+:root[data-cb-theme="github-dark"] .hljs-type,
+:root[data-cb-theme="github-dark"] .hljs-attribute,
+:root[data-cb-theme="github-dark"] .hljs-variable { color: #79c0ff; }
+:root[data-cb-theme="github-dark"] .hljs-tag { color: #7ee787; }
+
+:root[data-cb-highlight="on"][data-cb-theme="one-dark"] .code-block-view {
+  background: #282c34;
+  color: #abb2bf;
+}
+:root[data-cb-theme="one-dark"] .hljs-comment,
+:root[data-cb-theme="one-dark"] .hljs-quote { color: #5c6370; font-style: italic; }
+:root[data-cb-theme="one-dark"] .hljs-keyword,
+:root[data-cb-theme="one-dark"] .hljs-selector-tag,
+:root[data-cb-theme="one-dark"] .hljs-literal,
+:root[data-cb-theme="one-dark"] .hljs-section { color: #c678dd; }
+:root[data-cb-theme="one-dark"] .hljs-link { color: #61afef; }
+:root[data-cb-theme="one-dark"] .hljs-string,
+:root[data-cb-theme="one-dark"] .hljs-doctag { color: #98c379; }
+:root[data-cb-theme="one-dark"] .hljs-title,
+:root[data-cb-theme="one-dark"] .hljs-name,
+:root[data-cb-theme="one-dark"] .hljs-selector-id,
+:root[data-cb-theme="one-dark"] .hljs-selector-class { color: #e06c75; }
+:root[data-cb-theme="one-dark"] .hljs-number,
+:root[data-cb-theme="one-dark"] .hljs-meta,
+:root[data-cb-theme="one-dark"] .hljs-built_in,
+:root[data-cb-theme="one-dark"] .hljs-symbol,
+:root[data-cb-theme="one-dark"] .hljs-template-tag,
+:root[data-cb-theme="one-dark"] .hljs-template-variable,
+:root[data-cb-theme="one-dark"] .hljs-type,
+:root[data-cb-theme="one-dark"] .hljs-attribute,
+:root[data-cb-theme="one-dark"] .hljs-variable { color: #d19a66; }
+:root[data-cb-theme="one-dark"] .hljs-tag { color: #e06c75; }
+
+:root[data-cb-highlight="on"][data-cb-theme="ayu-dark"] .code-block-view {
+  background: #0a0e14;
+  color: #b3b1ad;
+}
+:root[data-cb-theme="ayu-dark"] .hljs-comment,
+:root[data-cb-theme="ayu-dark"] .hljs-quote { color: #5c6773; font-style: italic; }
+:root[data-cb-theme="ayu-dark"] .hljs-keyword,
+:root[data-cb-theme="ayu-dark"] .hljs-selector-tag,
+:root[data-cb-theme="ayu-dark"] .hljs-literal,
+:root[data-cb-theme="ayu-dark"] .hljs-section { color: #ff8f40; }
+:root[data-cb-theme="ayu-dark"] .hljs-link { color: #39bae6; }
+:root[data-cb-theme="ayu-dark"] .hljs-string,
+:root[data-cb-theme="ayu-dark"] .hljs-doctag { color: #c2d94c; }
+:root[data-cb-theme="ayu-dark"] .hljs-title,
+:root[data-cb-theme="ayu-dark"] .hljs-name,
+:root[data-cb-theme="ayu-dark"] .hljs-selector-id,
+:root[data-cb-theme="ayu-dark"] .hljs-selector-class { color: #ffb454; }
+:root[data-cb-theme="ayu-dark"] .hljs-number,
+:root[data-cb-theme="ayu-dark"] .hljs-meta,
+:root[data-cb-theme="ayu-dark"] .hljs-built_in,
+:root[data-cb-theme="ayu-dark"] .hljs-symbol,
+:root[data-cb-theme="ayu-dark"] .hljs-template-tag,
+:root[data-cb-theme="ayu-dark"] .hljs-template-variable,
+:root[data-cb-theme="ayu-dark"] .hljs-type,
+:root[data-cb-theme="ayu-dark"] .hljs-attribute,
+:root[data-cb-theme="ayu-dark"] .hljs-variable { color: #d2a6ff; }
+:root[data-cb-theme="ayu-dark"] .hljs-tag { color: #39bae6; }
+
+:root[data-cb-highlight="on"][data-cb-theme="flexoki-light"] .code-block-view {
+  background: #f2f0e5;
+  color: #100f0f;
+}
+:root[data-cb-theme="flexoki-light"] .hljs-comment,
+:root[data-cb-theme="flexoki-light"] .hljs-quote { color: #878580; font-style: italic; }
+:root[data-cb-theme="flexoki-light"] .hljs-keyword,
+:root[data-cb-theme="flexoki-light"] .hljs-selector-tag,
+:root[data-cb-theme="flexoki-light"] .hljs-literal,
+:root[data-cb-theme="flexoki-light"] .hljs-section { color: #af3029; }
+:root[data-cb-theme="flexoki-light"] .hljs-link { color: #205ea6; }
+:root[data-cb-theme="flexoki-light"] .hljs-string,
+:root[data-cb-theme="flexoki-light"] .hljs-doctag { color: #66800b; }
+:root[data-cb-theme="flexoki-light"] .hljs-title,
+:root[data-cb-theme="flexoki-light"] .hljs-name,
+:root[data-cb-theme="flexoki-light"] .hljs-selector-id,
+:root[data-cb-theme="flexoki-light"] .hljs-selector-class { color: #5e409d; }
+:root[data-cb-theme="flexoki-light"] .hljs-number,
+:root[data-cb-theme="flexoki-light"] .hljs-meta,
+:root[data-cb-theme="flexoki-light"] .hljs-built_in,
+:root[data-cb-theme="flexoki-light"] .hljs-symbol,
+:root[data-cb-theme="flexoki-light"] .hljs-template-tag,
+:root[data-cb-theme="flexoki-light"] .hljs-template-variable,
+:root[data-cb-theme="flexoki-light"] .hljs-type,
+:root[data-cb-theme="flexoki-light"] .hljs-attribute,
+:root[data-cb-theme="flexoki-light"] .hljs-variable { color: #bc5215; }
+:root[data-cb-theme="flexoki-light"] .hljs-tag { color: #66800b; }
+
+:root[data-cb-highlight="on"][data-cb-theme="flexoki-dark"] .code-block-view {
+  background: #100f0f;
+  color: #cecdc3;
+}
+:root[data-cb-theme="flexoki-dark"] .hljs-comment,
+:root[data-cb-theme="flexoki-dark"] .hljs-quote { color: #878580; font-style: italic; }
+:root[data-cb-theme="flexoki-dark"] .hljs-keyword,
+:root[data-cb-theme="flexoki-dark"] .hljs-selector-tag,
+:root[data-cb-theme="flexoki-dark"] .hljs-literal,
+:root[data-cb-theme="flexoki-dark"] .hljs-section { color: #d14d41; }
+:root[data-cb-theme="flexoki-dark"] .hljs-link { color: #4385be; }
+:root[data-cb-theme="flexoki-dark"] .hljs-string,
+:root[data-cb-theme="flexoki-dark"] .hljs-doctag { color: #879a39; }
+:root[data-cb-theme="flexoki-dark"] .hljs-title,
+:root[data-cb-theme="flexoki-dark"] .hljs-name,
+:root[data-cb-theme="flexoki-dark"] .hljs-selector-id,
+:root[data-cb-theme="flexoki-dark"] .hljs-selector-class { color: #8b7ec8; }
+:root[data-cb-theme="flexoki-dark"] .hljs-number,
+:root[data-cb-theme="flexoki-dark"] .hljs-meta,
+:root[data-cb-theme="flexoki-dark"] .hljs-built_in,
+:root[data-cb-theme="flexoki-dark"] .hljs-symbol,
+:root[data-cb-theme="flexoki-dark"] .hljs-template-tag,
+:root[data-cb-theme="flexoki-dark"] .hljs-template-variable,
+:root[data-cb-theme="flexoki-dark"] .hljs-type,
+:root[data-cb-theme="flexoki-dark"] .hljs-attribute,
+:root[data-cb-theme="flexoki-dark"] .hljs-variable { color: #da702c; }
+:root[data-cb-theme="flexoki-dark"] .hljs-tag { color: #879a39; }
+
+:root[data-cb-highlight="on"][data-cb-theme="monokai"] .code-block-view {
+  background: #272822;
+  color: #f8f8f2;
+}
+:root[data-cb-theme="monokai"] .hljs-comment,
+:root[data-cb-theme="monokai"] .hljs-quote { color: #75715e; font-style: italic; }
+:root[data-cb-theme="monokai"] .hljs-keyword,
+:root[data-cb-theme="monokai"] .hljs-selector-tag,
+:root[data-cb-theme="monokai"] .hljs-literal,
+:root[data-cb-theme="monokai"] .hljs-section { color: #f92672; }
+:root[data-cb-theme="monokai"] .hljs-link { color: #66d9ef; }
+:root[data-cb-theme="monokai"] .hljs-string,
+:root[data-cb-theme="monokai"] .hljs-doctag { color: #e6db74; }
+:root[data-cb-theme="monokai"] .hljs-title,
+:root[data-cb-theme="monokai"] .hljs-name,
+:root[data-cb-theme="monokai"] .hljs-selector-id,
+:root[data-cb-theme="monokai"] .hljs-selector-class { color: #a6e22e; }
+:root[data-cb-theme="monokai"] .hljs-number,
+:root[data-cb-theme="monokai"] .hljs-meta,
+:root[data-cb-theme="monokai"] .hljs-built_in,
+:root[data-cb-theme="monokai"] .hljs-symbol,
+:root[data-cb-theme="monokai"] .hljs-template-tag,
+:root[data-cb-theme="monokai"] .hljs-template-variable,
+:root[data-cb-theme="monokai"] .hljs-type,
+:root[data-cb-theme="monokai"] .hljs-attribute,
+:root[data-cb-theme="monokai"] .hljs-variable { color: #ae81ff; }
+:root[data-cb-theme="monokai"] .hljs-tag { color: #f92672; }

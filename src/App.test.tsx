@@ -3273,9 +3273,9 @@ describe('App recent documents', () => {
     expect(within(statusBar as HTMLElement).getByText('Split View')).toBeInTheDocument();
   });
 
-  it('restores the persisted sidebar width on startup and clamps it to 220-320px', async () => {
+  it('restores the persisted sidebar width on startup and clamps it to 220-720px', async () => {
     window.localStorage.setItem('markdowner.sidebarOpen', 'true');
-    window.localStorage.setItem('markdowner.sidebarWidth', '999');
+    window.localStorage.setItem('markdowner.sidebarWidth', '9999');
 
     try {
       const { default: App } = await import('./App');
@@ -3284,8 +3284,8 @@ describe('App recent documents', () => {
 
       const separator = await screen.findByRole('separator', { name: /resize sidebar/i });
       expect(separator).toHaveAttribute('aria-valuemin', '220');
-      expect(separator).toHaveAttribute('aria-valuemax', '320');
-      expect(separator).toHaveAttribute('aria-valuenow', '320');
+      expect(separator).toHaveAttribute('aria-valuemax', '720');
+      expect(separator).toHaveAttribute('aria-valuenow', '720');
     } finally {
       window.localStorage.removeItem('markdowner.sidebarOpen');
       window.localStorage.removeItem('markdowner.sidebarWidth');
@@ -3349,13 +3349,13 @@ describe('App recent documents', () => {
 
       fireEvent.keyDown(separator, { key: 'End' });
       await waitFor(() => {
-        expect(separator).toHaveAttribute('aria-valuenow', '320');
+        expect(separator).toHaveAttribute('aria-valuenow', '720');
       });
 
       // Clamp at max — further increase is a no-op.
       fireEvent.keyDown(separator, { key: 'ArrowRight' });
       await waitFor(() => {
-        expect(separator).toHaveAttribute('aria-valuenow', '320');
+        expect(separator).toHaveAttribute('aria-valuenow', '720');
       });
 
       fireEvent.keyDown(separator, { key: 'Home' });
@@ -4075,6 +4075,8 @@ describe('App recent documents', () => {
           diagnosticsEnabled: false,
           showMinimap: false,
           tableDensity: 'compact',
+          codeBlockHighlight: true,
+          codeBlockTheme: 'github-light',
         },
       });
     });
@@ -5279,6 +5281,8 @@ describe('App recent documents', () => {
           diagnosticsEnabled: false,
           showMinimap: false,
           tableDensity: 'compact',
+          codeBlockHighlight: true,
+          codeBlockTheme: 'github-light',
         },
       });
     });

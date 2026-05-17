@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import {
   CLI_BINARY_INSTALL_PATH,
+  CODE_BLOCK_THEMES,
   DEFAULT_SETTINGS,
   EDITOR_WRAP_COLUMN_MAX,
   EDITOR_WRAP_COLUMN_MIN,
@@ -19,6 +20,7 @@ import {
   installCliBinary,
   uninstallCliBinary,
   type CliBinaryStatus,
+  type CodeBlockTheme,
   type Settings,
 } from '@/lib/settings';
 
@@ -587,6 +589,38 @@ export function SettingsPanel({
                 Normal
               </ToggleGroupItem>
             </ToggleGroup>
+          </div>
+
+          <div className={switchFieldClass}>
+            <Label htmlFor="code-block-highlight" className="text-sm">Code Block Highlighting</Label>
+            <Switch
+              id="code-block-highlight"
+              checked={settings.codeBlockHighlight}
+              onCheckedChange={(checked) => handleSettingChange('codeBlockHighlight', checked)}
+            />
+          </div>
+
+          <div className={inputFieldClass}>
+            <Label htmlFor="code-block-theme" className="text-sm">Code Block Theme</Label>
+            <select
+              id="code-block-theme"
+              data-testid="settings-code-block-theme"
+              value={settings.codeBlockTheme}
+              disabled={!settings.codeBlockHighlight}
+              onChange={(event) => {
+                handleSettingChange(
+                  'codeBlockTheme',
+                  event.target.value as CodeBlockTheme,
+                );
+              }}
+              className={`${inputControlClass} rounded-md border border-input bg-background px-2 text-sm`}
+            >
+              {CODE_BLOCK_THEMES.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className={switchFieldClass}>

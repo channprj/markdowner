@@ -44,6 +44,13 @@ export interface EditorAreaProps {
   onSplitPreviewClick?: MouseEventHandler<HTMLDivElement>;
   onSourceSurfaceMouseDown?: MouseEventHandler<HTMLDivElement>;
   onWysiwygSurfaceMouseDown?: MouseEventHandler<HTMLDivElement>;
+  /**
+   * Synchronous draft (no deferred lag) used for places that must reflect the
+   * latest keystroke immediately — currently the "Disk vs local" external
+   * change comparison. `localDraft` itself is allowed to lag a frame so the
+   * minimap can keep up with large documents without blocking cursor input.
+   */
+  syncLocalDraft?: string;
   fontSize?: number;
   fontFamily?: string;
   focusModeEnabled?: boolean;
@@ -85,6 +92,7 @@ export function EditorArea({
   onSplitPreviewClick,
   onSourceSurfaceMouseDown,
   onWysiwygSurfaceMouseDown,
+  syncLocalDraft,
   fontSize,
   fontFamily,
   focusModeEnabled = false,
@@ -190,7 +198,7 @@ export function EditorArea({
                 Local
               </h4>
               <pre className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">
-                {localDraft}
+                {syncLocalDraft ?? localDraft}
               </pre>
             </div>
           </div>

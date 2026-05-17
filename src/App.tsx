@@ -30,6 +30,7 @@ import type {
 import {
   createElement,
   startTransition,
+  useDeferredValue,
   useEffect,
   useEffectEvent,
   useMemo,
@@ -98,7 +99,11 @@ import {
   type FindReplaceOptions,
 } from './lib/findReplace';
 import { nextCursorPositionFromStatistics } from './lib/cursorPosition';
-import { wysiwygCursorSourceLine, wysiwygPositionAtSourceLine } from './lib/modeCursor';
+import {
+  wysiwygCursorSourceLocation,
+  wysiwygPositionAtSourceLocation,
+  type SourceCursorLocation,
+} from './lib/modeCursor';
 import {
   DEFAULT_SETTINGS,
   OUTLINE_FONT_SIZE_MAX,
@@ -242,7 +247,7 @@ const sourceLineMarkdownComponents = {
 const SIDEBAR_STATE_KEY = 'markdowner.sidebarOpen';
 const SIDEBAR_WIDTH_KEY = 'markdowner.sidebarWidth';
 const SIDEBAR_MIN_WIDTH = 220;
-const SIDEBAR_MAX_WIDTH = 320;
+const SIDEBAR_MAX_WIDTH = 720;
 const SIDEBAR_DEFAULT_WIDTH = 280;
 const SIDEBAR_KEYBOARD_STEP = 8;
 const SIDEBAR_KEYBOARD_PAGE_STEP = 32;
@@ -1154,17 +1159,25 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [localDraft]);
 
+  // Heavy text-derived values: defer them off the keystroke critical path.
+  // useDeferredValue lets CodeMirror commit the new draft synchronously while
+  // React schedules the expensive recomputations (stats, outline, minimap,
+  // line offsets) at a lower priority. Without this, 2-3k line documents
+  // recompute every regex on every cursor tick and stall key repeat.
+  const deferredLocalDraft = useDeferredValue(localDraft);
+
   const documentStats = useMemo(() => {
-    const characters = localDraft.length;
-    const trimmed = localDraft.trim();
+    const characters = deferredLocalDraft.length;
+    const trimmed = deferredLocalDraft.trim();
     const words = trimmed.length === 0 ? 0 : trimmed.split(/\s+/).length;
     const readingTimeMinutes = words === 0 ? 0 : Math.max(1, Math.ceil(words / 200));
 
-    const headingMatches = localDraft.match(/^#{1,6}\s+.+$/gm) ?? [];
-    const imageMatches = localDraft.match(/!\[[^\]]*]\([^\n)]+\)/g) ?? [];
-    const links = localDraft.replace(/!\[[^\]]*]\([^\n)]+\)/g, '').match(/\[[^\]]+]\([^\n)]+\)/g) ?? [];
+    const headingMatches = deferredLocalDraft.match(/^#{1,6}\s+.+$/gm) ?? [];
+    const imageMatches = deferredLocalDraft.match(/!\[[^\]]*]\([^\n)]+\)/g) ?? [];
+    const links =
+      deferredLocalDraft.replace(/!\[[^\]]*]\([^\n)]+\)/g, '').match(/\[[^\]]+]\([^\n)]+\)/g) ?? [];
 
-    const lines = localDraft.split(/\r?\n/);
+    const lines = deferredLocalDraft.split(/\r?\n/);
     const isTableRow = (line: string) => line.includes('|') && line.trim().length > 0;
     const isTableSeparator = (line: string) => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
 
@@ -1188,13 +1201,13 @@ export default function App() {
       images: imageMatches.length,
       tables,
     };
-  }, [localDraft]);
+  }, [deferredLocalDraft]);
   const outlineItems = useMemo<OutlineItem[]>(() => {
     if (!activeDocumentOpen) {
       return [];
     }
 
-    const matches = Array.from(localDraft.matchAll(/^(#{1,6})\s+(.+?)\s*#*\s*$/gm));
+    const matches = Array.from(deferredLocalDraft.matchAll(/^(#{1,6})\s+(.+?)\s*#*\s*$/gm));
     return matches.map((match, index) => {
       const lineStart = match.index ?? 0;
       const rawTitle = match[2] ?? '';
@@ -1214,7 +1227,7 @@ export default function App() {
         selectionEnd: lineStart + match[0].trimEnd().length,
       };
     });
-  }, [activeDocumentOpen, localDraft]);
+  }, [activeDocumentOpen, deferredLocalDraft]);
   const sourceLineStartOffsets = useMemo(() => buildLineStartOffsets(localDraft), [localDraft]);
   const themeMode: ThemeMode = settings.themeFollowSystem ? 'system' : 'manual';
 
@@ -1228,7 +1241,7 @@ export default function App() {
   const focusSourceSelection = (
     selectionStart: number,
     selectionEnd = selectionStart,
-    options: { focusEditor?: boolean } = {},
+    options: { focusEditor?: boolean; alignTop?: boolean } = {},
   ) => {
     const nextSelectionStart = clampSelectionOffset(selectionStart, localDraft.length);
     const nextSelectionEnd = clampSelectionOffset(selectionEnd, localDraft.length);
@@ -1236,9 +1249,20 @@ export default function App() {
     const shouldFocus = options.focusEditor !== false;
 
     if (sourceEditorViewRef.current) {
-      sourceEditorViewRef.current.dispatch({ selection, scrollIntoView: true });
+      const view = sourceEditorViewRef.current;
+      // alignTop scrolls so the caret sits flush with the viewport's top edge
+      // (used by Outline clicks). Without an explicit effect CodeMirror uses
+      // `nearest`, which puts the caret somewhere in the middle of the pane.
+      if (options.alignTop) {
+        view.dispatch({
+          selection,
+          effects: EditorView.scrollIntoView(nextSelectionStart, { y: 'start', yMargin: 0 }),
+        });
+      } else {
+        view.dispatch({ selection, scrollIntoView: true });
+      }
       if (shouldFocus) {
-        sourceEditorViewRef.current.focus();
+        view.focus();
       }
       return;
     }
@@ -1583,12 +1607,33 @@ export default function App() {
         if (didSelect !== false) {
           editor.view?.focus?.();
         }
+        // First make sure the caret is in view (also focuses the editor view).
         editor.view.dispatch(editor.state.tr.scrollIntoView());
+        // Then align the heading flush with the top of the WYSIWYG surface so
+        // the reader's eye lands on the section title without having to scan
+        // further down the pane. coordsAtPos can throw briefly during layout
+        // — silently skip in that case (the default scrollIntoView above is
+        // already in effect as a fallback).
+        const pane = document.querySelector<HTMLElement>(
+          '[data-testid="editor-surface-wysiwyg"]',
+        );
+        if (pane && editor.view) {
+          try {
+            const coords = editor.view.coordsAtPos(match.wysiwygFrom);
+            const paneRect = pane.getBoundingClientRect();
+            const delta = coords.top - paneRect.top;
+            if (Number.isFinite(delta) && Math.abs(delta) > 0.5) {
+              pane.scrollTop = Math.max(0, pane.scrollTop + delta);
+            }
+          } catch {
+            // posAtCoords/coordsAtPos may throw during layout — fall back.
+          }
+        }
       }
       return;
     }
 
-    focusSourceSelection(item.titleStart);
+    focusSourceSelection(item.titleStart, item.titleStart, { alignTop: true });
   });
 
   const handleSplitSourceScroll = (event: ReactUIEvent<HTMLDivElement>) => {
@@ -1846,10 +1891,11 @@ export default function App() {
   useEffect(() => {
     currentModeRef.current = currentMode;
   }, [currentMode]);
-  // Most recent markdown source line the WYSIWYG cursor was sitting on.
-  // Updated on every Tiptap selection update so mode switches (Option+1/2/3)
-  // can hand the caret to the new editor at the equivalent row.
-  const wysiwygCursorLineRef = useRef<number>(1);
+  // Most recent markdown source location (line + column) the WYSIWYG cursor
+  // was sitting on. Updated on every Tiptap selection update so mode switches
+  // (Option+1/2/3) can hand the caret to the new editor at the equivalent
+  // logical position.
+  const wysiwygCursorLocationRef = useRef<SourceCursorLocation>({ line: 1, column: 1 });
   // Scroll container the minimap should mirror. Picked from the active editor
   // pane on every mode/lifecycle change.
   const [minimapScrollEl, setMinimapScrollEl] = useState<HTMLElement | null>(null);
@@ -1915,6 +1961,36 @@ export default function App() {
             Date.now() - lastWysiwygCompositionEndAtRef.current < 500)
         ) {
           return true;
+        }
+        // ArrowUp at the very first cursor position of a code_block parks the
+        // focus on the language selector instead of stepping straight past it.
+        // ArrowDown when the selector itself isn't focused is left to the
+        // browser — the selector lives outside ProseMirror's editable region.
+        if (
+          event.key === 'ArrowUp' &&
+          !event.altKey &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.shiftKey
+        ) {
+          const { $from } = view.state.selection;
+          const parent = $from.parent;
+          if (parent && parent.type && parent.type.name === 'codeBlock') {
+            const isAtFirstLine = $from.parentOffset === 0
+              || !parent.textContent.slice(0, $from.parentOffset).includes('\n');
+            if (isAtFirstLine) {
+              const nodePos = $from.before($from.depth);
+              const dom = view.nodeDOM?.(nodePos) as HTMLElement | null;
+              const select = dom?.querySelector?.('select[data-code-block-language-select]') as
+                | HTMLSelectElement
+                | null;
+              if (select && !select.disabled) {
+                event.preventDefault();
+                select.focus();
+                return true;
+              }
+            }
+          }
         }
         if (
           event.key !== 'PageUp' &&
@@ -2038,9 +2114,10 @@ export default function App() {
 
   const handleWysiwygSelectionUpdate = useEffectEvent(
     ({ editor: nextEditor }: { editor: TiptapEditor }) => {
-      // Mirror the WYSIWYG selection as a markdown source line so mode
-      // switches can hand the caret to CodeMirror at the same logical row.
-      wysiwygCursorLineRef.current = wysiwygCursorSourceLine(nextEditor);
+      // Mirror the WYSIWYG selection as a markdown source location (line +
+      // column) so mode switches can hand the caret to CodeMirror at the same
+      // logical position.
+      wysiwygCursorLocationRef.current = wysiwygCursorSourceLocation(nextEditor);
       if (typewriterModeEnabledRef.current && currentModeRef.current === 'Wysiwyg') {
         window.requestAnimationFrame(() => centerTiptapEditorLine(nextEditor));
       }
@@ -2511,6 +2588,14 @@ export default function App() {
     applyThemeSelection(snapshot.theme.kind);
     applyImportedStylesheet(snapshot);
   }, [snapshot]);
+
+  // Surface code-block highlight + theme as data attributes so the WYSIWYG
+  // and split-view markdown surfaces can pick up the user-selected palette
+  // through CSS (no JS recolouring needed).
+  useEffect(() => {
+    document.documentElement.dataset.cbTheme = settings.codeBlockTheme;
+    document.documentElement.dataset.cbHighlight = settings.codeBlockHighlight ? 'on' : 'off';
+  }, [settings.codeBlockHighlight, settings.codeBlockTheme]);
 
   useEffect(() => {
     document.title = buildWindowTitle(snapshot);
@@ -3078,11 +3163,11 @@ export default function App() {
     if (previousMode === currentMode) return;
     if (!activeDocumentOpen) return;
 
-    const sourceLine =
+    const sourceLocation: SourceCursorLocation =
       previousMode === 'Wysiwyg'
-        ? wysiwygCursorLineRef.current
-        : cursorPosition.line;
-    if (!Number.isFinite(sourceLine) || sourceLine < 1) return;
+        ? wysiwygCursorLocationRef.current
+        : { line: cursorPosition.line, column: cursorPosition.column };
+    if (!Number.isFinite(sourceLocation.line) || sourceLocation.line < 1) return;
 
     // Defer to the next frame so the editor pane that just became visible
     // has measured layout — focus()/setSelection on a display:none element
@@ -3091,7 +3176,7 @@ export default function App() {
       if (currentMode === 'Wysiwyg') {
         const editorInstance = editorInstanceRef.current;
         if (!editorInstance) return;
-        const pos = wysiwygPositionAtSourceLine(editorInstance, sourceLine);
+        const pos = wysiwygPositionAtSourceLocation(editorInstance, sourceLocation);
         if (pos === null) {
           editorInstance.chain().focus().run();
           return;
@@ -3100,11 +3185,13 @@ export default function App() {
         return;
       }
       // Editor or SplitView — the source pane owns the caret.
-      const offset = getSourceOffsetForLine(sourceLine);
-      focusSourceSelection(offset);
+      const lineStart = getSourceOffsetForLine(sourceLocation.line);
+      const lineText = lineTextFromOffset(localDraft, lineStart);
+      const column = Math.max(0, Math.min(lineText.length, sourceLocation.column - 1));
+      focusSourceSelection(lineStart + column);
     });
     return () => window.cancelAnimationFrame(frame);
-    // We intentionally omit cursorPosition.line and getSourceOffsetForLine —
+    // We intentionally omit cursorPosition.* and getSourceOffsetForLine —
     // their identity changes on every selection update / draft edit and
     // would re-trigger this effect mid-typing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3531,8 +3618,14 @@ export default function App() {
 
       if (matchesShortcut(event, 'e', { shift: true })) {
         event.preventDefault();
-        handleShowExplorerPanel();
-        focusExplorerTree();
+        // VS Code parity: when Explorer is already visible, collapse the sidebar;
+        // otherwise show it and move keyboard focus into the file tree.
+        if (isSidebarOpen && sidebarPanel === 'files') {
+          handleToggleSidebar();
+        } else {
+          handleShowExplorerPanel();
+          focusExplorerTree();
+        }
         return;
       }
 
@@ -3567,7 +3660,13 @@ export default function App() {
 
       if (matchesShortcut(event, 'f', { shift: true })) {
         event.preventDefault();
-        handleFocusSearchPanel();
+        // VS Code parity: when Search is already visible, collapse the sidebar;
+        // otherwise show it and refocus the search input.
+        if (isSidebarOpen && sidebarPanel === 'search') {
+          handleToggleSidebar();
+        } else {
+          handleFocusSearchPanel();
+        }
         return;
       }
 
@@ -4478,7 +4577,8 @@ export default function App() {
         onNewDocument={() => void handleNewDocument()}
         onOpenDocument={() => void handleOpenDocument()}
         onOpenWorkspace={() => void handleOpenWorkspace()}
-        localDraft={localDraft}
+        localDraft={deferredLocalDraft}
+        syncLocalDraft={localDraft}
         findReplaceBar={
           isFindReplaceOpen ? (
             <FindReplaceBar

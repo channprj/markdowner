@@ -1,5 +1,24 @@
 import { invoke } from '@tauri-apps/api/core';
 
+export type CodeBlockTheme =
+  | 'github-light'
+  | 'github-dark'
+  | 'one-dark'
+  | 'ayu-dark'
+  | 'flexoki-light'
+  | 'flexoki-dark'
+  | 'monokai';
+
+export const CODE_BLOCK_THEMES: ReadonlyArray<{ value: CodeBlockTheme; label: string }> = [
+  { value: 'github-light', label: 'GitHub Light' },
+  { value: 'github-dark', label: 'GitHub Dark' },
+  { value: 'one-dark', label: 'One Dark' },
+  { value: 'ayu-dark', label: 'Ayu Dark' },
+  { value: 'flexoki-light', label: 'Flexoki Light' },
+  { value: 'flexoki-dark', label: 'Flexoki Dark' },
+  { value: 'monokai', label: 'Monokai' },
+];
+
 export interface Settings {
   autoSave: boolean;
   editorFontSize: number;
@@ -17,6 +36,8 @@ export interface Settings {
   diagnosticsEnabled: boolean;
   showMinimap: boolean;
   tableDensity: 'compact' | 'normal';
+  codeBlockHighlight: boolean;
+  codeBlockTheme: CodeBlockTheme;
 }
 
 export interface DiagnosticsLogStatus {
@@ -65,6 +86,8 @@ export const DEFAULT_SETTINGS: Settings = {
   diagnosticsEnabled: false,
   showMinimap: false,
   tableDensity: 'compact',
+  codeBlockHighlight: true,
+  codeBlockTheme: 'github-light',
 };
 
 export const OUTLINE_FONT_SIZE_MIN = 10;
@@ -121,6 +144,15 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): Setting
   }
   if (merged.tableDensity !== 'compact' && merged.tableDensity !== 'normal') {
     merged.tableDensity = DEFAULT_SETTINGS.tableDensity;
+  }
+  if (typeof merged.codeBlockHighlight !== 'boolean') {
+    merged.codeBlockHighlight = DEFAULT_SETTINGS.codeBlockHighlight;
+  }
+  if (
+    typeof merged.codeBlockTheme !== 'string' ||
+    !CODE_BLOCK_THEMES.some((entry) => entry.value === merged.codeBlockTheme)
+  ) {
+    merged.codeBlockTheme = DEFAULT_SETTINGS.codeBlockTheme;
   }
   return merged;
 }
