@@ -1,22 +1,59 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { ThemeKind } from './desktop';
 
 export type CodeBlockTheme =
   | 'github-light'
   | 'github-dark'
+  | 'one-light'
   | 'one-dark'
+  | 'ayu-light'
   | 'ayu-dark'
   | 'flexoki-light'
   | 'flexoki-dark'
-  | 'monokai';
+  | 'monokai-light'
+  | 'monokai-dark';
+
+type CodeBlockThemeFamily = 'github' | 'one' | 'ayu' | 'flexoki' | 'monokai';
+type CodeBlockThemeTone = 'light' | 'dark';
+
+const CODE_BLOCK_THEME_VARIANTS: Record<
+  CodeBlockThemeFamily,
+  Record<CodeBlockThemeTone, CodeBlockTheme>
+> = {
+  github: { light: 'github-light', dark: 'github-dark' },
+  one: { light: 'one-light', dark: 'one-dark' },
+  ayu: { light: 'ayu-light', dark: 'ayu-dark' },
+  flexoki: { light: 'flexoki-light', dark: 'flexoki-dark' },
+  monokai: { light: 'monokai-light', dark: 'monokai-dark' },
+};
+
+const CODE_BLOCK_THEME_METADATA: Record<
+  CodeBlockTheme,
+  { family: CodeBlockThemeFamily; tone: CodeBlockThemeTone }
+> = Object.entries(CODE_BLOCK_THEME_VARIANTS).reduce(
+  (metadata, [family, variants]) => {
+    metadata[variants.light] = { family: family as CodeBlockThemeFamily, tone: 'light' };
+    metadata[variants.dark] = { family: family as CodeBlockThemeFamily, tone: 'dark' };
+    return metadata;
+  },
+  {} as Record<CodeBlockTheme, { family: CodeBlockThemeFamily; tone: CodeBlockThemeTone }>,
+);
+
+const LEGACY_CODE_BLOCK_THEME_ALIASES: Record<string, CodeBlockTheme> = {
+  monokai: 'monokai-dark',
+};
 
 export const CODE_BLOCK_THEMES: ReadonlyArray<{ value: CodeBlockTheme; label: string }> = [
   { value: 'github-light', label: 'GitHub Light' },
   { value: 'github-dark', label: 'GitHub Dark' },
+  { value: 'one-light', label: 'One Light' },
   { value: 'one-dark', label: 'One Dark' },
+  { value: 'ayu-light', label: 'Ayu Light' },
   { value: 'ayu-dark', label: 'Ayu Dark' },
   { value: 'flexoki-light', label: 'Flexoki Light' },
   { value: 'flexoki-dark', label: 'Flexoki Dark' },
-  { value: 'monokai', label: 'Monokai' },
+  { value: 'monokai-light', label: 'Monokai Light' },
+  { value: 'monokai-dark', label: 'Monokai Dark' },
 ];
 
 export interface Settings {
@@ -38,6 +75,7 @@ export interface Settings {
   tableDensity: 'compact' | 'normal';
   codeBlockHighlight: boolean;
   codeBlockTheme: CodeBlockTheme;
+  codeBlockThemeSync: boolean;
 }
 
 export interface DiagnosticsLogStatus {
@@ -87,7 +125,8 @@ export const DEFAULT_SETTINGS: Settings = {
   showMinimap: false,
   tableDensity: 'compact',
   codeBlockHighlight: true,
-  codeBlockTheme: 'github-light',
+  codeBlockTheme: 'one-dark',
+  codeBlockThemeSync: true,
 };
 
 export const OUTLINE_FONT_SIZE_MIN = 10;
@@ -106,6 +145,35 @@ function normalizeBoundedInteger(
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+function normalizeCodeBlockTheme(value: unknown): CodeBlockTheme {
+  if (typeof value !== 'string') {
+    return DEFAULT_SETTINGS.codeBlockTheme;
+  }
+  const aliased = LEGACY_CODE_BLOCK_THEME_ALIASES[value] ?? value;
+  return CODE_BLOCK_THEMES.some((entry) => entry.value === aliased)
+    ? (aliased as CodeBlockTheme)
+    : DEFAULT_SETTINGS.codeBlockTheme;
+}
+
+export function codeBlockThemeForThemeKind(
+  theme: CodeBlockTheme,
+  themeKind: ThemeKind,
+): CodeBlockTheme {
+  if (themeKind === 'CustomCss') {
+    return theme;
+  }
+  const metadata = CODE_BLOCK_THEME_METADATA[theme];
+  const tone: CodeBlockThemeTone = themeKind === 'BuiltInLight' ? 'light' : 'dark';
+  return CODE_BLOCK_THEME_VARIANTS[metadata.family][tone];
+}
+
+export function resolveCodeBlockTheme(settings: Settings, themeKind: ThemeKind): CodeBlockTheme {
+  const normalizedTheme = normalizeCodeBlockTheme(settings.codeBlockTheme);
+  return settings.codeBlockThemeSync
+    ? codeBlockThemeForThemeKind(normalizedTheme, themeKind)
+    : normalizedTheme;
 }
 
 function normalizeSettings(value: Partial<Settings> | null | undefined): Settings {
@@ -148,11 +216,9 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): Setting
   if (typeof merged.codeBlockHighlight !== 'boolean') {
     merged.codeBlockHighlight = DEFAULT_SETTINGS.codeBlockHighlight;
   }
-  if (
-    typeof merged.codeBlockTheme !== 'string' ||
-    !CODE_BLOCK_THEMES.some((entry) => entry.value === merged.codeBlockTheme)
-  ) {
-    merged.codeBlockTheme = DEFAULT_SETTINGS.codeBlockTheme;
+  merged.codeBlockTheme = normalizeCodeBlockTheme(merged.codeBlockTheme);
+  if (typeof merged.codeBlockThemeSync !== 'boolean') {
+    merged.codeBlockThemeSync = DEFAULT_SETTINGS.codeBlockThemeSync;
   }
   return merged;
 }
@@ -169,7 +235,7 @@ export async function loadSettings(): Promise<Settings> {
 
 export async function saveSettings(settings: Settings): Promise<void> {
   try {
-    await invoke('save_settings', { settings });
+    await invoke('save_settings', { settings: normalizeSettings(settings) });
   } catch (error) {
     console.error('Failed to save settings:', error);
   }

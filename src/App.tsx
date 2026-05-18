@@ -114,6 +114,7 @@ import {
   installCliLauncher,
   loadSettings,
   recordDiagnosticsEvent,
+  resolveCodeBlockTheme,
   saveSettings,
 } from './lib/settings';
 import { moveTab } from './lib/tabs';
@@ -2593,9 +2594,14 @@ export default function App() {
   // and split-view markdown surfaces can pick up the user-selected palette
   // through CSS (no JS recolouring needed).
   useEffect(() => {
-    document.documentElement.dataset.cbTheme = settings.codeBlockTheme;
+    document.documentElement.dataset.cbTheme = resolveCodeBlockTheme(settings, snapshot.theme.kind);
     document.documentElement.dataset.cbHighlight = settings.codeBlockHighlight ? 'on' : 'off';
-  }, [settings.codeBlockHighlight, settings.codeBlockTheme]);
+  }, [
+    settings.codeBlockHighlight,
+    settings.codeBlockTheme,
+    settings.codeBlockThemeSync,
+    snapshot.theme.kind,
+  ]);
 
   useEffect(() => {
     document.title = buildWindowTitle(snapshot);

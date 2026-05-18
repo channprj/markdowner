@@ -19,6 +19,11 @@ pub struct Settings {
     pub theme_follow_system: bool,
     pub pdf_paper_size: String,
     pub diagnostics_enabled: bool,
+    pub show_minimap: bool,
+    pub table_density: String,
+    pub code_block_highlight: bool,
+    pub code_block_theme: String,
+    pub code_block_theme_sync: bool,
 }
 
 impl Default for Settings {
@@ -38,6 +43,11 @@ impl Default for Settings {
             theme_follow_system: true,
             pdf_paper_size: "A4".to_string(),
             diagnostics_enabled: false,
+            show_minimap: false,
+            table_density: "compact".to_string(),
+            code_block_highlight: true,
+            code_block_theme: "one-dark".to_string(),
+            code_block_theme_sync: true,
         }
     }
 }
@@ -80,5 +90,20 @@ mod tests {
         assert!(!parsed.editor_line_wrap);
         assert_eq!(parsed.outline_font_size, 12);
         assert_eq!(parsed.outline_row_spacing, 1);
+    }
+
+    #[test]
+    fn settings_round_trip_preserves_code_block_highlighting_fields() {
+        let original = r#"{
+            "codeBlockHighlight": false,
+            "codeBlockTheme": "one-light",
+            "codeBlockThemeSync": true
+        }"#;
+        let parsed: Settings = serde_json::from_str(original).expect("parse settings");
+        let value = serde_json::to_value(parsed).expect("serialize settings");
+
+        assert_eq!(value["codeBlockHighlight"], false);
+        assert_eq!(value["codeBlockTheme"], "one-light");
+        assert_eq!(value["codeBlockThemeSync"], true);
     }
 }

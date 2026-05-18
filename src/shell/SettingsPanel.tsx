@@ -600,6 +600,16 @@ export function SettingsPanel({
             />
           </div>
 
+          <div className={switchFieldClass}>
+            <Label htmlFor="code-block-theme-sync" className="text-sm">Sync Code Block Theme</Label>
+            <Switch
+              id="code-block-theme-sync"
+              checked={settings.codeBlockThemeSync}
+              disabled={!settings.codeBlockHighlight}
+              onCheckedChange={(checked) => handleSettingChange('codeBlockThemeSync', checked)}
+            />
+          </div>
+
           <div className={inputFieldClass}>
             <Label htmlFor="code-block-theme" className="text-sm">Code Block Theme</Label>
             <select

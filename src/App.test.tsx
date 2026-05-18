@@ -1620,6 +1620,101 @@ describe('App recent documents', () => {
     });
   });
 
+  it('syncs the effective code block theme to the active app theme when enabled', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: true,
+          themeFollowSystem: false,
+          codeBlockHighlight: true,
+          codeBlockTheme: 'one-dark',
+          codeBlockThemeSync: true,
+        };
+      }
+      return undefined;
+    });
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        theme: { kind: 'BuiltInLight', stylesheet: null, stylesheetPath: null },
+      }),
+    );
+    setThemeMock.mockImplementation(async (kind: 'BuiltInLight' | 'BuiltInDark' | 'CustomCss') =>
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        theme: { kind, stylesheet: null, stylesheetPath: null },
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(document.documentElement.dataset.cbTheme).toBe('one-light');
+    });
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+    const dialog = await screen.findByTestId('settings-panel');
+    const themeToggleGroup = within(dialog).getByTestId('settings-theme-toggle');
+    const darkThemeToggle = within(themeToggleGroup).getByRole('radio', {
+      name: /dark/i,
+    });
+
+    fireEvent.click(darkThemeToggle);
+
+    await waitFor(() => {
+      expect(setThemeMock).toHaveBeenCalledWith('BuiltInDark');
+    });
+    await waitFor(() => {
+      expect(document.documentElement.dataset.cbTheme).toBe('one-dark');
+    });
+  });
+
+  it('persists the code block theme sync toggle from Settings', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: true,
+          codeBlockHighlight: true,
+          codeBlockTheme: 'one-dark',
+          codeBlockThemeSync: false,
+        };
+      }
+      return undefined;
+    });
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+    const dialog = await screen.findByTestId('settings-panel');
+    const syncToggle = within(dialog).getByLabelText(/sync code block theme/i);
+    await waitFor(() => {
+      expect(syncToggle).toHaveAttribute('aria-checked', 'false');
+    });
+
+    fireEvent.click(syncToggle);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_settings', {
+        settings: expect.objectContaining({ codeBlockThemeSync: true }),
+      });
+    });
+  });
+
   it('does not sync the theme to the OS on startup when themeFollowSystem is disabled', async () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {
@@ -4076,7 +4171,8 @@ describe('App recent documents', () => {
           showMinimap: false,
           tableDensity: 'compact',
           codeBlockHighlight: true,
-          codeBlockTheme: 'github-light',
+          codeBlockTheme: 'one-dark',
+          codeBlockThemeSync: true,
         },
       });
     });
@@ -5282,7 +5378,8 @@ describe('App recent documents', () => {
           showMinimap: false,
           tableDensity: 'compact',
           codeBlockHighlight: true,
-          codeBlockTheme: 'github-light',
+          codeBlockTheme: 'one-dark',
+          codeBlockThemeSync: true,
         },
       });
     });
