@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, '..');
 const defaultCargoTargetDir = path.join(projectRoot, 'target', 'tauri-build-and-install');
+const targetDirFingerprint = '.markdowner-source-root';
 
 function usage() {
   console.log(`Usage:
@@ -123,6 +124,78 @@ function cargoTargetRoot(env) {
   return path.isAbsolute(cargoTargetDir) ? cargoTargetDir : path.join(projectRoot, cargoTargetDir);
 }
 
+// The Tauri build step bakes absolute paths into generated files under
+// `<target>/<profile>/build/tauri-*/out/` (notably the `*-permission-files`
+// lists). If the project is moved or re-cloned at a different path, those
+// cached paths become stale and the next cargo build fails with a missing
+// `.toml` under the old location. Detect that and clean automatically so the
+// user doesn't have to run `cargo clean` by hand.
+function ensureFreshManagedTargetDir(targetDir) {
+  if (fs.existsSync(targetDir) && isStaleManagedTargetDir(targetDir)) {
+    console.log(`==> Detected stale build cache at ${targetDir}; cleaning`);
+    fs.rmSync(targetDir, { recursive: true, force: true });
+  }
+  fs.mkdirSync(targetDir, { recursive: true });
+  try {
+    fs.writeFileSync(path.join(targetDir, targetDirFingerprint), projectRoot);
+  } catch {
+    // Fingerprint is advisory only — never fail the build on a write error.
+  }
+}
+
+function isStaleManagedTargetDir(targetDir) {
+  const fingerprintPath = path.join(targetDir, targetDirFingerprint);
+  if (fs.existsSync(fingerprintPath)) {
+    try {
+      return fs.readFileSync(fingerprintPath, 'utf8').trim() !== projectRoot;
+    } catch {
+      return true;
+    }
+  }
+  // Legacy cache without a fingerprint — scan the tauri permission lists for
+  // absolute paths that don't sit under the current project root.
+  return detectStalePermissionPaths(targetDir);
+}
+
+function detectStalePermissionPaths(targetDir) {
+  const prefix = projectRoot + path.sep;
+  for (const variant of ['release', 'debug']) {
+    const buildDir = path.join(targetDir, variant, 'build');
+    let entries;
+    try {
+      entries = fs.readdirSync(buildDir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.startsWith('tauri-')) continue;
+      const outDir = path.join(buildDir, entry, 'out');
+      let files;
+      try {
+        files = fs.readdirSync(outDir);
+      } catch {
+        continue;
+      }
+      for (const file of files) {
+        if (!file.endsWith('-permission-files')) continue;
+        let contents;
+        try {
+          contents = fs.readFileSync(path.join(outDir, file), 'utf8');
+        } catch {
+          continue;
+        }
+        const matches = contents.match(/"(\/[^"]+?\.toml)"/g) ?? [];
+        for (const raw of matches) {
+          if (!raw.slice(1, -1).startsWith(prefix)) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
 function ensureDependencies() {
   requireCommands(['pnpm', 'cargo']);
 
@@ -233,8 +306,14 @@ if (argv.length === 0) {
 const options = parseArgs(argv);
 const env = { ...process.env };
 
+let managedTargetDir = null;
 if (options.install && options.doBuild && !env.CARGO_TARGET_DIR) {
   env.CARGO_TARGET_DIR = defaultCargoTargetDir;
+  managedTargetDir = defaultCargoTargetDir;
+}
+
+if (managedTargetDir && options.doBuild) {
+  ensureFreshManagedTargetDir(managedTargetDir);
 }
 
 if (options.doBuild) {
