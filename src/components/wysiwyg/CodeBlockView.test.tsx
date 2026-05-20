@@ -151,6 +151,33 @@ describe('CodeBlockView language picker', () => {
     expect(updateAttributes).not.toHaveBeenCalled();
   });
 
+  it('opens the dropdown via showPicker when Enter is pressed on the focused select', () => {
+    const { select } = renderView({ language: null });
+    // jsdom does not implement showPicker; stub it so we can assert the call.
+    const showPicker = vi.fn();
+    Object.defineProperty(select, 'showPicker', {
+      configurable: true,
+      value: showPicker,
+    });
+
+    fireEvent.keyDown(select, { key: 'Enter' });
+    expect(showPicker).toHaveBeenCalledTimes(1);
+  });
+
+  it('swallows the showPicker NotAllowedError so Enter never throws into React', () => {
+    const { select } = renderView({ language: null });
+    const showPicker = vi.fn(() => {
+      throw new DOMException('NotAllowedError', 'NotAllowedError');
+    });
+    Object.defineProperty(select, 'showPicker', {
+      configurable: true,
+      value: showPicker,
+    });
+
+    expect(() => fireEvent.keyDown(select, { key: 'Enter' })).not.toThrow();
+    expect(showPicker).toHaveBeenCalledTimes(1);
+  });
+
   it('resets the cycle after the select loses focus', () => {
     const { select, updateAttributes } = renderView({ language: null });
 

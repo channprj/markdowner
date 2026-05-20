@@ -110,10 +110,29 @@ export function CodeBlockView(props: NodeViewProps) {
       return;
     }
 
+    // Enter opens the option list. The native <select> on macOS WebKit only
+    // opens on Space by default, so we forward Enter through showPicker()
+    // (standardized on HTMLSelectElement; supported in Tauri's WebKit).
+    // Calling from a keydown handler counts as a user gesture, so the
+    // NotAllowedError path is effectively unreachable here.
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      cycleRef.current = null;
+      const select = event.currentTarget;
+      if (typeof select.showPicker === 'function') {
+        try {
+          select.showPicker();
+        } catch {
+          /* user-gesture restriction — silently ignore */
+        }
+      }
+      return;
+    }
+
     // a–z typeahead with cycling: first press lands on the first matching
     // language; repeated presses of the same letter advance through the rest
     // and wrap. A different letter resets the cycle. The dropdown stays
-    // closed — only Enter / Space open it.
+    // closed — Space (native) and Enter (handled above) open it.
     if (event.key.length === 1 && /^[a-zA-Z]$/.test(event.key)) {
       event.preventDefault();
       const letter = event.key.toLowerCase();
