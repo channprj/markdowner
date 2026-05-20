@@ -3127,7 +3127,8 @@ export default function App() {
     // multiple Untitled drafts (Rust only models a single untitled document).
     const existingUntitled = findTabByPath(null);
     if (existingUntitled) {
-      void switchToTab(existingUntitled.id);
+      await switchToTab(existingUntitled.id);
+      focusActiveEditor();
       return;
     }
 
@@ -3141,6 +3142,14 @@ export default function App() {
       applySnapshot(next);
       upsertActiveTabFromSnapshot(next);
     });
+
+    // After Cmd+N / Cmd+T / "New File", land the caret in the editor so the
+    // user can type immediately. Without this the freshly-mounted ProseMirror
+    // surface stays unfocused and never paints a blinking caret. The helper's
+    // built-in rAF fallback handles the case where the editor's contentDOM
+    // hasn't been inserted yet (brand-new doc from the empty state).
+    if (isEditorOpStale(token)) return;
+    focusActiveEditor();
   };
 
   const handleOpenDocument = async () => {
@@ -3162,7 +3171,8 @@ export default function App() {
     if (paths.length === 1) {
       const existing = findTabByPath(paths[0]);
       if (existing) {
-        void switchToTab(existing.id);
+        await switchToTab(existing.id);
+        focusActiveEditor();
         return;
       }
     }
@@ -3212,9 +3222,14 @@ export default function App() {
         applySnapshot(lastSnapshot);
       } else if (lastActiveId) {
         // Every selected file was already open — switch to the last one.
-        void switchToTab(lastActiveId);
+        await switchToTab(lastActiveId);
       }
     });
+
+    // After Cmd+O / "Open File…", land the caret in the freshly mounted editor
+    // surface so the user can type immediately — mirrors handleNewDocument.
+    if (isEditorOpStale(token)) return;
+    focusActiveEditor();
   };
 
   const handleOpenWorkspace = async () => {
@@ -3561,7 +3576,8 @@ export default function App() {
   const handleOpenWorkspaceDocument = async (path: string) => {
     const existing = findTabByPath(path);
     if (existing) {
-      void switchToTab(existing.id);
+      await switchToTab(existing.id);
+      focusActiveEditor();
       return;
     }
 
@@ -3575,12 +3591,18 @@ export default function App() {
       applySnapshot(next);
       upsertActiveTabFromSnapshot(next);
     });
+
+    // Clicking a file in the Explorer sidebar should leave the caret in the
+    // editor, not on the tree row — same UX as Cmd+N / Cmd+O.
+    if (isEditorOpStale(token)) return;
+    focusActiveEditor();
   };
 
   const handleOpenRecentDocument = async (path: string) => {
     const existing = findTabByPath(path);
     if (existing) {
-      void switchToTab(existing.id);
+      await switchToTab(existing.id);
+      focusActiveEditor();
       return;
     }
 
@@ -3594,6 +3616,9 @@ export default function App() {
       applySnapshot(next);
       upsertActiveTabFromSnapshot(next);
     });
+
+    if (isEditorOpStale(token)) return;
+    focusActiveEditor();
   };
 
   const handleToggleWorkspaceFolder = (key: string) => {
