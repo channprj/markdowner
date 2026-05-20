@@ -343,6 +343,22 @@
     @apply my-1 px-1;
     min-height: 1lh;
   }
+  /* The trailing empty paragraph that TrailingNode appends after a heading,
+     code block, blockquote, table, etc. holds only a synthetic
+     <br class="ProseMirror-trailingBreak"> — the line-break ProseMirror
+     inserts to keep the caret visible in an otherwise empty textblock. In
+     some WebKit builds (notably WKWebView), that <br>'s line box collapses
+     to zero height because it sits at the very tail of an empty contenteditable
+     block, and the blinking caret disappears with it. Pinning the <br> to
+     `inline-block` + `1lh` gives the line box a guaranteed extent so the
+     browser keeps painting the caret. Width stays 0 so it never widens the
+     paragraph or shifts the caret off the left edge. */
+  .notion-editor-content .ProseMirror br.ProseMirror-trailingBreak {
+    display: inline-block;
+    width: 0;
+    height: 1lh;
+    vertical-align: text-bottom;
+  }
   .notion-editor-content .ProseMirror ul,
   .notion-editor-content .ProseMirror ol {
     @apply my-1 pl-7;
