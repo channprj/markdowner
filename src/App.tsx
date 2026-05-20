@@ -339,6 +339,17 @@ function clampSelectionOffset(offset: number, sourceLength: number) {
   return Math.max(0, Math.min(sourceLength, Math.round(offset)));
 }
 
+// Collapse any trailing newline run into exactly one `\n`. VS Code's
+// `files.insertFinalNewline` + `files.trimFinalNewlines` combined: empty
+// input still emits a single newline, multi-newline tails get squeezed,
+// and a text that already ends with exactly one `\n` round-trips unchanged.
+// Used both at save time (forced finalization on disk) and for dirty
+// comparisons so the WYSIWYG TrailingNode's extra blank paragraph at the
+// bottom doesn't flag a clean doc as dirty.
+function normalizeFinalNewline(text: string): string {
+  return text.replace(/\n*$/, '\n');
+}
+
 function readSourceNumber(element: HTMLElement, key: keyof DOMStringMap) {
   const value = element.dataset[key];
   if (value === undefined) return null;
@@ -936,6 +947,19 @@ export default function App() {
   // current editor — without this, `editor` inside `compositionend` would be
   // null after we stabilise the editorProps reference below.
   const editorInstanceRef = useRef<TiptapEditor | null>(null);
+  // Remembered caret per absolute file path. Filled from the persisted
+  // session on launch, updated as the user moves the caret (both modes),
+  // and re-persisted via saveOpenTabs on a small debounce.
+  const cursorByPathRef = useRef<Map<string, SourceCursorLocation>>(new Map());
+  const cursorPersistTimerRef = useRef<number | null>(null);
+  // One-shot startup directive: when the bootstrap effect picks an active
+  // tab, it stashes the path here. The active-tab cursor restore effect
+  // consumes it once the editor surface for that path is ready and then
+  // clears it so subsequent tab switches don't re-fire startup focus.
+  const startupRestoreRef = useRef<{
+    path: string;
+    location: SourceCursorLocation | null;
+  } | null>(null);
   useEffect(() => {
     isFindReplaceOpenRef.current = isFindReplaceOpen;
   }, [isFindReplaceOpen]);
@@ -1007,12 +1031,16 @@ export default function App() {
   // finishes loses the settings tab when upsertActiveTabFromSnapshot fires.
   const tabsRef = useRef<DocumentTab[]>(tabs);
   const activeTabIdRef = useRef<string | null>(activeTabId);
+  const startupTabsReadyRef = useRef<boolean>(startupTabsReady);
   useEffect(() => {
     tabsRef.current = tabs;
   }, [tabs]);
   useEffect(() => {
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
+  useEffect(() => {
+    startupTabsReadyRef.current = startupTabsReady;
+  }, [startupTabsReady]);
   // Monotonic counter for file/tab operations. Each open/new/switch flow
   // captures the value at start; after every async hop it re-checks against
   // the current value and aborts if a newer operation has begun. Without
@@ -1463,6 +1491,67 @@ export default function App() {
     });
   };
 
+  // Record the latest caret location for the given file path. Called from the
+  // source-mode statistics callback and the WYSIWYG selection-update callback;
+  // when the active tab has no path (untitled) the call is a no-op so we don't
+  // accumulate session-local drafts in the persisted map.
+  const recordCursorForPath = (
+    path: string | null | undefined,
+    location: SourceCursorLocation,
+  ) => {
+    if (!path) return;
+    const previous = cursorByPathRef.current.get(path);
+    if (previous && previous.line === location.line && previous.column === location.column) {
+      return;
+    }
+    cursorByPathRef.current.set(path, { line: location.line, column: location.column });
+    schedulePersistOpenTabs();
+  };
+
+  // Debounced persistence trigger. The base persistence effect already fires
+  // when the tab list or active tab changes; cursor motion is high-frequency,
+  // so we coalesce on a small timer rather than dispatching a save per move.
+  const schedulePersistOpenTabs = () => {
+    if (cursorPersistTimerRef.current !== null) {
+      window.clearTimeout(cursorPersistTimerRef.current);
+    }
+    cursorPersistTimerRef.current = window.setTimeout(() => {
+      cursorPersistTimerRef.current = null;
+      persistOpenTabsAndCursorsNow();
+    }, 800);
+  };
+
+  // Eagerly snapshot the open-tabs + cursor map into the session file. Shared
+  // by the tab-list effect (immediate) and the cursor debounce (after motion).
+  // Reads tabs/activeTabId from refs so the latest values win even if React
+  // hasn't committed a pending render yet.
+  const persistOpenTabsAndCursorsNow = () => {
+    if (!startupTabsReadyRef.current) return;
+    const currentTabs = tabsRef.current;
+    const paths = currentTabs
+      .map((tab) => tab.path)
+      .filter((path): path is string => path !== null);
+    const pathSet = new Set(paths);
+    const activeId = activeTabIdRef.current;
+    const activeTab = activeId
+      ? currentTabs.find((tab) => tab.id === activeId)
+      : null;
+    const activePath = activeTab?.path ?? null;
+    const cursorPositions: Record<string, SourceCursorLocation> = {};
+    cursorByPathRef.current.forEach((value, key) => {
+      if (pathSet.has(key)) {
+        cursorPositions[key] = value;
+      }
+    });
+    void saveOpenTabs({
+      openTabs: paths,
+      activeTabPath: activePath,
+      cursorPositions,
+    }).catch((error) => {
+      console.warn('[Markdowner] Failed to persist open tabs:', error);
+    });
+  };
+
   const isFocusInsideExplorer = () => {
     const active = document.activeElement as HTMLElement | null;
     return Boolean(active?.closest('[data-explorer-root]'));
@@ -1680,12 +1769,27 @@ export default function App() {
     setLocalDraft(value);
   });
   const handleSourceEditorStatistics = useEffectEvent((stats: unknown) => {
-    setCursorPosition((current) =>
-      nextCursorPositionFromStatistics(current, stats as Parameters<typeof nextCursorPositionFromStatistics>[1]),
-    );
+    setCursorPosition((current) => {
+      const next = nextCursorPositionFromStatistics(
+        current,
+        stats as Parameters<typeof nextCursorPositionFromStatistics>[1],
+      );
+      if (next !== current) {
+        // Mirror the caret to cursorByPath so the active tab's source-mode
+        // caret survives across launches. WYSIWYG mirrors via the selection
+        // handler below.
+        const activeTab = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+        recordCursorForPath(activeTab?.path ?? null, next);
+      }
+      return next;
+    });
   });
+  const [sourceEditorViewToken, setSourceEditorViewToken] = useState(0);
   const handleSourceEditorCreate = useEffectEvent((view: EditorView) => {
     sourceEditorViewRef.current = view;
+    // Notify the startup-restore effect that the CodeMirror view is now
+    // alive; refs don't trigger renders so we bump a state counter.
+    setSourceEditorViewToken((value) => value + 1);
   });
 
   // Clicks landing on the empty padding around the WYSIWYG editor (below the
@@ -1969,7 +2073,15 @@ export default function App() {
         link: {
           openOnClick: false,
         },
-        trailingNode: false,
+        // TrailingNode keeps an empty paragraph at the end of the document
+        // whenever the last block is something the caret can't comfortably
+        // sit "after" (codeBlock, blockquote, table, heading, etc.). Pressing
+        // ArrowDown out of one of those blocks lands here, matching the
+        // "always a body line at the bottom" VS Code / Notion convention.
+        // The extension's invariant guarantees exactly one trailing block,
+        // so we never accumulate multiple empty paragraphs at the end.
+        // Save-time normalization (`normalizeFinalNewline`) then collapses
+        // the serialized markdown to a single trailing \n on disk.
         // The default CodeBlock is replaced by CodeBlockLowlight below so the
         // editor gains syntax highlighting + a per-block language picker.
         codeBlock: false,
@@ -2176,7 +2288,12 @@ export default function App() {
       // Mirror the WYSIWYG selection as a markdown source location (line +
       // column) so mode switches can hand the caret to CodeMirror at the same
       // logical position.
-      wysiwygCursorLocationRef.current = wysiwygCursorSourceLocation(nextEditor);
+      const location = wysiwygCursorSourceLocation(nextEditor);
+      wysiwygCursorLocationRef.current = location;
+      // Persist the caret per file path (parallels the source-mode path) so
+      // the next launch restores into the same block.
+      const activeTab = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+      recordCursorForPath(activeTab?.path ?? null, location);
       if (typewriterModeEnabledRef.current && currentModeRef.current === 'Wysiwyg') {
         window.requestAnimationFrame(() => centerTiptapEditorLine(nextEditor));
       }
@@ -2338,11 +2455,13 @@ export default function App() {
   // content. For close/quit prompts we want a strict comparison against the
   // last loaded/saved baseline, mirroring Zed's behavior — "Save changes" only
   // appears when the live content actually differs from what's on disk.
+  // Both sides are normalized to a single trailing newline so the WYSIWYG
+  // TrailingNode's extra empty paragraph (which exists only in the view, not
+  // on disk) doesn't flag a freshly-loaded document as dirty.
   const tabIsDirty = (tab: DocumentTab) => {
     if (tab.kind !== 'document') return false;
-    return tab.id === activeTabId
-      ? localDraft !== tab.source
-      : tab.draft !== tab.source;
+    const live = tab.id === activeTabId ? localDraft : tab.draft;
+    return normalizeFinalNewline(live) !== normalizeFinalNewline(tab.source);
   };
   const activeTab = activeTabId
     ? tabs.find((tab) => tab.id === activeTabId) ?? null
@@ -2481,6 +2600,23 @@ export default function App() {
             markStartupTabsReady: true,
             preserveSettingsActive: true,
           });
+          // Best-effort: also hydrate the persisted caret map so a CLI-opened
+          // file (which short-circuits the persisted-tabs branch below) still
+          // restores the remembered caret. Failure is non-fatal.
+          try {
+            const persistedTabs = await loadOpenTabs();
+            if (cancelled) return;
+            cursorByPathRef.current = new Map(Object.entries(persistedTabs.cursorPositions));
+            const activePath = next.activeDocumentPath;
+            if (activePath) {
+              startupRestoreRef.current = {
+                path: activePath,
+                location: persistedTabs.cursorPositions[activePath] ?? null,
+              };
+            }
+          } catch {
+            /* persistence is best-effort */
+          }
           return;
         }
 
@@ -2498,6 +2634,10 @@ export default function App() {
               persistedTabs = retriedTabs;
             }
           }
+          // Hydrate the caret map regardless of whether tabs come back —
+          // useful when the user reopens a single CLI-opened file and the
+          // map still carries its remembered position.
+          cursorByPathRef.current = new Map(Object.entries(persistedTabs.cursorPositions));
           if (persistedTabs.openTabs.length === 0) {
             setStartupTabsReady(true);
             return;
@@ -2569,6 +2709,15 @@ export default function App() {
 
           tabsRef.current = mergedTabs;
           activeTabIdRef.current = nextActiveId;
+          // Arm the startup focus + caret restore. The follow-up effect
+          // consumes this once the editor surface for the picked tab is
+          // ready (it sees an empty doc + path mismatch otherwise).
+          if (nextActiveTab?.kind === 'document' && nextActiveTab.path && !nextActiveTab.missing) {
+            startupRestoreRef.current = {
+              path: nextActiveTab.path,
+              location: persistedTabs.cursorPositions[nextActiveTab.path] ?? null,
+            };
+          }
           startTransition(() => {
             if (nextSnapshot) {
               setSnapshot(nextSnapshot);
@@ -2600,6 +2749,62 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  // One-shot startup focus + caret restore. The bootstrap path stashes the
+  // target tab's path (and optionally its remembered SourceCursorLocation)
+  // into startupRestoreRef once it picks an active tab. This effect waits
+  // for the editor surface for that path to be ready, dispatches the saved
+  // selection (or focuses the doc start), and then clears the directive so
+  // subsequent tab switches don't re-trigger startup focus.
+  useEffect(() => {
+    const pending = startupRestoreRef.current;
+    if (!pending) return;
+    if (snapshot.activeDocumentPath !== pending.path) return;
+    const location = pending.location ?? { line: 1, column: 1 };
+    if (currentMode === 'Wysiwyg') {
+      const editorInstance = editor;
+      if (!editorInstance) return;
+      // ProseMirror's empty placeholder doc has nodeSize 2 (one empty
+      // paragraph). Anything larger means the localDraft -> editor sync
+      // has already loaded the real content.
+      const docSize = editorInstance.state.doc.content.size;
+      if (pending.location && docSize <= 2 && (localDraft?.length ?? 0) > 0) return;
+      const pos = wysiwygPositionAtSourceLocation(editorInstance, location);
+      try {
+        if (pos !== null) {
+          editorInstance.chain().focus().setTextSelection(pos).scrollIntoView().run();
+        } else {
+          editorInstance.chain().focus('start').run();
+        }
+      } catch {
+        editorInstance.commands.focus?.();
+      }
+      startupRestoreRef.current = null;
+      return;
+    }
+    // Editor / SplitView: drive CodeMirror to the saved line+column.
+    const view = sourceEditorViewRef.current;
+    if (!view) return;
+    if (localDraft.length === 0 && pending.location) return;
+    const doc = view.state.doc;
+    const targetLine = Math.max(1, Math.min(location.line, doc.lines));
+    const lineInfo = doc.line(targetLine);
+    const targetColumn = Math.max(1, Math.min(location.column, lineInfo.length + 1));
+    const offset = lineInfo.from + (targetColumn - 1);
+    view.dispatch({
+      selection: { anchor: offset, head: offset },
+      scrollIntoView: true,
+    });
+    view.focus();
+    startupRestoreRef.current = null;
+  }, [
+    snapshot,
+    activeTabId,
+    currentMode,
+    editor,
+    localDraft,
+    sourceEditorViewToken,
+  ]);
 
   const handleSettingsChange = (next: Settings) => {
     const changedKeys = SETTINGS_KEYS.filter((key) => !Object.is(settings[key], next[key]));
@@ -2669,18 +2874,9 @@ export default function App() {
   // path-bearing tabs are saved; untitled drafts stay session-local.
   useEffect(() => {
     if (!startupTabsReady) return;
-
-    const paths = tabs
-      .map((tab) => tab.path)
-      .filter((path): path is string => path !== null);
-    const activePath = (() => {
-      if (!activeTabId) return null;
-      const active = tabs.find((tab) => tab.id === activeTabId);
-      return active?.path ?? null;
-    })();
-    void saveOpenTabs({ openTabs: paths, activeTabPath: activePath }).catch((error) => {
-      console.warn('[Markdowner] Failed to persist open tabs:', error);
-    });
+    // Cursors travel with the same payload — persistOpenTabsAndCursorsNow
+    // reads from the refs that have already been updated for this render.
+    persistOpenTabsAndCursorsNow();
   }, [tabs, activeTabId, startupTabsReady]);
 
   useEffect(() => {
@@ -2882,7 +3078,10 @@ export default function App() {
     }
   };
 
-  const syncActiveDraft = async (preserveMode: EditorMode = snapshot.mode) => {
+  const syncActiveDraft = async (
+    preserveMode: EditorMode = snapshot.mode,
+    options: { forFinalSave?: boolean } = {},
+  ) => {
     if (!activeDocumentOpen || snapshot.activeDocumentSource === null) {
       return;
     }
@@ -2892,12 +3091,25 @@ export default function App() {
     // The returned markdown lets us compare without waiting for React state.
     const fresh = flushWysiwygDraftNow();
     const draft = fresh ?? localDraft;
+    // VS Code-parity trailing newline: every save path collapses the tail
+    // to exactly one `\n` before reaching Rust + disk. Non-save syncs
+    // (tab switch, mode switch) keep the live draft verbatim so the
+    // editor doesn't visibly mutate mid-navigation.
+    const outgoing = options.forFinalSave ? normalizeFinalNewline(draft) : draft;
+    if (outgoing !== draft) {
+      setLocalDraft(outgoing);
+    }
 
-    if (draft === snapshot.activeDocumentSource) {
+    // Compare normalized to avoid spurious writes when the only diff is
+    // trailing whitespace that the save path would have normalized anyway.
+    if (
+      normalizeFinalNewline(outgoing) ===
+      normalizeFinalNewline(snapshot.activeDocumentSource)
+    ) {
       return;
     }
 
-    const synced = await replaceActiveDocumentSource(draft);
+    const synced = await replaceActiveDocumentSource(outgoing);
     applySnapshot({ ...synced, mode: preserveMode }, true);
   };
 
@@ -3032,7 +3244,7 @@ export default function App() {
     }
 
     await withBusy(async () => {
-      await syncActiveDraft();
+      await syncActiveDraft(undefined, { forFinalSave: true });
       if (await hasExternalChanges()) {
         return;
       }
@@ -3057,13 +3269,13 @@ export default function App() {
         return false;
       }
 
-      await syncActiveDraft();
+      await syncActiveDraft(undefined, { forFinalSave: true });
       const next = await saveActiveDocumentAs(selected);
       applySnapshot(next, true);
       return true;
     }
 
-    await syncActiveDraft();
+    await syncActiveDraft(undefined, { forFinalSave: true });
     if (await hasExternalChanges()) {
       return false;
     }
@@ -3079,7 +3291,8 @@ export default function App() {
     const currentDraft = fresh ?? localDraft;
     const targetTab = activeTabId ? tabs.find((t) => t.id === activeTabId) ?? null : null;
     const isDirty =
-      targetTab?.kind === 'document' && currentDraft !== targetTab.source;
+      targetTab?.kind === 'document' &&
+      normalizeFinalNewline(currentDraft) !== normalizeFinalNewline(targetTab.source);
     if (!isDirty) {
       clearActiveDocumentSurface();
       return;
@@ -3192,7 +3405,7 @@ export default function App() {
     }
 
     await withBusy(async () => {
-      await syncActiveDraft();
+      await syncActiveDraft(undefined, { forFinalSave: true });
       const next = await saveActiveDocumentAs(selected);
       applySnapshot(next, true);
       refreshActiveTabFromSnapshot(next);
@@ -4108,9 +4321,13 @@ export default function App() {
       const currentDraft = fresh ?? localDraft;
       const targetTab = activeTabId ? tabs.find((t) => t.id === activeTabId) ?? null : null;
       const activeDirty =
-        targetTab?.kind === 'document' && currentDraft !== targetTab.source;
+        targetTab?.kind === 'document' &&
+        normalizeFinalNewline(currentDraft) !== normalizeFinalNewline(targetTab.source);
       const anyOtherDirty = tabs.some(
-        (t) => t.kind === 'document' && t.id !== activeTabId && t.draft !== t.source,
+        (t) =>
+          t.kind === 'document' &&
+          t.id !== activeTabId &&
+          normalizeFinalNewline(t.draft) !== normalizeFinalNewline(t.source),
       );
       // Native window close gates on the active tab; app quit (Cmd+Q) gates on
       // any tab having edits, matching Zed's behavior.

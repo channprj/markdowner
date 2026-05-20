@@ -118,19 +118,51 @@ export async function searchWorkspace(
   });
 }
 
+export interface PersistedCursorPosition {
+  line: number;
+  column: number;
+}
+
 export interface OpenTabsPayload {
   openTabs: string[];
   activeTabPath: string | null;
+  /**
+   * Remembered caret per file path. Stored alongside the open-tabs list so the
+   * frontend can restore the caret at app launch and on tab switches without
+   * a second round trip. Absent for paths that have never been edited.
+   */
+  cursorPositions: Record<string, PersistedCursorPosition>;
+}
+
+function normalizeCursorPositions(
+  value: unknown,
+): Record<string, PersistedCursorPosition> {
+  if (!value || typeof value !== 'object') return {};
+  const out: Record<string, PersistedCursorPosition> = {};
+  for (const [path, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const candidate = raw as { line?: unknown; column?: unknown };
+    const line = Number(candidate.line);
+    const column = Number(candidate.column);
+    if (!Number.isFinite(line) || !Number.isFinite(column)) continue;
+    out[path] = {
+      line: Math.max(1, Math.round(line)),
+      column: Math.max(1, Math.round(column)),
+    };
+  }
+  return out;
 }
 
 export async function loadOpenTabs(): Promise<OpenTabsPayload> {
   const result = await invoke<{
     openTabs?: string[];
     activeTabPath?: string | null;
+    cursorPositions?: Record<string, PersistedCursorPosition>;
   }>('load_open_tabs');
   return {
     openTabs: result.openTabs ?? [],
     activeTabPath: result.activeTabPath ?? null,
+    cursorPositions: normalizeCursorPositions(result.cursorPositions),
   };
 }
 
@@ -138,5 +170,6 @@ export async function saveOpenTabs(payload: OpenTabsPayload): Promise<void> {
   await invoke('save_open_tabs', {
     openTabs: payload.openTabs,
     activeTabPath: payload.activeTabPath,
+    cursorPositions: payload.cursorPositions,
   });
 }

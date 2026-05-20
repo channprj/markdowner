@@ -3054,7 +3054,7 @@ describe('App recent documents', () => {
     expect(handleTextInput(viewStub, 3, 3, '녕')).toBe(false);
   });
 
-  it('disables Tiptap trailing nodes so headings and list items do not create an automatic blank line', async () => {
+  it('enables Tiptap TrailingNode so the caret can leave codeblock/blockquote-tailed docs', async () => {
     const editor = createMockTiptapEditor('', []);
     tiptapMockState.editor = editor;
     bootstrapMock.mockResolvedValue(
@@ -3075,7 +3075,12 @@ describe('App recent documents', () => {
     const starterKit = tiptapMockState.lastOptions.extensions.find(
       (extension: any) => extension?.name === 'starterKit',
     );
-    expect(starterKit?.options?.trailingNode).toBe(false);
+    // `trailingNode: false` would skip registering the extension, so we
+    // verify the option is not explicitly disabled. Defaults (undefined)
+    // keep the upstream "append empty paragraph after non-paragraph blocks"
+    // behavior, which is exactly what we want for codeblock/blockquote
+    // escape.
+    expect(starterKit?.options?.trailingNode).not.toBe(false);
   });
 
   it('moves WYSIWYG PageDown two line-heights above the page target', async () => {
@@ -5877,8 +5882,11 @@ describe('App recent documents', () => {
           title: 'Markdowner',
         },
       );
+      // Save path normalizes the trailing newline — VS Code-style
+      // `insertFinalNewline` — so the draft handed to Rust now ends with
+      // exactly one '\n'.
       expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith(
-        '# Meeting notes\n\nUnsaved edit',
+        '# Meeting notes\n\nUnsaved edit\n',
       );
       expect(saveActiveDocumentMock).toHaveBeenCalled();
       expect(destroyWindowMock).toHaveBeenCalled();

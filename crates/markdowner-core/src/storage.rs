@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     ffi::{OsStr, OsString},
     fs::{self, File, OpenOptions},
     io::ErrorKind,
@@ -10,6 +11,18 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{EditorMode, ThemeSelection, platform::RuntimeError};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CursorPosition {
+    pub line: u32,
+    pub column: u32,
+}
+
+impl Default for CursorPosition {
+    fn default() -> Self {
+        Self { line: 1, column: 1 }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct SerializedWorkspaceSession {
@@ -23,6 +36,10 @@ struct SerializedWorkspaceSession {
     open_tabs: Vec<String>,
     #[serde(default)]
     active_tab_path: Option<String>,
+    /// Remembered caret position per file path, keyed by the absolute path.
+    /// BTreeMap keeps the on-disk JSON ordering deterministic between writes.
+    #[serde(default)]
+    cursor_positions: BTreeMap<String, CursorPosition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -32,6 +49,7 @@ pub struct WorkspaceSession {
     pub theme: ThemeSelection,
     pub open_tabs: Vec<PathBuf>,
     pub active_tab_path: Option<PathBuf>,
+    pub cursor_positions: BTreeMap<PathBuf, CursorPosition>,
 }
 
 pub(crate) fn list_markdown_files(root: &Path) -> Result<Vec<PathBuf>, RuntimeError> {
@@ -70,6 +88,11 @@ pub fn load_workspace_session(path: &Path) -> Result<WorkspaceSession, RuntimeEr
         theme: session.theme,
         open_tabs: session.open_tabs.into_iter().map(PathBuf::from).collect(),
         active_tab_path: session.active_tab_path.map(PathBuf::from),
+        cursor_positions: session
+            .cursor_positions
+            .into_iter()
+            .map(|(path, cursor)| (PathBuf::from(path), cursor))
+            .collect(),
     })
 }
 
@@ -80,6 +103,7 @@ pub fn persist_workspace_session(
     theme: &ThemeSelection,
     open_tabs: &[PathBuf],
     active_tab_path: Option<&Path>,
+    cursor_positions: &BTreeMap<PathBuf, CursorPosition>,
 ) -> Result<(), RuntimeError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
@@ -102,6 +126,10 @@ pub fn persist_workspace_session(
             .map(|path| path.to_string_lossy().into_owned())
             .collect(),
         active_tab_path: active_tab_path.map(|path| path.to_string_lossy().into_owned()),
+        cursor_positions: cursor_positions
+            .iter()
+            .map(|(path, cursor)| (path.to_string_lossy().into_owned(), *cursor))
+            .collect(),
     };
     let payload = serde_json::to_string_pretty(&session).map_err(|error| {
         RuntimeError::new(format!(

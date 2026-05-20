@@ -1,10 +1,14 @@
 use std::{
+    collections::{BTreeMap, HashMap},
     env,
     path::{Path, PathBuf},
     sync::Mutex,
 };
 
-use markdowner_core::{EditorMode, EditorRuntime, ThemeKind, ThemeSelection, WorkspaceState};
+use markdowner_core::{
+    EditorMode, EditorRuntime, ThemeKind, ThemeSelection, WorkspaceState,
+    storage::CursorPosition,
+};
 use serde::Serialize;
 use serde_json::{Value, json};
 use tauri::{
@@ -176,6 +180,10 @@ fn top_level_menu_sections() -> &'static [TopLevelMenuSection] {
 pub struct OpenTabsPayload {
     pub open_tabs: Vec<String>,
     pub active_tab_path: Option<String>,
+    /// Remembered caret per file path. JSON keys are the absolute paths so
+    /// the frontend can look up by `DocumentTab.path` directly.
+    #[serde(default)]
+    pub cursor_positions: HashMap<String, CursorPosition>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -328,6 +336,7 @@ impl DesktopBackend {
         &self,
         open_tabs: &[String],
         active_tab_path: Option<String>,
+        cursor_positions: &HashMap<String, CursorPosition>,
     ) -> Result<(), String> {
         // Persist tabs alongside the existing session payload, keeping
         // mode/theme/recent_documents from live state so the session file
@@ -353,6 +362,14 @@ impl DesktopBackend {
                     active_tab_path.map(PathBuf::from),
                 )
             };
+        // Drop cursors that no longer correspond to an open tab so the
+        // session file doesn't accumulate stale entries forever.
+        let tab_paths: std::collections::HashSet<&PathBuf> = tabs.iter().collect();
+        let cursor_positions: BTreeMap<PathBuf, CursorPosition> = cursor_positions
+            .iter()
+            .map(|(path, cursor)| (PathBuf::from(path), *cursor))
+            .filter(|(path, _)| tab_paths.contains(path))
+            .collect();
         markdowner_core::storage::persist_workspace_session(
             &session_path,
             &recent,
@@ -360,6 +377,7 @@ impl DesktopBackend {
             workspace.theme(),
             &tabs,
             active.as_deref(),
+            &cursor_positions,
         )
         .map_err(|error| error.to_string())
     }
@@ -380,6 +398,11 @@ impl DesktopBackend {
                 .active_tab_path
                 .as_deref()
                 .map(|p| p.to_string_lossy().into_owned()),
+            cursor_positions: session
+                .cursor_positions
+                .into_iter()
+                .map(|(path, cursor)| (path.to_string_lossy().into_owned(), cursor))
+                .collect(),
         })
     }
 
@@ -1165,7 +1188,7 @@ fn open_startup_path(backend: &mut DesktopBackend, path: &Path) -> Result<(), St
         backend.open_document(path)?;
         let path_string = path.to_string_lossy().into_owned();
         let open_tabs = vec![path_string.clone()];
-        backend.save_open_tabs(&open_tabs, Some(path_string))?;
+        backend.save_open_tabs(&open_tabs, Some(path_string), &HashMap::new())?;
     } else if path.is_dir() {
         backend.open_workspace(path)?;
     }
@@ -1301,10 +1324,12 @@ fn set_mode(mode: EditorMode, state: State<'_, DesktopAppState>) -> Result<AppSn
 fn save_open_tabs(
     open_tabs: Vec<String>,
     active_tab_path: Option<String>,
+    cursor_positions: Option<HashMap<String, CursorPosition>>,
     state: State<'_, DesktopAppState>,
 ) -> Result<(), String> {
+    let cursors = cursor_positions.unwrap_or_default();
     with_backend(state, |backend| {
-        backend.save_open_tabs(&open_tabs, active_tab_path.clone())
+        backend.save_open_tabs(&open_tabs, active_tab_path.clone(), &cursors)
     })
 }
 
@@ -1983,6 +2008,7 @@ mod tests {
             .save_open_tabs(
                 &["/tmp/a.md".to_string(), "/tmp/b.md".to_string()],
                 Some("/tmp/b.md".to_string()),
+                &HashMap::new(),
             )
             .expect("save_open_tabs ok");
 
@@ -2010,6 +2036,7 @@ mod tests {
             .save_open_tabs(
                 &["/tmp/x.md".to_string(), "/tmp/y.md".to_string()],
                 Some("/tmp/x.md".to_string()),
+                &HashMap::new(),
             )
             .expect("save ok");
 
@@ -2061,7 +2088,7 @@ mod tests {
         let mut backend = DesktopBackend::new(Some(session_path));
         open_startup_path(&mut backend, &document_path).unwrap();
 
-        backend.save_open_tabs(&[], None).unwrap();
+        backend.save_open_tabs(&[], None, &HashMap::new()).unwrap();
 
         let payload = backend.load_open_tabs().unwrap();
         assert_eq!(

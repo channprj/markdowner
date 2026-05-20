@@ -205,6 +205,10 @@ impl EditorRuntime {
         let active_tab_path = existing_tabs
             .as_ref()
             .and_then(|session| session.active_tab_path.as_deref());
+        let cursor_positions = existing_tabs
+            .as_ref()
+            .map(|session| session.cursor_positions.clone())
+            .unwrap_or_default();
 
         match persist_workspace_session(
             &session_store,
@@ -213,6 +217,7 @@ impl EditorRuntime {
             self.workspace.theme(),
             &open_tabs,
             active_tab_path,
+            &cursor_positions,
         ) {
             Ok(()) => {
                 self.workspace.clear_error();

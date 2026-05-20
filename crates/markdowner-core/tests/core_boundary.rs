@@ -928,6 +928,7 @@ fn runtime_preserves_open_tabs_when_persisting_mode_and_theme() {
         &ThemeSelection::default(),
         &[first.clone(), second.clone()],
         Some(second.clone()),
+        &std::collections::BTreeMap::new(),
     )
     .expect("persist tabs");
 
@@ -1318,6 +1319,12 @@ fn session_round_trips_open_tabs_and_active_tab_path() {
     assert_eq!(loaded.active_tab_path, None);
     assert_eq!(loaded.recent_documents, vec![PathBuf::from("/tmp/a.md")]);
 
+    let mut cursors = std::collections::BTreeMap::new();
+    cursors.insert(
+        PathBuf::from("/tmp/b.md"),
+        markdowner_core::storage::CursorPosition { line: 42, column: 7 },
+    );
+
     markdowner_core::storage_test_helpers::persist_workspace_session_full(
         &session_path,
         &[PathBuf::from("/tmp/a.md")],
@@ -1325,6 +1332,7 @@ fn session_round_trips_open_tabs_and_active_tab_path() {
         &ThemeSelection::default(),
         &[PathBuf::from("/tmp/a.md"), PathBuf::from("/tmp/b.md")],
         Some(PathBuf::from("/tmp/b.md")),
+        &cursors,
     )
     .expect("persist with tabs");
     let reloaded = markdowner_core::storage_test_helpers::load_workspace_session(&session_path)
@@ -1336,6 +1344,10 @@ fn session_round_trips_open_tabs_and_active_tab_path() {
     assert_eq!(
         reloaded.active_tab_path,
         Some(PathBuf::from("/tmp/b.md")),
+    );
+    assert_eq!(
+        reloaded.cursor_positions.get(&PathBuf::from("/tmp/b.md")),
+        Some(&markdowner_core::storage::CursorPosition { line: 42, column: 7 }),
     );
 }
 

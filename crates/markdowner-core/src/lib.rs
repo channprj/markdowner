@@ -23,9 +23,12 @@ pub mod settings;
 
 #[doc(hidden)]
 pub mod storage_test_helpers {
-    use std::path::{Path, PathBuf};
+    use std::{
+        collections::BTreeMap,
+        path::{Path, PathBuf},
+    };
 
-    use crate::{EditorMode, ThemeSelection, platform::RuntimeError};
+    use crate::{EditorMode, ThemeSelection, platform::RuntimeError, storage::CursorPosition};
 
     pub struct LoadedSession {
         pub recent_documents: Vec<PathBuf>,
@@ -33,6 +36,7 @@ pub mod storage_test_helpers {
         pub theme: ThemeSelection,
         pub open_tabs: Vec<PathBuf>,
         pub active_tab_path: Option<PathBuf>,
+        pub cursor_positions: BTreeMap<PathBuf, CursorPosition>,
     }
 
     pub fn load_workspace_session(path: &Path) -> Result<LoadedSession, RuntimeError> {
@@ -43,6 +47,7 @@ pub mod storage_test_helpers {
             theme: session.theme,
             open_tabs: session.open_tabs,
             active_tab_path: session.active_tab_path,
+            cursor_positions: session.cursor_positions,
         })
     }
 
@@ -53,6 +58,7 @@ pub mod storage_test_helpers {
         theme: &ThemeSelection,
         open_tabs: &[PathBuf],
         active_tab_path: Option<PathBuf>,
+        cursor_positions: &BTreeMap<PathBuf, CursorPosition>,
     ) -> Result<(), RuntimeError> {
         crate::storage::persist_workspace_session(
             path,
@@ -61,6 +67,7 @@ pub mod storage_test_helpers {
             theme,
             open_tabs,
             active_tab_path.as_deref(),
+            cursor_positions,
         )
     }
 }

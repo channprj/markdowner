@@ -185,7 +185,11 @@ describe('App core Markdown editing flow', () => {
     openDroppedPathMock.mockReset();
     quitAppMock.mockReset();
     loadOpenTabsMock.mockReset();
-    loadOpenTabsMock.mockResolvedValue({ openTabs: [], activeTabPath: null });
+    loadOpenTabsMock.mockResolvedValue({
+      openTabs: [],
+      activeTabPath: null,
+      cursorPositions: {},
+    });
     saveOpenTabsMock.mockReset();
     saveOpenTabsMock.mockResolvedValue(undefined);
     openDialogMock.mockReset();
@@ -417,6 +421,7 @@ describe('App core Markdown editing flow', () => {
     loadOpenTabsMock.mockResolvedValue({
       openTabs: [restoredPath],
       activeTabPath: restoredPath,
+      cursorPositions: {},
     });
     openDocumentMock.mockResolvedValue(
       baseSnapshot({
@@ -434,15 +439,16 @@ describe('App core Markdown editing flow', () => {
     expect(await screen.findByRole('tab', { name: /restored\.md/i })).toBeInTheDocument();
     expect(screen.getByText('Restored file')).toBeInTheDocument();
 
-    expect(saveOpenTabsMock).not.toHaveBeenCalledWith({
-      openTabs: [],
-      activeTabPath: null,
-    });
+    expect(saveOpenTabsMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ openTabs: [], activeTabPath: null }),
+    );
     await waitFor(() => {
-      expect(saveOpenTabsMock).toHaveBeenCalledWith({
-        openTabs: [restoredPath],
-        activeTabPath: restoredPath,
-      });
+      expect(saveOpenTabsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          openTabs: [restoredPath],
+          activeTabPath: restoredPath,
+        }),
+      );
     });
   });
 
@@ -450,10 +456,11 @@ describe('App core Markdown editing flow', () => {
     const restoredPath = '/tmp/project/late-startup.md';
     const restoredSource = ['# Late startup', '', 'Loaded after setup finishes.'].join('\n');
     loadOpenTabsMock
-      .mockResolvedValueOnce({ openTabs: [], activeTabPath: null })
+      .mockResolvedValueOnce({ openTabs: [], activeTabPath: null, cursorPositions: {} })
       .mockResolvedValueOnce({
         openTabs: [restoredPath],
         activeTabPath: restoredPath,
+        cursorPositions: {},
       });
     openDocumentMock.mockResolvedValue(
       baseSnapshot({
@@ -474,16 +481,22 @@ describe('App core Markdown editing flow', () => {
 
     expect(await screen.findByRole('tab', { name: /late-startup\.md/i })).toBeInTheDocument();
     expect(screen.getByText('Late startup')).toBeInTheDocument();
-    expect(saveOpenTabsMock).toHaveBeenCalledWith({
-      openTabs: [restoredPath],
-      activeTabPath: restoredPath,
-    });
+    expect(saveOpenTabsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openTabs: [restoredPath],
+        activeTabPath: restoredPath,
+      }),
+    );
   });
 
   it('keeps Settings visible when opened while persisted Markdown tabs are restoring', async () => {
     const restoredPath = '/tmp/project/restored-while-settings.md';
     let resolveOpenTabs:
-      | ((payload: { openTabs: string[]; activeTabPath: string | null }) => void)
+      | ((payload: {
+          openTabs: string[];
+          activeTabPath: string | null;
+          cursorPositions: Record<string, { line: number; column: number }>;
+        }) => void)
       | undefined;
     loadOpenTabsMock.mockReturnValue(
       new Promise((resolve) => {
@@ -511,6 +524,7 @@ describe('App core Markdown editing flow', () => {
       resolveOpenTabs?.({
         openTabs: [restoredPath],
         activeTabPath: restoredPath,
+        cursorPositions: {},
       });
     });
 
