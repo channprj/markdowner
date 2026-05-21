@@ -67,17 +67,39 @@ printf "xattr %s\n" "$*" >>"${COMMAND_LOG}"'
 printf "open %s\n" "$1" >>"${COMMAND_LOG}"'
   write_stub "${bin_dir}/cargo" '#!/usr/bin/env bash
 printf "cargo %s\n" "$*" >>"${COMMAND_LOG}"'
+  write_stub "${bin_dir}/rustup" '#!/usr/bin/env bash
+if [[ "${1:-}" == "target" && "${2:-}" == "list" && "${3:-}" == "--installed" ]]; then
+  printf "aarch64-apple-darwin\nx86_64-apple-darwin\n"
+  exit 0
+fi
+printf "rustup %s\n" "$*" >>"${COMMAND_LOG}"'
   write_stub "${bin_dir}/pnpm" '#!/usr/bin/env bash
 printf "pnpm CARGO_TARGET_DIR=%s args=%s\n" "${CARGO_TARGET_DIR:-}" "$*" >>"${COMMAND_LOG}"
 if [[ "${1:-}" == "tauri" && "${2:-}" == "build" ]]; then
-  if [[ "${3:-}" == "--debug" ]]; then
-    mkdir -p "${CARGO_TARGET_DIR:-target}/debug/bundle/macos/Markdowner.app"
-  else
-    if [[ -z "${CARGO_TARGET_DIR:-}" ]]; then
-      echo "missing CARGO_TARGET_DIR" >&2
-      exit 3
+  profile="release"
+  target=""
+  bundles=""
+  prev=""
+  for arg in "$@"; do
+    if [[ "${arg}" == "--debug" ]]; then
+      profile="debug"
+    elif [[ "${prev}" == "--target" ]]; then
+      target="${arg}"
+    elif [[ "${prev}" == "--bundles" ]]; then
+      bundles="${arg}"
     fi
-    mkdir -p "${CARGO_TARGET_DIR}/release/bundle/macos/Markdowner.app"
+    prev="${arg}"
+  done
+
+  target_root="${CARGO_TARGET_DIR:-target}"
+  if [[ -n "${target}" ]]; then
+    target_root="${target_root}/${target}"
+  fi
+  bundle_root="${target_root}/${profile}/bundle"
+  mkdir -p "${bundle_root}/macos/Markdowner.app"
+  if [[ "${bundles}" == *"dmg"* ]]; then
+    mkdir -p "${bundle_root}/dmg"
+    printf "fake dmg\n" >"${bundle_root}/dmg/Markdowner_0.1.0_${target:-local}.dmg"
   fi
 fi
 if [[ "${1:-}" == "install" ]]; then
@@ -199,6 +221,8 @@ const expected = {
   'build:debug': 'pnpm build debug',
   'build:install': 'pnpm build install',
   'build:install:open': 'pnpm build install open',
+  'build:mac:dmg': 'pnpm build dmg',
+  'build:mac:universal:dmg': 'pnpm build universal dmg',
 };
 
 for (const [name, command] of Object.entries(expected)) {
@@ -297,11 +321,59 @@ test_pnpm_build_install_open_launches_installed_bundle() {
   assert_file_contains "${stdout}" "==> Opening ${install_path}/Markdowner.app"
 }
 
+test_pnpm_build_dmg_invokes_tauri_dmg_build_and_prints_hash() {
+  local temp_dir isolated_target log stdout stderr
+
+  temp_dir="$(mktemp -d)"
+  trap 'rm -rf "${temp_dir}"' RETURN
+  log="${temp_dir}/commands.log"
+  stdout="${temp_dir}/stdout"
+  stderr="${temp_dir}/stderr"
+
+  make_pnpm_test_project "${temp_dir}"
+  isolated_target="$(cd "${temp_dir}/project" && pwd -P)/target/tauri-build-and-install"
+  make_stubs "${temp_dir}/bin"
+  touch "${log}"
+
+  PATH="${temp_dir}/bin:${PATH}" \
+    COMMAND_LOG="${log}" \
+    run_pnpm --dir "${temp_dir}/project" build dmg >"${stdout}" 2>"${stderr}"
+
+  assert_file_contains "${log}" "pnpm CARGO_TARGET_DIR=${isolated_target} args=tauri build --bundles dmg"
+  assert_file_contains "${stdout}" "==> Distribution artifact:"
+  assert_file_contains "${stdout}" "==> SHA-256:"
+  assert_file_contains "${stdout}" "target/tauri-build-and-install/release/bundle/dmg/Markdowner_0.1.0_local.dmg"
+}
+
+test_pnpm_build_universal_dmg_invokes_tauri_universal_dmg_build() {
+  local temp_dir isolated_target log stdout stderr
+
+  temp_dir="$(mktemp -d)"
+  trap 'rm -rf "${temp_dir}"' RETURN
+  log="${temp_dir}/commands.log"
+  stdout="${temp_dir}/stdout"
+  stderr="${temp_dir}/stderr"
+
+  make_pnpm_test_project "${temp_dir}"
+  isolated_target="$(cd "${temp_dir}/project" && pwd -P)/target/tauri-build-and-install"
+  make_stubs "${temp_dir}/bin"
+  touch "${log}"
+
+  PATH="${temp_dir}/bin:${PATH}" \
+    COMMAND_LOG="${log}" \
+    run_pnpm --dir "${temp_dir}/project" build universal dmg >"${stdout}" 2>"${stderr}"
+
+  assert_file_contains "${log}" "pnpm CARGO_TARGET_DIR=${isolated_target} args=tauri build --target universal-apple-darwin --bundles dmg"
+  assert_file_contains "${stdout}" "target/tauri-build-and-install/universal-apple-darwin/release/bundle/dmg/Markdowner_0.1.0_universal-apple-darwin.dmg"
+}
+
 test_package_exposes_build_aliases
 test_pnpm_build_without_args_runs_frontend_build
 test_pnpm_build_accepts_double_dash_before_flags
 test_pnpm_build_debug_invokes_tauri_debug_build
 test_pnpm_build_install_open_launches_installed_bundle
+test_pnpm_build_dmg_invokes_tauri_dmg_build_and_prints_hash
+test_pnpm_build_universal_dmg_invokes_tauri_universal_dmg_build
 test_help_lists_open_flag
 test_build_uses_isolated_cargo_target_dir
 test_open_flag_launches_installed_bundle

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -9,17 +10,25 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, '..');
 const defaultCargoTargetDir = path.join(projectRoot, 'target', 'tauri-build-and-install');
 const targetDirFingerprint = '.markdowner-source-root';
+const universalAppleDarwinTarget = 'universal-apple-darwin';
+const universalAppleDarwinRustTargets = ['aarch64-apple-darwin', 'x86_64-apple-darwin'];
 
 function usage() {
   console.log(`Usage:
   pnpm build
   pnpm build debug
+  pnpm build dmg
+  pnpm build universal dmg
   pnpm build install [open]
   pnpm build debug install [open]
 
 Options:
   debug, --debug       Build the Tauri debug bundle
   release, --release   Build the Tauri release bundle
+  dmg, --dmg           Build a macOS DMG for direct distribution
+  universal, --universal
+                       Build the universal Apple Silicon + Intel macOS target
+  --target <triple>    Build a specific Tauri/Rust target
   install              Install the resulting macOS .app bundle
   open, --open         Open the installed app after installation
   --no-build           Install an already-built bundle
@@ -73,10 +82,13 @@ function requireCommands(commands) {
 function parseArgs(argv) {
   const options = {
     doBuild: true,
+    bundles: null,
+    distribution: false,
     install: false,
     installPath: process.env.MARKDOWNER_INSTALL_PATH ?? '/Applications',
     mode: 'release',
     open: false,
+    target: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -91,6 +103,20 @@ function parseArgs(argv) {
       options.mode = 'debug';
     } else if (arg === 'release' || arg === '--release') {
       options.mode = 'release';
+    } else if (arg === 'dmg' || arg === '--dmg' || arg === 'distribute' || arg === '--distribute') {
+      options.bundles = 'dmg';
+      options.distribution = true;
+    } else if (arg === 'universal' || arg === '--universal') {
+      options.target = universalAppleDarwinTarget;
+    } else if (arg === '--target') {
+      const value = argv[index + 1];
+      if (!value) {
+        fail('error: --target requires a target triple', 2);
+      }
+      options.target = value;
+      index += 1;
+    } else if (arg.startsWith('--target=')) {
+      options.target = arg.slice('--target='.length);
     } else if (arg === 'install') {
       options.install = true;
     } else if (arg === 'open' || arg === '--open') {
@@ -122,6 +148,12 @@ function cargoTargetRoot(env) {
     return path.join(projectRoot, 'target');
   }
   return path.isAbsolute(cargoTargetDir) ? cargoTargetDir : path.join(projectRoot, cargoTargetDir);
+}
+
+function bundleProfileDir(options, env) {
+  const targetRoot = cargoTargetRoot(env);
+  const profile = options.mode === 'debug' ? 'debug' : 'release';
+  return options.target ? path.join(targetRoot, options.target, profile) : path.join(targetRoot, profile);
 }
 
 // The Tauri build step bakes absolute paths into generated files under
@@ -210,16 +242,52 @@ function buildFrontend() {
   run('pnpm', ['exec', 'vite', 'build']);
 }
 
-function buildTauri(mode, env = process.env) {
+function ensureUniversalAppleDarwinTargets() {
+  requireCommands(['rustup']);
+
+  const result = spawnSync('rustup', ['target', 'list', '--installed'], {
+    cwd: projectRoot,
+    env: process.env,
+    encoding: 'utf8',
+  });
+
+  if (result.error) {
+    fail(`error: failed to run 'rustup': ${result.error.message}`);
+  }
+
+  if (result.status !== 0) {
+    fail('error: failed to list installed Rust targets with rustup');
+  }
+
+  const installedTargets = new Set(result.stdout.trim().split(/\s+/).filter(Boolean));
+  const missingTargets = universalAppleDarwinRustTargets.filter((target) => !installedTargets.has(target));
+  if (missingTargets.length > 0) {
+    fail(`error: universal macOS DMG build requires missing Rust targets: ${missingTargets.join(', ')}
+       run: rustup target add ${missingTargets.join(' ')}`);
+  }
+}
+
+function buildTauri(options, env = process.env) {
   ensureDependencies();
 
-  if (mode === 'debug') {
-    console.log('==> Building Tauri app (debug)');
-    run('pnpm', ['tauri', 'build', '--debug'], { env });
-  } else {
-    console.log('==> Building Tauri app (release)');
-    run('pnpm', ['tauri', 'build'], { env });
+  if (options.target === universalAppleDarwinTarget) {
+    ensureUniversalAppleDarwinTargets();
   }
+
+  const args = ['tauri', 'build'];
+  if (options.mode === 'debug') {
+    args.push('--debug');
+  }
+  if (options.target) {
+    args.push('--target', options.target);
+  }
+  if (options.bundles) {
+    args.push('--bundles', options.bundles);
+  }
+
+  const label = [options.mode, options.target, options.bundles].filter(Boolean).join(', ');
+  console.log(`==> Building Tauri app (${label})`);
+  run('pnpm', args, { env });
 }
 
 function ensureMacOsInstallTarget() {
@@ -253,9 +321,8 @@ function runMaybeSudo(useSudo, command, args, options = {}) {
 function installBundle(options, env) {
   ensureMacOsInstallTarget();
 
-  const targetRoot = cargoTargetRoot(env);
-  const bundleModeDir = options.mode === 'debug' ? 'debug' : 'release';
-  const appBundle = path.join(targetRoot, bundleModeDir, 'bundle', 'macos', 'Markdowner.app');
+  const profileDir = bundleProfileDir(options, env);
+  const appBundle = path.join(profileDir, 'bundle', 'macos', 'Markdowner.app');
 
   if (!fs.existsSync(appBundle)) {
     fail(`error: bundle not found: ${appBundle}
@@ -296,6 +363,52 @@ function installBundle(options, env) {
   }
 }
 
+function sha256File(file) {
+  const hash = crypto.createHash('sha256');
+  hash.update(fs.readFileSync(file));
+  return hash.digest('hex');
+}
+
+function displayPath(file) {
+  const relative = path.relative(projectRoot, file);
+  return relative.startsWith('..') ? file : relative;
+}
+
+function findDistributionArtifacts(options, env) {
+  const dmgDir = path.join(bundleProfileDir(options, env), 'bundle', 'dmg');
+  let entries;
+  try {
+    entries = fs.readdirSync(dmgDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.dmg'))
+    .map((entry) => path.join(dmgDir, entry.name))
+    .sort();
+}
+
+function printDistributionArtifacts(options, env) {
+  if (!options.distribution) {
+    return;
+  }
+
+  const artifacts = findDistributionArtifacts(options, env);
+  if (artifacts.length === 0) {
+    fail(`error: no DMG artifact found under ${path.join(bundleProfileDir(options, env), 'bundle', 'dmg')}`);
+  }
+
+  console.log('==> Distribution artifact:');
+  for (const artifact of artifacts) {
+    console.log(`    ${displayPath(artifact)}`);
+  }
+
+  console.log('==> SHA-256:');
+  for (const artifact of artifacts) {
+    console.log(`    ${sha256File(artifact)}  ${displayPath(artifact)}`);
+  }
+}
+
 const argv = process.argv.slice(2).filter((arg) => arg !== '--');
 
 if (argv.length === 0) {
@@ -307,7 +420,7 @@ const options = parseArgs(argv);
 const env = { ...process.env };
 
 let managedTargetDir = null;
-if (options.install && options.doBuild && !env.CARGO_TARGET_DIR) {
+if ((options.install || options.distribution) && options.doBuild && !env.CARGO_TARGET_DIR) {
   env.CARGO_TARGET_DIR = defaultCargoTargetDir;
   managedTargetDir = defaultCargoTargetDir;
 }
@@ -317,7 +430,13 @@ if (managedTargetDir && options.doBuild) {
 }
 
 if (options.doBuild) {
-  buildTauri(options.mode, env);
+  buildTauri(options, env);
+}
+
+printDistributionArtifacts(options, env);
+
+if (options.distribution) {
+  console.log('    First launch on another Mac may still require Privacy & Security > Open Anyway.');
 }
 
 if (options.install) {

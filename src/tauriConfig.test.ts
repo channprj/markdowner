@@ -16,7 +16,11 @@ describe('tauri security config', () => {
     expect(tauriConfig.bundle?.active).toBe(true);
   });
 
-  it('targets the macOS app bundle until dmg packaging is configured', () => {
+  it('uses ad-hoc macOS signing for no-cost direct distribution builds', () => {
+    expect(tauriConfig.bundle?.macOS?.signingIdentity).toBe('-');
+  });
+
+  it('keeps the default bundle target as app for local install flows', () => {
     expect(tauriConfig.bundle?.targets).toBe('app');
   });
 });
