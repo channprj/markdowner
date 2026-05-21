@@ -9,6 +9,7 @@ import {
   generateDocumentTabId,
   isDocumentTabDirty,
   mergeRestoredDocumentTabs,
+  resolveCloseTabTransition,
   upsertDocumentTab,
   type DocumentTab,
 } from './documentTabs';
@@ -327,5 +328,144 @@ describe('upsertDocumentTab', () => {
       }),
     ]);
     expect(result.activeTabId).toBe('generated');
+  });
+});
+
+describe('resolveCloseTabTransition', () => {
+  it('removes an active settings tab and restores the remembered document tab', () => {
+    const first = documentTab({
+      id: 'first',
+      path: '/tmp/first.md',
+      name: 'first.md',
+    });
+    const second = documentTab({
+      id: 'second',
+      path: '/tmp/second.md',
+      name: 'second.md',
+    });
+    const settings = createSettingsTab();
+
+    expect(
+      resolveCloseTabTransition({
+        tabs: [first, second, settings],
+        activeTabId: SETTINGS_TAB_ID,
+        targetId: SETTINGS_TAB_ID,
+        preSettingsDocTabId: 'first',
+      }),
+    ).toEqual({
+      kind: 'setTabs',
+      tabs: [first, second],
+      activeTabId: 'first',
+      clearPreSettingsDocTabId: true,
+    });
+  });
+
+  it('falls back to the adjacent tab when closing the active settings tab without a remembered document', () => {
+    const first = documentTab({
+      id: 'first',
+      path: '/tmp/first.md',
+      name: 'first.md',
+    });
+    const settings = createSettingsTab();
+    const second = documentTab({
+      id: 'second',
+      path: '/tmp/second.md',
+      name: 'second.md',
+    });
+
+    expect(
+      resolveCloseTabTransition({
+        tabs: [first, settings, second],
+        activeTabId: SETTINGS_TAB_ID,
+        targetId: SETTINGS_TAB_ID,
+        preSettingsDocTabId: 'missing',
+      }),
+    ).toEqual({
+      kind: 'setTabs',
+      tabs: [first, second],
+      activeTabId: 'second',
+      clearPreSettingsDocTabId: true,
+    });
+  });
+
+  it('clears the surface when the settings tab is the only remaining tab', () => {
+    expect(
+      resolveCloseTabTransition({
+        tabs: [createSettingsTab()],
+        activeTabId: SETTINGS_TAB_ID,
+        targetId: SETTINGS_TAB_ID,
+        preSettingsDocTabId: null,
+      }),
+    ).toEqual({ kind: 'clearSurface' });
+  });
+
+  it('switches to a neighboring tab before removing the active document tab', () => {
+    const first = documentTab({
+      id: 'first',
+      path: '/tmp/first.md',
+      name: 'first.md',
+    });
+    const second = documentTab({
+      id: 'second',
+      path: '/tmp/second.md',
+      name: 'second.md',
+    });
+
+    expect(
+      resolveCloseTabTransition({
+        tabs: [first, second],
+        activeTabId: 'first',
+        targetId: 'first',
+        preSettingsDocTabId: null,
+      }),
+    ).toEqual({
+      kind: 'switchThenRemove',
+      switchToTabId: 'second',
+      targetId: 'first',
+    });
+  });
+
+  it('closes through the final-document path when the last document tab is closed', () => {
+    const only = documentTab({
+      id: 'only',
+      path: '/tmp/only.md',
+      name: 'only.md',
+    });
+
+    expect(
+      resolveCloseTabTransition({
+        tabs: [only],
+        activeTabId: 'only',
+        targetId: 'only',
+        preSettingsDocTabId: null,
+      }),
+    ).toEqual({ kind: 'closeOnlyRemainingDocument' });
+  });
+
+  it('removes an inactive document tab without changing the active tab', () => {
+    const active = documentTab({
+      id: 'active',
+      path: '/tmp/active.md',
+      name: 'active.md',
+    });
+    const inactive = documentTab({
+      id: 'inactive',
+      path: '/tmp/inactive.md',
+      name: 'inactive.md',
+    });
+
+    expect(
+      resolveCloseTabTransition({
+        tabs: [active, inactive],
+        activeTabId: 'active',
+        targetId: 'inactive',
+        preSettingsDocTabId: null,
+      }),
+    ).toEqual({
+      kind: 'setTabs',
+      tabs: [active],
+      activeTabId: 'active',
+      clearPreSettingsDocTabId: false,
+    });
   });
 });

@@ -109,6 +109,7 @@ import {
   generateDocumentTabId,
   isDocumentTabDirty,
   mergeRestoredDocumentTabs,
+  resolveCloseTabTransition,
   upsertDocumentTab,
   type DocumentTab,
 } from './lib/documentTabs';
@@ -2882,50 +2883,33 @@ export default function App() {
   });
 
   const handleCloseTab = useEffectEvent(async (targetId: string) => {
-    const targetIndex = tabs.findIndex((tab) => tab.id === targetId);
-    if (targetIndex < 0) return;
-    const target = tabs[targetIndex];
+    const transition = resolveCloseTabTransition({
+      tabs,
+      activeTabId,
+      targetId,
+      preSettingsDocTabId: preSettingsDocTabIdRef.current,
+    });
 
-    const remaining = tabs.filter((tab) => tab.id !== targetId);
-
-    // Closing the settings tab is always a clean operation — it owns no
-    // document state and the Rust snapshot did not change while it was on
-    // screen, so we set activeTabId directly and never round-trip through
-    // openDocument (which would refetch the previously-active doc).
-    if (target.kind === 'settings') {
-      if (remaining.length === 0) {
+    switch (transition.kind) {
+      case 'missing':
+        return;
+      case 'clearSurface':
         clearActiveDocumentSurface();
         return;
-      }
-
-      if (targetId === activeTabId) {
-        const restoreId = preSettingsDocTabIdRef.current;
-        const restoreTab = restoreId
-          ? remaining.find((tab) => tab.id === restoreId)
-          : null;
-        const fallback =
-          restoreTab ?? remaining[targetIndex] ?? remaining[targetIndex - 1] ?? remaining[0] ?? null;
-        setActiveTabId(fallback?.id ?? null);
-      }
-      preSettingsDocTabIdRef.current = null;
-      setTabs(remaining);
-      return;
-    }
-
-    // Closing the last document tab clears the document surface while keeping
-    // the application window open. Dirty documents still get the save prompt.
-    if (remaining.length === 0) {
-      await closeOnlyRemainingTab();
-      return;
-    }
-
-    if (targetId === activeTabId) {
-      // Pick a neighbor to activate first, then drop the closed tab.
-      const fallback = remaining[targetIndex] ?? remaining[targetIndex - 1] ?? remaining[0];
-      await switchToTab(fallback.id);
-      setTabs((prev) => prev.filter((tab) => tab.id !== targetId));
-    } else {
-      setTabs(remaining);
+      case 'closeOnlyRemainingDocument':
+        await closeOnlyRemainingTab();
+        return;
+      case 'setTabs':
+        if (transition.clearPreSettingsDocTabId) {
+          preSettingsDocTabIdRef.current = null;
+        }
+        setTabs(transition.tabs);
+        setActiveTabId(transition.activeTabId);
+        return;
+      case 'switchThenRemove':
+        // Pick a neighbor to activate first, then drop the closed tab.
+        await switchToTab(transition.switchToTabId);
+        setTabs((prev) => prev.filter((tab) => tab.id !== transition.targetId));
     }
   });
 

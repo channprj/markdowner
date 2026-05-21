@@ -64,6 +64,29 @@ type UpsertDocumentTabResult = {
   activeTabId: string | null;
 };
 
+type ResolveCloseTabTransitionInput = {
+  tabs: readonly DocumentTab[];
+  activeTabId: string | null;
+  targetId: string;
+  preSettingsDocTabId: string | null;
+};
+
+type CloseTabTransition =
+  | { kind: 'missing' }
+  | { kind: 'clearSurface' }
+  | { kind: 'closeOnlyRemainingDocument' }
+  | {
+      kind: 'setTabs';
+      tabs: DocumentTab[];
+      activeTabId: string | null;
+      clearPreSettingsDocTabId: boolean;
+    }
+  | {
+      kind: 'switchThenRemove';
+      switchToTabId: string;
+      targetId: string;
+    };
+
 export function generateDocumentTabId(entropy: TabIdEntropy = {}): string {
   const randomUUID =
     'randomUUID' in entropy
@@ -205,4 +228,77 @@ export function upsertDocumentTab(input: UpsertDocumentTabInput): UpsertDocument
     tabs: [...tabs],
     activeTabId: currentActiveIsSettings ? input.currentActiveId : documentTabId,
   };
+}
+
+export function resolveCloseTabTransition(
+  input: ResolveCloseTabTransitionInput,
+): CloseTabTransition {
+  const targetIndex = input.tabs.findIndex((tab) => tab.id === input.targetId);
+  if (targetIndex < 0) return { kind: 'missing' };
+
+  const target = input.tabs[targetIndex];
+  const remaining = input.tabs.filter((tab) => tab.id !== input.targetId);
+
+  if (target.kind === 'settings') {
+    if (remaining.length === 0) {
+      return { kind: 'clearSurface' };
+    }
+
+    const activeTabId =
+      input.targetId === input.activeTabId
+        ? selectTabAfterClose({
+            remainingTabs: remaining,
+            closedIndex: targetIndex,
+            preferredTabId: input.preSettingsDocTabId,
+          })?.id ?? null
+        : input.activeTabId;
+
+    return {
+      kind: 'setTabs',
+      tabs: remaining,
+      activeTabId,
+      clearPreSettingsDocTabId: true,
+    };
+  }
+
+  if (remaining.length === 0) {
+    return { kind: 'closeOnlyRemainingDocument' };
+  }
+
+  if (input.targetId === input.activeTabId) {
+    const fallback = selectTabAfterClose({
+      remainingTabs: remaining,
+      closedIndex: targetIndex,
+      preferredTabId: null,
+    });
+    return {
+      kind: 'switchThenRemove',
+      switchToTabId: fallback?.id ?? remaining[0]?.id ?? '',
+      targetId: input.targetId,
+    };
+  }
+
+  return {
+    kind: 'setTabs',
+    tabs: remaining,
+    activeTabId: input.activeTabId,
+    clearPreSettingsDocTabId: false,
+  };
+}
+
+function selectTabAfterClose(input: {
+  remainingTabs: readonly DocumentTab[];
+  closedIndex: number;
+  preferredTabId: string | null;
+}): DocumentTab | null {
+  const preferred = input.preferredTabId
+    ? input.remainingTabs.find((tab) => tab.id === input.preferredTabId)
+    : null;
+  return (
+    preferred ??
+    input.remainingTabs[input.closedIndex] ??
+    input.remainingTabs[input.closedIndex - 1] ??
+    input.remainingTabs[0] ??
+    null
+  );
 }
