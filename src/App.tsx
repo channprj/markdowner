@@ -133,19 +133,18 @@ import {
 import {
   createDocumentTab,
   createDocumentTabFromSnapshot,
-  documentTabMetadataFromSnapshot,
   findDocumentTabByPath,
   generateDocumentTabId,
   isDocumentTabDirty,
   markDocumentTabMissing,
   mergeRestoredDocumentTabs,
-  refreshActiveDocumentTab,
+  refreshActiveDocumentTabFromSnapshot,
   refreshSwitchedDocumentTabFromSnapshot,
   resolveCloseTabTransition,
   resolveSettingsTabToggle,
   resolveSwitchTabTransition,
   stashDocumentTabDraft,
-  upsertDocumentTab,
+  upsertDocumentTabFromSnapshot,
   type DocumentTab,
 } from './lib/documentTabs';
 import {
@@ -556,12 +555,11 @@ export default function App() {
       preserveSettingsActive?: boolean;
     } = {},
   ) => {
-    const metadata = documentTabMetadataFromSnapshot(next);
     const reuseId = options.reuseTabId ?? null;
-    const result = upsertDocumentTab({
+    const result = upsertDocumentTabFromSnapshot({
       currentTabs: tabsRef.current,
       currentActiveId: activeTabIdRef.current,
-      ...metadata,
+      snapshot: next,
       reuseTabId: reuseId,
       preserveSettingsActive: options.preserveSettingsActive,
     });
@@ -583,13 +581,12 @@ export default function App() {
   // tabs are never the target of a snapshot refresh.
   const refreshActiveTabFromSnapshot = (next: AppSnapshot) => {
     if (!activeTabId) return;
-    const metadata = documentTabMetadataFromSnapshot(next);
     startTransition(() => {
       setTabs((prev) =>
-        refreshActiveDocumentTab({
+        refreshActiveDocumentTabFromSnapshot({
           tabs: prev,
           activeTabId,
-          ...metadata,
+          snapshot: next,
         }),
       );
     });

@@ -13,6 +13,7 @@ import {
   markDocumentTabMissing,
   mergeRestoredDocumentTabs,
   refreshActiveDocumentTab,
+  refreshActiveDocumentTabFromSnapshot,
   refreshSwitchedDocumentTab,
   refreshSwitchedDocumentTabFromSnapshot,
   resolveCloseTabTransition,
@@ -20,6 +21,7 @@ import {
   resolveSwitchTabTransition,
   stashDocumentTabDraft,
   upsertDocumentTab,
+  upsertDocumentTabFromSnapshot,
   type DocumentTab,
 } from './documentTabs';
 
@@ -416,6 +418,39 @@ describe('upsertDocumentTab', () => {
   });
 });
 
+describe('upsertDocumentTabFromSnapshot', () => {
+  it('upserts a document tab using active document snapshot metadata', () => {
+    const current = [
+      documentTab({
+        id: 'existing',
+        path: '/tmp/current.md',
+      }),
+    ];
+
+    expect(
+      upsertDocumentTabFromSnapshot({
+        currentTabs: current,
+        currentActiveId: 'existing',
+        snapshot: {
+          activeDocumentPath: '/tmp/next.md',
+          activeDocumentName: 'next.md',
+          activeDocumentSource: '# Next',
+        },
+        generateId: () => 'next-tab',
+      }),
+    ).toEqual(
+      upsertDocumentTab({
+        currentTabs: current,
+        currentActiveId: 'existing',
+        path: '/tmp/next.md',
+        name: 'next.md',
+        source: '# Next',
+        generateId: () => 'next-tab',
+      }),
+    );
+  });
+});
+
 describe('resolveCloseTabTransition', () => {
   it('removes an active settings tab and restores the remembered document tab', () => {
     const first = documentTab({
@@ -744,6 +779,40 @@ describe('document tab metadata refresh helpers', () => {
         source: 'ignored',
       }),
     ).toEqual([saved]);
+  });
+
+  it('refreshes the active document tab from snapshot metadata', () => {
+    const tabs = [
+      documentTab({
+        id: 'active',
+        path: '/tmp/current.md',
+        name: 'current.md',
+      }),
+      documentTab({
+        id: 'other',
+        path: '/tmp/other.md',
+      }),
+    ];
+
+    expect(
+      refreshActiveDocumentTabFromSnapshot({
+        tabs,
+        activeTabId: 'active',
+        snapshot: {
+          activeDocumentPath: '/tmp/renamed.md',
+          activeDocumentName: 'renamed.md',
+          activeDocumentSource: '# Renamed',
+        },
+      }),
+    ).toEqual(
+      refreshActiveDocumentTab({
+        tabs,
+        activeTabId: 'active',
+        path: '/tmp/renamed.md',
+        name: 'renamed.md',
+        source: '# Renamed',
+      }),
+    );
   });
 
   it('refreshes switched tab metadata while preserving its stashed draft', () => {

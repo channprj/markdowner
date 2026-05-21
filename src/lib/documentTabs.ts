@@ -78,6 +78,13 @@ type UpsertDocumentTabInput = {
   generateId?: () => string;
 };
 
+type UpsertDocumentTabFromSnapshotInput = Omit<
+  UpsertDocumentTabInput,
+  'path' | 'name' | 'source'
+> & {
+  snapshot: DocumentTabSnapshotMetadataInput;
+};
+
 type UpsertDocumentTabResult = {
   tabs: DocumentTab[];
   activeTabId: string | null;
@@ -107,6 +114,13 @@ type RefreshActiveDocumentTabInput = {
   path: string | null;
   name: string;
   source: string;
+};
+
+type RefreshActiveDocumentTabFromSnapshotInput = Omit<
+  RefreshActiveDocumentTabInput,
+  'path' | 'name' | 'source'
+> & {
+  snapshot: DocumentTabSnapshotMetadataInput;
 };
 
 type RefreshSwitchedDocumentTabInput = {
@@ -324,6 +338,16 @@ export function upsertDocumentTab(input: UpsertDocumentTabInput): UpsertDocument
   };
 }
 
+export function upsertDocumentTabFromSnapshot(
+  input: UpsertDocumentTabFromSnapshotInput,
+): UpsertDocumentTabResult {
+  const { snapshot, ...rest } = input;
+  return upsertDocumentTab({
+    ...rest,
+    ...documentTabMetadataFromSnapshot(snapshot),
+  });
+}
+
 export function resolveCloseTabTransition(
   input: ResolveCloseTabTransitionInput,
 ): CloseTabTransition {
@@ -463,6 +487,16 @@ export function refreshActiveDocumentTab(
         })
       : tab,
   );
+}
+
+export function refreshActiveDocumentTabFromSnapshot(
+  input: RefreshActiveDocumentTabFromSnapshotInput,
+): DocumentTab[] {
+  const { snapshot, ...rest } = input;
+  return refreshActiveDocumentTab({
+    ...rest,
+    ...documentTabMetadataFromSnapshot(snapshot),
+  });
 }
 
 export function refreshSwitchedDocumentTab(
