@@ -190,6 +190,7 @@ import {
   resolveModeChord,
   resolveModeNumberShortcut,
   resolveTabShortcut,
+  resolveTabShortcutAction,
   usesCommandModifier,
 } from './lib/keyboardShortcuts';
 import { parseMarkdownOutline, type OutlineItem } from './lib/outline';
@@ -3248,34 +3249,20 @@ export default function App() {
       // these as ⌘} / ⌘{ since `{` and `}` are Shift-bracket on US/KR layouts.
       // Ctrl+Shift+PageUp / PageDown → move active tab left / right (no wrap),
       // matching VS Code "Move Editor Left/Right".
-      // Cmd+1..9 → tab index 0..8. 10+ tabs have no shortcut; the keypress is
-      // still consumed so it doesn't fall through. Regardless of where focus
-      // started, send the caret into the editor surface for the targeted tab
-      // so the user can resume typing immediately.
+      // Cmd+1..9 → tab index 0..8 and returns focus to the editor surface.
       const tabShortcut = resolveTabShortcut(event);
       if (tabShortcut) {
         event.preventDefault();
-        if (tabShortcut.kind === 'selectIndex') {
-          const target = tabs[tabShortcut.index];
-          if (target && target.id !== activeTabId) {
-            void switchToTab(target.id);
+        const tabAction = resolveTabShortcutAction({ shortcut: tabShortcut, tabs, activeTabId });
+        if (tabAction.kind === 'selectTab') {
+          if (tabAction.targetId !== activeTabId) {
+            void switchToTab(tabAction.targetId);
           }
-          if (target) {
+          if (tabAction.focusEditor) {
             focusActiveEditor();
           }
-        } else if (tabs.length > 0 && activeTabId) {
-          if (tabShortcut.kind === 'selectNext' || tabShortcut.kind === 'selectPrevious') {
-            const idx = tabs.findIndex((tab) => tab.id === activeTabId);
-            if (idx >= 0) {
-              const offset = tabShortcut.kind === 'selectNext' ? 1 : -1;
-              const target = tabs[(idx + offset + tabs.length) % tabs.length];
-              if (target && target.id !== activeTabId) {
-                void switchToTab(target.id);
-              }
-            }
-          } else if (tabShortcut.kind === 'moveActive') {
-            setTabs((prev) => moveTab(prev, activeTabId, tabShortcut.direction));
-          }
+        } else if (tabAction.kind === 'moveActive' && activeTabId) {
+          setTabs((prev) => moveTab(prev, activeTabId, tabAction.direction));
         }
         return;
       }

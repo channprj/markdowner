@@ -38,6 +38,17 @@ export type TabShortcutResolution =
   | { kind: 'selectIndex'; index: number }
   | { kind: 'moveActive'; direction: -1 | 1 };
 
+type TabShortcutActionInput = {
+  shortcut: TabShortcutResolution;
+  tabs: ReadonlyArray<{ id: string }>;
+  activeTabId: string | null;
+};
+
+export type TabShortcutAction =
+  | { kind: 'selectTab'; targetId: string; focusEditor: boolean }
+  | { kind: 'moveActive'; direction: -1 | 1 }
+  | { kind: 'none' };
+
 export type ModeNumberShortcutResolution = { kind: 'mode'; mode: EditorMode };
 
 export type FocusToggleShortcutResolution =
@@ -134,6 +145,42 @@ export function resolveTabShortcut(event: TabShortcutEvent): TabShortcutResoluti
   }
 
   return null;
+}
+
+export function resolveTabShortcutAction({
+  shortcut,
+  tabs,
+  activeTabId,
+}: TabShortcutActionInput): TabShortcutAction {
+  if (shortcut.kind === 'selectIndex') {
+    const target = tabs[shortcut.index];
+    return target
+      ? { kind: 'selectTab', targetId: target.id, focusEditor: true }
+      : { kind: 'none' };
+  }
+
+  if (shortcut.kind === 'moveActive') {
+    return tabs.length > 0 && activeTabId
+      ? { kind: 'moveActive', direction: shortcut.direction }
+      : { kind: 'none' };
+  }
+
+  if (!activeTabId || tabs.length === 0) {
+    return { kind: 'none' };
+  }
+
+  const index = tabs.findIndex((tab) => tab.id === activeTabId);
+  if (index < 0) {
+    return { kind: 'none' };
+  }
+
+  const offset = shortcut.kind === 'selectNext' ? 1 : -1;
+  const target = tabs[(index + offset + tabs.length) % tabs.length];
+  if (!target || target.id === activeTabId) {
+    return { kind: 'none' };
+  }
+
+  return { kind: 'selectTab', targetId: target.id, focusEditor: false };
 }
 
 export function resolveModeNumberShortcut(

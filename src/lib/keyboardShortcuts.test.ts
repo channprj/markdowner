@@ -7,6 +7,7 @@ import {
   resolveModeChord,
   resolveModeNumberShortcut,
   resolveTabShortcut,
+  resolveTabShortcutAction,
   usesCommandModifier,
 } from './keyboardShortcuts';
 
@@ -157,6 +158,66 @@ describe('resolveTabShortcut', () => {
       ),
     ).toBeNull();
     expect(resolveTabShortcut(shortcutEvent({ key: '0', metaKey: true }))).toBeNull();
+  });
+});
+
+describe('resolveTabShortcutAction', () => {
+  const tabs = [{ id: 'one' }, { id: 'two' }, { id: 'three' }];
+
+  it('selects a tab index and requests editor focus when the tab exists', () => {
+    expect(
+      resolveTabShortcutAction({
+        shortcut: { kind: 'selectIndex', index: 1 },
+        tabs,
+        activeTabId: 'one',
+      }),
+    ).toEqual({ kind: 'selectTab', targetId: 'two', focusEditor: true });
+  });
+
+  it('returns no action for a missing tab index', () => {
+    expect(
+      resolveTabShortcutAction({
+        shortcut: { kind: 'selectIndex', index: 8 },
+        tabs,
+        activeTabId: 'one',
+      }),
+    ).toEqual({ kind: 'none' });
+  });
+
+  it('wraps next and previous tab selection around the open tab list', () => {
+    expect(
+      resolveTabShortcutAction({
+        shortcut: { kind: 'selectNext' },
+        tabs,
+        activeTabId: 'three',
+      }),
+    ).toEqual({ kind: 'selectTab', targetId: 'one', focusEditor: false });
+
+    expect(
+      resolveTabShortcutAction({
+        shortcut: { kind: 'selectPrevious' },
+        tabs,
+        activeTabId: 'one',
+      }),
+    ).toEqual({ kind: 'selectTab', targetId: 'three', focusEditor: false });
+  });
+
+  it('moves the active tab only when an active tab exists', () => {
+    expect(
+      resolveTabShortcutAction({
+        shortcut: { kind: 'moveActive', direction: 1 },
+        tabs,
+        activeTabId: 'one',
+      }),
+    ).toEqual({ kind: 'moveActive', direction: 1 });
+
+    expect(
+      resolveTabShortcutAction({
+        shortcut: { kind: 'moveActive', direction: 1 },
+        tabs,
+        activeTabId: null,
+      }),
+    ).toEqual({ kind: 'none' });
   });
 });
 
