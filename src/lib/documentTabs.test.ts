@@ -13,6 +13,7 @@ import {
   refreshActiveDocumentTab,
   refreshSwitchedDocumentTab,
   resolveCloseTabTransition,
+  resolveSettingsTabToggle,
   stashDocumentTabDraft,
   upsertDocumentTab,
   type DocumentTab,
@@ -470,6 +471,49 @@ describe('resolveCloseTabTransition', () => {
       tabs: [active],
       activeTabId: 'active',
       clearPreSettingsDocTabId: false,
+    });
+  });
+});
+
+describe('resolveSettingsTabToggle', () => {
+  it('closes the settings tab when it is already active', () => {
+    expect(
+      resolveSettingsTabToggle({
+        tabs: [documentTab({ id: 'doc' }), createSettingsTab()],
+        activeTabId: SETTINGS_TAB_ID,
+      }),
+    ).toEqual({
+      kind: 'closeExisting',
+      targetId: SETTINGS_TAB_ID,
+    });
+  });
+
+  it('activates an existing settings tab and remembers the current document tab', () => {
+    expect(
+      resolveSettingsTabToggle({
+        tabs: [documentTab({ id: 'doc' }), createSettingsTab()],
+        activeTabId: 'doc',
+      }),
+    ).toEqual({
+      kind: 'activateExisting',
+      activeTabId: SETTINGS_TAB_ID,
+      preSettingsDocTabId: 'doc',
+    });
+  });
+
+  it('appends a settings tab when one is not already open', () => {
+    const document = documentTab({ id: 'doc' });
+
+    expect(
+      resolveSettingsTabToggle({
+        tabs: [document],
+        activeTabId: 'doc',
+      }),
+    ).toEqual({
+      kind: 'appendSettings',
+      tabs: [document, createSettingsTab()],
+      activeTabId: SETTINGS_TAB_ID,
+      preSettingsDocTabId: 'doc',
     });
   });
 });

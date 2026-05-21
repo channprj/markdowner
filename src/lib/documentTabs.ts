@@ -71,6 +71,11 @@ type ResolveCloseTabTransitionInput = {
   preSettingsDocTabId: string | null;
 };
 
+type ResolveSettingsTabToggleInput = {
+  tabs: readonly DocumentTab[];
+  activeTabId: string | null;
+};
+
 type RefreshActiveDocumentTabInput = {
   tabs: readonly DocumentTab[];
   activeTabId: string | null;
@@ -101,6 +106,20 @@ type CloseTabTransition =
       kind: 'switchThenRemove';
       switchToTabId: string;
       targetId: string;
+    };
+
+type SettingsTabToggleTransition =
+  | { kind: 'closeExisting'; targetId: string }
+  | {
+      kind: 'activateExisting';
+      activeTabId: string;
+      preSettingsDocTabId: string | null;
+    }
+  | {
+      kind: 'appendSettings';
+      tabs: DocumentTab[];
+      activeTabId: string;
+      preSettingsDocTabId: string | null;
     };
 
 export function generateDocumentTabId(entropy: TabIdEntropy = {}): string {
@@ -299,6 +318,31 @@ export function resolveCloseTabTransition(
     tabs: remaining,
     activeTabId: input.activeTabId,
     clearPreSettingsDocTabId: false,
+  };
+}
+
+export function resolveSettingsTabToggle(
+  input: ResolveSettingsTabToggleInput,
+): SettingsTabToggleTransition {
+  const existing = input.tabs.find((tab) => tab.kind === 'settings');
+
+  if (existing) {
+    if (existing.id === input.activeTabId) {
+      return { kind: 'closeExisting', targetId: existing.id };
+    }
+
+    return {
+      kind: 'activateExisting',
+      activeTabId: existing.id,
+      preSettingsDocTabId: input.activeTabId,
+    };
+  }
+
+  return {
+    kind: 'appendSettings',
+    tabs: [...input.tabs, createSettingsTab()],
+    activeTabId: SETTINGS_TAB_ID,
+    preSettingsDocTabId: input.activeTabId,
   };
 }
 

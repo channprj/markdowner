@@ -131,9 +131,7 @@ import {
   setSnapshotMode,
 } from './lib/snapshotState';
 import {
-  SETTINGS_TAB_ID,
   createDocumentTab,
-  createSettingsTab,
   findDocumentTabByPath,
   generateDocumentTabId,
   isDocumentTabDirty,
@@ -142,6 +140,7 @@ import {
   refreshActiveDocumentTab,
   refreshSwitchedDocumentTab,
   resolveCloseTabTransition,
+  resolveSettingsTabToggle,
   stashDocumentTabDraft,
   upsertDocumentTab,
   type DocumentTab,
@@ -2899,26 +2898,26 @@ export default function App() {
   // route through here — when the settings tab is already active it toggles
   // closed, matching the old modal toggle behavior.
   const toggleSettingsTab = useEffectEvent(async () => {
-    const existing = tabs.find((tab) => tab.kind === 'settings');
-    if (existing) {
-      if (existing.id === activeTabId) {
-        await handleCloseTab(existing.id);
-        return;
-      }
-      preSettingsDocTabIdRef.current = activeTabId;
-      setActiveTabId(existing.id);
-      return;
-    }
+    const transition = resolveSettingsTabToggle({ tabs, activeTabId });
 
-    // Stash but do not sync — opening settings keeps the Rust active document
-    // exactly as-is so closing settings can restore it without re-opening.
-    stashActiveTabDraft();
-    preSettingsDocTabIdRef.current = activeTabId;
-    const settingsTab = createSettingsTab();
-    startTransition(() => {
-      setTabs((prev) => [...prev, settingsTab]);
-      setActiveTabId(SETTINGS_TAB_ID);
-    });
+    switch (transition.kind) {
+      case 'closeExisting':
+        await handleCloseTab(transition.targetId);
+        return;
+      case 'activateExisting':
+        preSettingsDocTabIdRef.current = transition.preSettingsDocTabId;
+        setActiveTabId(transition.activeTabId);
+        return;
+      case 'appendSettings':
+        // Stash but do not sync — opening settings keeps the Rust active document
+        // exactly as-is so closing settings can restore it without re-opening.
+        stashActiveTabDraft();
+        preSettingsDocTabIdRef.current = transition.preSettingsDocTabId;
+        startTransition(() => {
+          setTabs(transition.tabs);
+          setActiveTabId(transition.activeTabId);
+        });
+    }
   });
 
   const handleNativeMenuCommand = useEffectEvent(async (command: string) => {
