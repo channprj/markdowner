@@ -101,6 +101,11 @@ import {
   replaceSingleMatch,
   type FindReplaceOptions,
 } from './lib/findReplace';
+import {
+  MARKDOWN_FILE_EXTENSIONS,
+  defaultMarkdownSavePath,
+  normalizeOpenDialogPaths,
+} from './lib/fileDialogOptions';
 import { getErrorMessage } from './lib/errors';
 import { nextCursorPositionFromStatistics } from './lib/cursorPosition';
 import {
@@ -243,7 +248,6 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
   lastError: null,
 };
 
-const MARKDOWN_FILE_EXTENSIONS = ['md', 'markdown', 'mdown', 'mkd'];
 const MENU_COMMAND_EVENT = 'markdowner://menu-command';
 const SNAPSHOT_UPDATE_EVENT = 'markdowner://update-snapshot';
 const STARTUP_OPEN_TABS_RETRY_MS = 100;
@@ -2338,10 +2342,7 @@ export default function App() {
       filters: [{ name: 'Markdown', extensions: MARKDOWN_FILE_EXTENSIONS }],
     });
 
-    if (selected === null || selected === undefined) {
-      return;
-    }
-    const paths = Array.isArray(selected) ? selected : [selected];
+    const paths = normalizeOpenDialogPaths(selected);
     if (paths.length === 0) {
       return;
     }
@@ -2452,7 +2453,10 @@ export default function App() {
 
     if (!snapshot.activeDocumentPath) {
       const selected = await saveDialog({
-        defaultPath: snapshot.activeDocumentPath ?? snapshot.activeDocumentName ?? 'Untitled.md',
+        defaultPath: defaultMarkdownSavePath(
+          snapshot.activeDocumentPath,
+          snapshot.activeDocumentName,
+        ),
         filters: [{ name: 'Markdown', extensions: MARKDOWN_FILE_EXTENSIONS }],
       });
 
@@ -2587,7 +2591,10 @@ export default function App() {
     }
 
     const selected = await saveDialog({
-      defaultPath: snapshot.activeDocumentPath ?? snapshot.activeDocumentName ?? 'Untitled.md',
+      defaultPath: defaultMarkdownSavePath(
+        snapshot.activeDocumentPath,
+        snapshot.activeDocumentName,
+      ),
       filters: [{ name: 'Markdown', extensions: MARKDOWN_FILE_EXTENSIONS }],
     });
 
