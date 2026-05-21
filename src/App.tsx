@@ -134,6 +134,7 @@ import {
   MARKDOWN_CONTENT_SCOPE_CLASS,
   applyImportedStylesheet,
   applyThemeSelection,
+  resolveOsTheme,
 } from './lib/themeScope';
 import {
   EDITOR_MODE_OPTIONS,
@@ -249,13 +250,6 @@ const SETTINGS_TAB_ID = '__markdowner_settings__';
 const SETTINGS_TAB_NAME = 'Settings';
 
 type ThemeMode = 'system' | 'manual';
-function resolveOsTheme(): ThemeKind {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return 'BuiltInDark';
-  }
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'BuiltInDark' : 'BuiltInLight';
-}
-
 const CHORD_PREFIX_TIMEOUT_MS = 1500;
 // Debounce window for serializing the WYSIWYG ProseMirror tree into markdown.
 // `editor.getMarkdown()` is O(N) over the doc; on multi-thousand-line files

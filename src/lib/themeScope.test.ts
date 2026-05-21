@@ -3,12 +3,19 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   applyImportedStylesheet,
   applyThemeSelection,
+  resolveOsTheme,
   scopeImportedStylesheet,
 } from './themeScope';
+
+const originalMatchMedia = window.matchMedia;
 
 afterEach(() => {
   delete document.documentElement.dataset.theme;
   document.getElementById('markdowner-imported-theme')?.remove();
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: originalMatchMedia,
+  });
 });
 
 describe('scopeImportedStylesheet', () => {
@@ -32,6 +39,42 @@ describe('applyThemeSelection', () => {
     applyThemeSelection('BuiltInDark');
 
     expect(document.documentElement.dataset.theme).toBe('BuiltInDark');
+  });
+});
+
+describe('resolveOsTheme', () => {
+  it('falls back to dark when matchMedia is unavailable', () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: undefined,
+    });
+
+    expect(resolveOsTheme()).toBe('BuiltInDark');
+  });
+
+  it('returns dark when the OS prefers a dark color scheme', () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => {
+        expect(query).toBe('(prefers-color-scheme: dark)');
+        return {
+          matches: true,
+        } as MediaQueryList;
+      },
+    });
+
+    expect(resolveOsTheme()).toBe('BuiltInDark');
+  });
+
+  it('returns light when the OS does not prefer a dark color scheme', () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: () => ({
+        matches: false,
+      } as MediaQueryList),
+    });
+
+    expect(resolveOsTheme()).toBe('BuiltInLight');
   });
 });
 

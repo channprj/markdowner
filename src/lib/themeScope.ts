@@ -21,6 +21,13 @@ export function applyThemeSelection(themeKind: ThemeKind, doc: Document = docume
   doc.documentElement.dataset.theme = themeKind;
 }
 
+export function resolveOsTheme(): ThemeKind {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return 'BuiltInDark';
+  }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'BuiltInDark' : 'BuiltInLight';
+}
+
 export function applyImportedStylesheet(
   snapshot: ImportedThemeSnapshot,
   doc: Document = document,
