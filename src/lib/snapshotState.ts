@@ -10,3 +10,15 @@ export function clearActiveDocumentSnapshot(snapshot: AppSnapshot): AppSnapshot 
     lastError: null,
   };
 }
+
+export function resolveSyncedDraftSnapshot(
+  current: AppSnapshot,
+  synced: AppSnapshot,
+  activeDocumentPath: string | null,
+): AppSnapshot {
+  if (current.activeDocumentPath !== activeDocumentPath) {
+    return current;
+  }
+
+  return { ...synced, mode: current.mode };
+}

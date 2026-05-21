@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { clearActiveDocumentSnapshot } from './snapshotState';
+import {
+  clearActiveDocumentSnapshot,
+  resolveSyncedDraftSnapshot,
+} from './snapshotState';
 import type { AppSnapshot } from './desktop';
 
 const snapshot = (overrides: Partial<AppSnapshot> = {}): AppSnapshot => ({
@@ -39,5 +42,36 @@ describe('clearActiveDocumentSnapshot', () => {
       workspaceDocuments: ['/tmp/notes.md'],
       rootDir: '/tmp',
     });
+  });
+});
+
+describe('resolveSyncedDraftSnapshot', () => {
+  it('applies a fresh synced snapshot while preserving the current mode', () => {
+    const current = snapshot({
+      activeDocumentPath: '/tmp/notes.md',
+      mode: 'SplitView',
+    });
+    const synced = snapshot({
+      activeDocumentPath: '/tmp/notes.md',
+      activeDocumentSource: '# Synced',
+      mode: 'Wysiwyg',
+      lastError: null,
+    });
+
+    expect(resolveSyncedDraftSnapshot(current, synced, '/tmp/notes.md')).toEqual({
+      ...synced,
+      mode: 'SplitView',
+    });
+  });
+
+  it('ignores stale sync results for a document that is no longer active', () => {
+    const current = snapshot({ activeDocumentPath: '/tmp/current.md' });
+    const stale = snapshot({
+      activeDocumentPath: '/tmp/old.md',
+      activeDocumentSource: '# Stale',
+      lastError: null,
+    });
+
+    expect(resolveSyncedDraftSnapshot(current, stale, '/tmp/old.md')).toBe(current);
   });
 });

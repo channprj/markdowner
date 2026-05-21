@@ -124,7 +124,10 @@ import {
   type ExternalChangeViewState,
 } from './lib/externalChanges';
 import { nextCursorPositionFromStatistics } from './lib/cursorPosition';
-import { clearActiveDocumentSnapshot } from './lib/snapshotState';
+import {
+  clearActiveDocumentSnapshot,
+  resolveSyncedDraftSnapshot,
+} from './lib/snapshotState';
 import {
   SETTINGS_TAB_ID,
   createDocumentTab,
@@ -2066,12 +2069,9 @@ export default function App() {
       replaceActiveDocumentSource(localDraft)
         .then((next) => {
           startTransition(() => {
-            setSnapshot((current) => {
-              if (current.activeDocumentPath !== activeDocumentPath) {
-                return current;
-              }
-              return { ...next, mode: current.mode };
-            });
+            setSnapshot((current) =>
+              resolveSyncedDraftSnapshot(current, next, activeDocumentPath),
+            );
             clearExternalChangeState();
           });
         })
