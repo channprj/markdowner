@@ -94,6 +94,7 @@ import {
 } from './lib/desktop';
 import { calculateDocumentStats } from './lib/documentStats';
 import { isDiscardCloseDecision, isSaveCloseDecision } from './lib/closeDecision';
+import { resolveClosePromptState } from './lib/closePrompt';
 import {
   findTextMatches,
   replaceAllMatches,
@@ -3491,21 +3492,15 @@ export default function App() {
       // tab switch (which also flushes).
       const fresh = flushWysiwygDraftNow();
       const currentDraft = fresh ?? localDraft;
-      const targetTab = activeTabId ? tabs.find((t) => t.id === activeTabId) ?? null : null;
-      const activeDirty =
-        targetTab?.kind === 'document' &&
-        normalizeFinalNewline(currentDraft) !== normalizeFinalNewline(targetTab.source);
-      const anyOtherDirty = tabs.some(
-        (t) =>
-          t.kind === 'document' &&
-          t.id !== activeTabId &&
-          normalizeFinalNewline(t.draft) !== normalizeFinalNewline(t.source),
-      );
+      const closePromptState = resolveClosePromptState({
+        tabs,
+        activeTabId,
+        activeDraft: currentDraft,
+        target,
+      });
       // Native window close gates on the active tab; app quit (Cmd+Q) gates on
       // any tab having edits, matching Zed's behavior.
-      const requiresPrompt =
-        target === 'app' ? activeDirty || anyOtherDirty : activeDirty;
-      if (!requiresPrompt) {
+      if (!closePromptState.requiresPrompt) {
         return;
       }
 
@@ -3517,10 +3512,10 @@ export default function App() {
 
       // For a quit with multiple tabs, switch to the first dirty tab so the
       // dialog and the subsequent Save action operate on a real dirty doc.
-      if (target === 'app' && !activeDirty) {
-        const firstDirty = tabs.find(tabIsDirty);
-        if (firstDirty && firstDirty.id !== activeTabId) {
-          await switchToTab(firstDirty.id);
+      if (target === 'app' && !closePromptState.activeDirty) {
+        const firstDirtyTabId = closePromptState.firstDirtyTabId;
+        if (firstDirtyTabId && firstDirtyTabId !== activeTabId) {
+          await switchToTab(firstDirtyTabId);
         }
       }
 
