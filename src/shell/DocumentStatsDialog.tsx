@@ -6,16 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-
-type DocumentStats = {
-  words: number;
-  characters: number;
-  readingTimeMinutes: number;
-  headings: number;
-  links: number;
-  images: number;
-  tables: number;
-};
+import type { DocumentStats } from '@/lib/documentStats';
 
 interface DocumentStatsDialogProps {
   open: boolean;

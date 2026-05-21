@@ -92,6 +92,7 @@ import {
   saveOpenTabs,
   searchWorkspace,
 } from './lib/desktop';
+import { calculateDocumentStats } from './lib/documentStats';
 import {
   findTextMatches,
   replaceAllMatches,
@@ -1207,42 +1208,10 @@ export default function App() {
   // recompute every regex on every cursor tick and stall key repeat.
   const deferredLocalDraft = useDeferredValue(localDraft);
 
-  const documentStats = useMemo(() => {
-    const characters = deferredLocalDraft.length;
-    const trimmed = deferredLocalDraft.trim();
-    const words = trimmed.length === 0 ? 0 : trimmed.split(/\s+/).length;
-    const readingTimeMinutes = words === 0 ? 0 : Math.max(1, Math.ceil(words / 200));
-
-    const headingMatches = deferredLocalDraft.match(/^#{1,6}\s+.+$/gm) ?? [];
-    const imageMatches = deferredLocalDraft.match(/!\[[^\]]*]\([^\n)]+\)/g) ?? [];
-    const links =
-      deferredLocalDraft.replace(/!\[[^\]]*]\([^\n)]+\)/g, '').match(/\[[^\]]+]\([^\n)]+\)/g) ?? [];
-
-    const lines = deferredLocalDraft.split(/\r?\n/);
-    const isTableRow = (line: string) => line.includes('|') && line.trim().length > 0;
-    const isTableSeparator = (line: string) => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
-
-    let tables = 0;
-    for (let index = 1; index < lines.length - 1; index += 1) {
-      if (!isTableSeparator(lines[index] ?? '')) {
-        continue;
-      }
-
-      if (isTableRow(lines[index - 1] ?? '') && isTableRow(lines[index + 1] ?? '')) {
-        tables += 1;
-      }
-    }
-
-    return {
-      words,
-      characters,
-      readingTimeMinutes,
-      headings: headingMatches.length,
-      links: links.length,
-      images: imageMatches.length,
-      tables,
-    };
-  }, [deferredLocalDraft]);
+  const documentStats = useMemo(
+    () => calculateDocumentStats(deferredLocalDraft),
+    [deferredLocalDraft],
+  );
   const outlineItems = useMemo<OutlineItem[]>(
     () => (activeDocumentOpen ? parseMarkdownOutline(deferredLocalDraft) : []),
     [activeDocumentOpen, deferredLocalDraft],
