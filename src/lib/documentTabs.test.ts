@@ -13,6 +13,7 @@ import {
   mergeRestoredDocumentTabs,
   refreshActiveDocumentTab,
   refreshSwitchedDocumentTab,
+  refreshSwitchedDocumentTabFromSnapshot,
   resolveCloseTabTransition,
   resolveSettingsTabToggle,
   resolveSwitchTabTransition,
@@ -753,6 +754,37 @@ describe('document tab metadata refresh helpers', () => {
         source: null,
       }),
     ).toEqual([{ ...target, missing: false }]);
+  });
+
+  it('refreshes switched tab metadata from a snapshot while preserving missing fields', () => {
+    const target = documentTab({
+      id: 'target',
+      path: '/tmp/target.md',
+      name: 'target.md',
+      source: 'existing source',
+      draft: 'local draft',
+      missing: true,
+    });
+
+    expect(
+      refreshSwitchedDocumentTabFromSnapshot({
+        tabs: [target],
+        targetId: 'target',
+        snapshot: {
+          activeDocumentPath: '/tmp/renamed.md',
+          activeDocumentName: null,
+          activeDocumentSource: 'fresh source',
+        },
+      }),
+    ).toEqual([
+      {
+        ...target,
+        path: '/tmp/renamed.md',
+        name: 'target.md',
+        source: 'fresh source',
+        missing: false,
+      },
+    ]);
   });
 
   it('marks a document tab as missing and clears stale document content', () => {

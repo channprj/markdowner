@@ -139,7 +139,7 @@ import {
   markDocumentTabMissing,
   mergeRestoredDocumentTabs,
   refreshActiveDocumentTab,
-  refreshSwitchedDocumentTab,
+  refreshSwitchedDocumentTabFromSnapshot,
   resolveCloseTabTransition,
   resolveSettingsTabToggle,
   resolveSwitchTabTransition,
@@ -2850,12 +2850,10 @@ export default function App() {
         setLocalDraft(target.draft);
         // Refresh tab metadata in case the file changed on disk.
         setTabs((prev) =>
-          refreshSwitchedDocumentTab({
+          refreshSwitchedDocumentTabFromSnapshot({
             tabs: prev,
             targetId: target.id,
-            path: next.activeDocumentPath,
-            name: next.activeDocumentName,
-            source: next.activeDocumentSource,
+            snapshot: next,
           }),
         );
       } catch {

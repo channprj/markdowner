@@ -110,6 +110,12 @@ type RefreshSwitchedDocumentTabInput = {
   source: string | null;
 };
 
+type RefreshSwitchedDocumentTabFromSnapshotInput = {
+  tabs: readonly DocumentTab[];
+  targetId: string;
+  snapshot: DocumentTabSnapshotMetadataInput;
+};
+
 type CloseTabTransition =
   | { kind: 'missing' }
   | { kind: 'clearSurface' }
@@ -455,6 +461,18 @@ export function refreshSwitchedDocumentTab(
         }
       : tab,
   );
+}
+
+export function refreshSwitchedDocumentTabFromSnapshot(
+  input: RefreshSwitchedDocumentTabFromSnapshotInput,
+): DocumentTab[] {
+  return refreshSwitchedDocumentTab({
+    tabs: input.tabs,
+    targetId: input.targetId,
+    path: input.snapshot.activeDocumentPath,
+    name: input.snapshot.activeDocumentName,
+    source: input.snapshot.activeDocumentSource,
+  });
 }
 
 export function stashDocumentTabDraft(
