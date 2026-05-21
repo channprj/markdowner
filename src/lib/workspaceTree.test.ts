@@ -6,6 +6,7 @@ import {
   displayFileName,
   displayWorkspacePath,
   filterWorkspaceTree,
+  toggleWorkspaceFolderKey,
 } from './workspaceTree';
 
 describe('displayFileName', () => {
@@ -128,5 +129,19 @@ describe('collectWorkspaceFolderKeys', () => {
     );
 
     expect(collectWorkspaceFolderKeys(tree)).toEqual(['guides', 'guides/reference']);
+  });
+});
+
+describe('toggleWorkspaceFolderKey', () => {
+  it('adds missing folder keys and removes existing folder keys without mutating input', () => {
+    const collapsedKeys = ['guides', 'notes'];
+
+    expect(toggleWorkspaceFolderKey(collapsedKeys, 'guides')).toEqual(['notes']);
+    expect(toggleWorkspaceFolderKey(collapsedKeys, 'reference')).toEqual([
+      'guides',
+      'notes',
+      'reference',
+    ]);
+    expect(collapsedKeys).toEqual(['guides', 'notes']);
   });
 });

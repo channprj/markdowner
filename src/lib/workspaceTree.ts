@@ -126,6 +126,15 @@ export function collectWorkspaceFolderKeys(nodes: readonly WorkspaceTreeNode[]):
   return folderKeys;
 }
 
+export function toggleWorkspaceFolderKey(
+  collapsedFolderKeys: readonly string[],
+  key: string,
+): string[] {
+  return collapsedFolderKeys.includes(key)
+    ? collapsedFolderKeys.filter((entry) => entry !== key)
+    : [...collapsedFolderKeys, key];
+}
+
 function normalizeDisplayPath(path: string): string {
   return path.replace(/\\/g, '/');
 }

@@ -236,6 +236,7 @@ import {
   displayFileName,
   displayWorkspacePath,
   filterWorkspaceTree,
+  toggleWorkspaceFolderKey,
   type WorkspaceTreeNode,
 } from './lib/workspaceTree';
 import { buildQuickOpenItems } from './lib/quickOpenItems';
@@ -2801,9 +2802,7 @@ export default function App() {
   };
 
   const handleToggleWorkspaceFolder = (key: string) => {
-    setCollapsedFolderKeys((current) =>
-      current.includes(key) ? current.filter((entry) => entry !== key) : [...current, key],
-    );
+    setCollapsedFolderKeys((current) => toggleWorkspaceFolderKey(current, key));
   };
 
   const handleCollapseWorkspaceFolders = () => {
