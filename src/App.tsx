@@ -151,6 +151,7 @@ import {
   OUTLINE_ROW_SPACING_MAX,
   OUTLINE_ROW_SPACING_MIN,
   type Settings,
+  getChangedSettingsKeys,
   installCliLauncher,
   loadSettings,
   recordDiagnosticsEvent,
@@ -262,8 +263,6 @@ const CHORD_PREFIX_TIMEOUT_MS = 1500;
 // at this cadence and force-flush at synchronization points (save, mode
 // switch, tab stash, close prompts) to keep correctness without the cost.
 const WYSIWYG_FLUSH_DEBOUNCE_MS = 120;
-
-const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>;
 
 const sourceFocusModeExtension = EditorView.theme({
   '&.cm-focused .cm-line': {
@@ -1957,7 +1956,7 @@ export default function App() {
   ]);
 
   const handleSettingsChange = (next: Settings) => {
-    const changedKeys = SETTINGS_KEYS.filter((key) => !Object.is(settings[key], next[key]));
+    const changedKeys = getChangedSettingsKeys(settings, next);
     setSettings(next);
     const saveSettingsPromise = saveSettings(next);
     void saveSettingsPromise;

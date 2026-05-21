@@ -148,6 +148,15 @@ export const DEFAULT_SETTINGS: Settings = {
   codeBlockThemeSync: true,
 };
 
+const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>;
+
+export function getChangedSettingsKeys(
+  current: Settings,
+  next: Settings,
+): Array<keyof Settings> {
+  return SETTINGS_KEYS.filter((key) => !Object.is(current[key], next[key]));
+}
+
 export const EDITOR_FONT_SIZE_MIN = 8;
 export const EDITOR_FONT_SIZE_MAX = 48;
 // Line-height is stored as a unitless multiplier so it tracks with font-size:
