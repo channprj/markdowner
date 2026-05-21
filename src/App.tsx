@@ -94,7 +94,11 @@ import {
 } from './lib/desktop';
 import { calculateDocumentStats } from './lib/documentStats';
 import { isDiscardCloseDecision, isSaveCloseDecision } from './lib/closeDecision';
-import { buildCloseConfirmationDialog, resolveClosePromptState } from './lib/closePrompt';
+import {
+  buildCloseConfirmationDialog,
+  resolveActiveClosePromptState,
+  resolveClosePromptState,
+} from './lib/closePrompt';
 import { resolveActiveDraftSyncPlan } from './lib/draftSync';
 import {
   findTextMatches,
@@ -208,7 +212,6 @@ import {
   clampSourceOffset,
   countLiteralOccurrencesBefore,
   lineTextFromOffset,
-  normalizeFinalNewline,
   sourceOffsetForLine,
 } from './lib/sourceText';
 import {
@@ -2481,11 +2484,12 @@ export default function App() {
     // dirty check below reflects the user's actual most-recent state.
     const fresh = flushWysiwygDraftNow();
     const currentDraft = fresh ?? localDraft;
-    const targetTab = activeTabId ? tabs.find((t) => t.id === activeTabId) ?? null : null;
-    const isDirty =
-      targetTab?.kind === 'document' &&
-      normalizeFinalNewline(currentDraft) !== normalizeFinalNewline(targetTab.source);
-    if (!isDirty) {
+    const closePromptState = resolveActiveClosePromptState({
+      tabs,
+      activeTabId,
+      activeDraft: currentDraft,
+    });
+    if (!closePromptState.requiresPrompt) {
       clearActiveDocumentSurface();
       return;
     }

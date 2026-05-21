@@ -9,6 +9,13 @@ type ResolveClosePromptStateInput = {
   target: ClosePromptTarget;
 };
 
+type ResolveActiveClosePromptStateInput = Omit<ResolveClosePromptStateInput, 'target'>;
+
+type ActiveClosePromptState = {
+  activeDirty: boolean;
+  requiresPrompt: boolean;
+};
+
 type ClosePromptState = {
   activeDirty: boolean;
   firstDirtyTabId: string | null;
@@ -46,6 +53,20 @@ export function resolveClosePromptState(
     activeDirty,
     firstDirtyTabId: firstDirtyTab?.id ?? null,
     requiresPrompt: input.target === 'app' ? firstDirtyTab !== null : activeDirty,
+  };
+}
+
+export function resolveActiveClosePromptState(
+  input: ResolveActiveClosePromptStateInput,
+): ActiveClosePromptState {
+  const activeState = resolveClosePromptState({
+    ...input,
+    target: 'window',
+  });
+
+  return {
+    activeDirty: activeState.activeDirty,
+    requiresPrompt: activeState.requiresPrompt,
   };
 }
 

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { createDocumentTab, createSettingsTab } from './documentTabs';
-import { buildCloseConfirmationDialog, resolveClosePromptState } from './closePrompt';
+import {
+  buildCloseConfirmationDialog,
+  resolveActiveClosePromptState,
+  resolveClosePromptState,
+} from './closePrompt';
 
 describe('resolveClosePromptState', () => {
   it('prompts window closes only for active document edits', () => {
@@ -102,6 +106,54 @@ describe('resolveClosePromptState', () => {
       activeDirty: false,
       firstDirtyTabId: dirtyTab.id,
       requiresPrompt: true,
+    });
+  });
+});
+
+describe('resolveActiveClosePromptState', () => {
+  it('requires a prompt only when the active document has real edits', () => {
+    const activeTab = createDocumentTab({
+      id: 'active',
+      path: '/tmp/active.md',
+      source: 'Saved',
+      draft: 'Stale dirty draft',
+    });
+
+    expect(
+      resolveActiveClosePromptState({
+        tabs: [activeTab],
+        activeTabId: activeTab.id,
+        activeDraft: 'Saved\n',
+      }),
+    ).toEqual({
+      activeDirty: false,
+      requiresPrompt: false,
+    });
+
+    expect(
+      resolveActiveClosePromptState({
+        tabs: [activeTab],
+        activeTabId: activeTab.id,
+        activeDraft: 'Changed\n',
+      }),
+    ).toEqual({
+      activeDirty: true,
+      requiresPrompt: true,
+    });
+  });
+
+  it('does not prompt when the active tab is not a document', () => {
+    const settingsTab = createSettingsTab();
+
+    expect(
+      resolveActiveClosePromptState({
+        tabs: [settingsTab],
+        activeTabId: settingsTab.id,
+        activeDraft: 'Changed',
+      }),
+    ).toEqual({
+      activeDirty: false,
+      requiresPrompt: false,
     });
   });
 });
