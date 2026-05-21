@@ -103,8 +103,11 @@ import {
 import { resolveActiveDraftSyncPlan } from './lib/draftSync';
 import {
   findTextMatches,
+  nextFindMatchIndex,
+  nextFindMatchIndexAfterReplace,
   replaceAllMatches,
   replaceSingleMatch,
+  resolveFindMatchSelection,
   type FindReplaceOptions,
 } from './lib/findReplace';
 import {
@@ -1515,13 +1518,11 @@ export default function App() {
   const findResult = wysiwygFindResult ?? sourceFindResult;
   const findMatches = findResult.matches;
   const findMatchCount = findMatches.length;
-  const activeFindMatch =
-    findMatchCount > 0 ? findMatches[Math.min(activeFindMatchIndex, findMatchCount - 1)] : undefined;
+  const findMatchSelection = resolveFindMatchSelection(findMatches, activeFindMatchIndex);
+  const activeFindMatch = findMatchSelection.activeMatch;
   const canReplaceFindMatch =
     activeDocumentOpen && (currentMode !== 'Wysiwyg' || Boolean(editor));
-  const activeFindMatchNumber = findMatchCount > 0
-    ? Math.min(activeFindMatchIndex, findMatchCount - 1) + 1
-    : 0;
+  const activeFindMatchNumber = findMatchSelection.activeMatchNumber;
 
   useEffect(() => {
     if (activeFindMatchIndex >= findMatchCount) {
@@ -1583,12 +1584,16 @@ export default function App() {
 
   const handlePreviousFindMatch = () => {
     if (findMatchCount === 0) return;
-    setActiveFindMatchIndex((current) => (current - 1 + findMatchCount) % findMatchCount);
+    setActiveFindMatchIndex((current) =>
+      nextFindMatchIndex(current, findMatchCount, 'previous'),
+    );
   };
 
   const handleNextFindMatch = () => {
     if (findMatchCount === 0) return;
-    setActiveFindMatchIndex((current) => (current + 1) % findMatchCount);
+    setActiveFindMatchIndex((current) =>
+      nextFindMatchIndex(current, findMatchCount, 'next'),
+    );
   };
 
   const handleReplaceFindMatch = () => {
@@ -1602,13 +1607,17 @@ export default function App() {
         if (didReplace && typeof editor.getMarkdown === 'function') {
           setLocalDraft(editor.getMarkdown());
         }
-        setActiveFindMatchIndex((current) => Math.max(0, Math.min(current, findMatchCount - 2)));
+        setActiveFindMatchIndex((current) =>
+          nextFindMatchIndexAfterReplace(current, findMatchCount),
+        );
       }
       return;
     }
 
     setLocalDraft((current) => replaceSingleMatch(current, activeFindMatch, findReplacement));
-    setActiveFindMatchIndex((current) => Math.max(0, Math.min(current, findMatchCount - 2)));
+    setActiveFindMatchIndex((current) =>
+      nextFindMatchIndexAfterReplace(current, findMatchCount),
+    );
   };
 
   const handleReplaceAllFindMatches = () => {

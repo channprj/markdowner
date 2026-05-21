@@ -18,6 +18,14 @@ export type FindTextResult = {
   error: string | null;
 };
 
+export type FindMatchDirection = 'next' | 'previous';
+
+export type FindMatchSelection = {
+  activeMatch: FindMatch | undefined;
+  activeMatchNumber: number;
+  activeIndex: number;
+};
+
 const WORD_CHARACTER_PATTERN = /[A-Za-z0-9_]/;
 
 function isWordCharacter(value: string | undefined) {
@@ -163,4 +171,44 @@ export function replaceAllMatches(source: string, matches: FindMatch[], replacem
   }
   next += source.slice(cursor);
   return next;
+}
+
+export function resolveFindMatchSelection(
+  matches: readonly FindMatch[],
+  activeIndex: number,
+): FindMatchSelection {
+  if (matches.length === 0) {
+    return {
+      activeMatch: undefined,
+      activeMatchNumber: 0,
+      activeIndex: 0,
+    };
+  }
+
+  const clampedIndex = Math.max(0, Math.min(activeIndex, matches.length - 1));
+  return {
+    activeMatch: matches[clampedIndex],
+    activeMatchNumber: clampedIndex + 1,
+    activeIndex: clampedIndex,
+  };
+}
+
+export function nextFindMatchIndex(
+  currentIndex: number,
+  matchCount: number,
+  direction: FindMatchDirection,
+): number {
+  if (matchCount === 0) {
+    return currentIndex;
+  }
+
+  const offset = direction === 'next' ? 1 : -1;
+  return (currentIndex + offset + matchCount) % matchCount;
+}
+
+export function nextFindMatchIndexAfterReplace(
+  currentIndex: number,
+  matchCountBeforeReplace: number,
+): number {
+  return Math.max(0, Math.min(currentIndex, matchCountBeforeReplace - 2));
 }

@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   findTextMatches,
+  nextFindMatchIndex,
+  nextFindMatchIndexAfterReplace,
   replaceAllMatches,
   replaceSingleMatch,
+  resolveFindMatchSelection,
   type FindReplaceOptions,
 } from './findReplace';
 
@@ -63,5 +66,32 @@ describe('findReplace', () => {
     expect(replaceAllMatches('todo 123\ntodo 456', result.matches, 'done $1')).toBe(
       'done 123\ndone 456',
     );
+  });
+
+  it('resolves active match display state and clamps out-of-range indexes', () => {
+    const result = findTextMatches('alpha beta alpha', 'alpha', defaultOptions);
+
+    expect(resolveFindMatchSelection(result.matches, 8)).toEqual({
+      activeMatch: result.matches[1],
+      activeMatchNumber: 2,
+      activeIndex: 1,
+    });
+    expect(resolveFindMatchSelection([], 8)).toEqual({
+      activeMatch: undefined,
+      activeMatchNumber: 0,
+      activeIndex: 0,
+    });
+  });
+
+  it('wraps next and previous match indexes', () => {
+    expect(nextFindMatchIndex(0, 3, 'previous')).toBe(2);
+    expect(nextFindMatchIndex(2, 3, 'next')).toBe(0);
+    expect(nextFindMatchIndex(5, 0, 'next')).toBe(5);
+  });
+
+  it('clamps the active index after replacing one match', () => {
+    expect(nextFindMatchIndexAfterReplace(2, 3)).toBe(1);
+    expect(nextFindMatchIndexAfterReplace(0, 1)).toBe(0);
+    expect(nextFindMatchIndexAfterReplace(5, 0)).toBe(0);
   });
 });
