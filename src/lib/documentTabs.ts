@@ -351,6 +351,16 @@ export function refreshSwitchedDocumentTab(
   );
 }
 
+export function stashDocumentTabDraft(
+  tabs: readonly DocumentTab[],
+  activeTabId: string,
+  draft: string,
+): DocumentTab[] {
+  return tabs.map((tab) =>
+    tab.id === activeTabId && tab.kind === 'document' ? { ...tab, draft } : tab,
+  );
+}
+
 export function markDocumentTabMissing(
   tabs: readonly DocumentTab[],
   targetId: string,

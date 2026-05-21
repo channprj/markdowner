@@ -13,6 +13,7 @@ import {
   refreshActiveDocumentTab,
   refreshSwitchedDocumentTab,
   resolveCloseTabTransition,
+  stashDocumentTabDraft,
   upsertDocumentTab,
   type DocumentTab,
 } from './documentTabs';
@@ -612,5 +613,30 @@ describe('document tab metadata refresh helpers', () => {
       { ...target, missing: true, source: '', draft: '' },
       other,
     ]);
+  });
+
+  it('stashes a live draft only into the matching document tab', () => {
+    const active = documentTab({
+      id: 'active',
+      path: '/tmp/active.md',
+      name: 'active.md',
+      draft: 'old draft',
+    });
+    const inactive = documentTab({
+      id: 'inactive',
+      path: '/tmp/inactive.md',
+      name: 'inactive.md',
+      draft: 'inactive draft',
+    });
+    const settings = createSettingsTab();
+
+    expect(stashDocumentTabDraft([active, inactive, settings], 'active', 'live edit')).toEqual([
+      { ...active, draft: 'live edit' },
+      inactive,
+      settings,
+    ]);
+    expect(
+      stashDocumentTabDraft([active, settings], SETTINGS_TAB_ID, 'ignored edit'),
+    ).toEqual([active, settings]);
   });
 });

@@ -136,6 +136,7 @@ import {
   refreshActiveDocumentTab,
   refreshSwitchedDocumentTab,
   resolveCloseTabTransition,
+  stashDocumentTabDraft,
   upsertDocumentTab,
   type DocumentTab,
 } from './lib/documentTabs';
@@ -528,11 +529,7 @@ export default function App() {
     // typing). For Source mode this is a no-op.
     const fresh = flushWysiwygDraftNow();
     const draft = fresh ?? localDraft;
-    setTabs((prev) =>
-      prev.map((tab) =>
-        tab.id === id && tab.kind === 'document' ? { ...tab, draft } : tab,
-      ),
-    );
+    setTabs((prev) => stashDocumentTabDraft(prev, id, draft));
   };
 
   // Replace (or append) a tab matching the snapshot's active document and
