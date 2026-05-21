@@ -58,7 +58,7 @@ import { EditorArea } from '@/shell/EditorArea';
 import { FindReplaceBar } from '@/shell/FindReplaceBar';
 import { ShortcutsDialog } from '@/shell/ShortcutsDialog';
 import { Tabs } from '@/shell/Tabs';
-import { QuickOpen, type QuickOpenItem } from '@/shell/QuickOpen';
+import { QuickOpen } from '@/shell/QuickOpen';
 import {
   SideBar,
   type SearchResultFile,
@@ -196,6 +196,7 @@ import {
   filterWorkspaceTree,
   type WorkspaceTreeNode,
 } from './lib/workspaceTree';
+import { buildQuickOpenItems } from './lib/quickOpenItems';
 import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
@@ -3877,25 +3878,7 @@ export default function App() {
       ? 'Save As to choose where this draft lives.'
       : 'Open a workspace or a Markdown file to begin.';
 
-  const quickOpenItems: QuickOpenItem[] = (() => {
-    const seen = new Set<string>();
-    const items: QuickOpenItem[] = [];
-    const accumulate = (paths: readonly string[], kind: 'workspace' | 'recent') => {
-      for (const path of paths) {
-        if (!path || seen.has(path)) continue;
-        seen.add(path);
-        items.push({
-          path,
-          name: displayFileName(path),
-          relativePath: displayWorkspacePath(path, snapshot.rootDir),
-          kind,
-        });
-      }
-    };
-    accumulate(snapshot.workspaceDocuments, 'workspace');
-    accumulate(snapshot.recentDocuments, 'recent');
-    return items;
-  })();
+  const quickOpenItems = buildQuickOpenItems(snapshot);
 
   const handleQuickOpenSelect = (path: string) => {
     if (snapshot.workspaceDocuments.includes(path)) {
