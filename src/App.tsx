@@ -98,6 +98,7 @@ import {
   buildCloseConfirmationDialog,
   resolveActiveClosePromptState,
   resolveClosePromptState,
+  resolveCloseRequestAction,
 } from './lib/closePrompt';
 import { resolveActiveDraftSyncPlan } from './lib/draftSync';
 import {
@@ -3330,25 +3331,26 @@ export default function App() {
         activeDraft: currentDraft,
         target,
       });
-      // Native window close gates on the active tab; app quit (Cmd+Q) gates on
-      // any tab having edits, matching Zed's behavior.
-      if (!closePromptState.requiresPrompt) {
+      const closeRequestAction = resolveCloseRequestAction({
+        activeTabId,
+        busy,
+        closePromptState,
+        forceClose: forceCloseRef.current,
+        target,
+      });
+
+      if (closeRequestAction.kind === 'allow') {
         return;
       }
 
       event.preventDefault();
 
-      if (busy) {
+      if (closeRequestAction.kind === 'preventOnly') {
         return;
       }
 
-      // For a quit with multiple tabs, switch to the first dirty tab so the
-      // dialog and the subsequent Save action operate on a real dirty doc.
-      if (target === 'app' && !closePromptState.activeDirty) {
-        const firstDirtyTabId = closePromptState.firstDirtyTabId;
-        if (firstDirtyTabId && firstDirtyTabId !== activeTabId) {
-          await switchToTab(firstDirtyTabId);
-        }
+      if (closeRequestAction.switchToTabId) {
+        await switchToTab(closeRequestAction.switchToTabId);
       }
 
       try {

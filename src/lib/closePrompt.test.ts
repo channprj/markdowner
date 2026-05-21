@@ -5,6 +5,7 @@ import {
   buildCloseConfirmationDialog,
   resolveActiveClosePromptState,
   resolveClosePromptState,
+  resolveCloseRequestAction,
 } from './closePrompt';
 
 describe('resolveClosePromptState', () => {
@@ -178,5 +179,101 @@ describe('buildCloseConfirmationDialog', () => {
     expect(buildCloseConfirmationDialog(null, 'Markdowner').message).toBe(
       "Save changes to 'Untitled.md' before closing?",
     );
+  });
+});
+
+describe('resolveCloseRequestAction', () => {
+  it('allows re-entrant forced closes and clean close requests through', () => {
+    expect(
+      resolveCloseRequestAction({
+        activeTabId: 'active',
+        busy: false,
+        closePromptState: {
+          activeDirty: true,
+          firstDirtyTabId: 'active',
+          requiresPrompt: true,
+        },
+        forceClose: true,
+        target: 'window',
+      }),
+    ).toEqual({ kind: 'allow' });
+
+    expect(
+      resolveCloseRequestAction({
+        activeTabId: 'active',
+        busy: false,
+        closePromptState: {
+          activeDirty: false,
+          firstDirtyTabId: null,
+          requiresPrompt: false,
+        },
+        forceClose: false,
+        target: 'window',
+      }),
+    ).toEqual({ kind: 'allow' });
+  });
+
+  it('prevents the platform close without prompting while busy', () => {
+    expect(
+      resolveCloseRequestAction({
+        activeTabId: 'active',
+        busy: true,
+        closePromptState: {
+          activeDirty: true,
+          firstDirtyTabId: 'active',
+          requiresPrompt: true,
+        },
+        forceClose: false,
+        target: 'window',
+      }),
+    ).toEqual({ kind: 'preventOnly' });
+  });
+
+  it('prompts without switching for dirty active documents', () => {
+    expect(
+      resolveCloseRequestAction({
+        activeTabId: 'active',
+        busy: false,
+        closePromptState: {
+          activeDirty: true,
+          firstDirtyTabId: 'active',
+          requiresPrompt: true,
+        },
+        forceClose: false,
+        target: 'app',
+      }),
+    ).toEqual({ kind: 'prompt', switchToTabId: null });
+  });
+
+  it('switches to the first dirty inactive tab before prompting on app quit', () => {
+    expect(
+      resolveCloseRequestAction({
+        activeTabId: 'clean',
+        busy: false,
+        closePromptState: {
+          activeDirty: false,
+          firstDirtyTabId: 'dirty',
+          requiresPrompt: true,
+        },
+        forceClose: false,
+        target: 'app',
+      }),
+    ).toEqual({ kind: 'prompt', switchToTabId: 'dirty' });
+  });
+
+  it('does not switch tabs for window close prompts', () => {
+    expect(
+      resolveCloseRequestAction({
+        activeTabId: 'clean',
+        busy: false,
+        closePromptState: {
+          activeDirty: false,
+          firstDirtyTabId: 'dirty',
+          requiresPrompt: true,
+        },
+        forceClose: false,
+        target: 'window',
+      }),
+    ).toEqual({ kind: 'prompt', switchToTabId: null });
   });
 });

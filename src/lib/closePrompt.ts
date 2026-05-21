@@ -16,11 +16,24 @@ type ActiveClosePromptState = {
   requiresPrompt: boolean;
 };
 
-type ClosePromptState = {
+export type ClosePromptState = {
   activeDirty: boolean;
   firstDirtyTabId: string | null;
   requiresPrompt: boolean;
 };
+
+type ResolveCloseRequestActionInput = {
+  activeTabId: string | null;
+  busy: boolean;
+  closePromptState: ClosePromptState;
+  forceClose: boolean;
+  target: ClosePromptTarget;
+};
+
+export type CloseRequestAction =
+  | { kind: 'allow' }
+  | { kind: 'preventOnly' }
+  | { kind: 'prompt'; switchToTabId: string | null };
 
 type CloseConfirmationDialog = {
   message: string;
@@ -67,6 +80,32 @@ export function resolveActiveClosePromptState(
   return {
     activeDirty: activeState.activeDirty,
     requiresPrompt: activeState.requiresPrompt,
+  };
+}
+
+export function resolveCloseRequestAction({
+  activeTabId,
+  busy,
+  closePromptState,
+  forceClose,
+  target,
+}: ResolveCloseRequestActionInput): CloseRequestAction {
+  if (forceClose || !closePromptState.requiresPrompt) {
+    return { kind: 'allow' };
+  }
+  if (busy) {
+    return { kind: 'preventOnly' };
+  }
+
+  const shouldSwitchToDirtyTab =
+    target === 'app' &&
+    !closePromptState.activeDirty &&
+    closePromptState.firstDirtyTabId !== null &&
+    closePromptState.firstDirtyTabId !== activeTabId;
+
+  return {
+    kind: 'prompt',
+    switchToTabId: shouldSwitchToDirtyTab ? closePromptState.firstDirtyTabId : null,
   };
 }
 
