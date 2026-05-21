@@ -7,6 +7,23 @@ export const SIDEBAR_KEYBOARD_STEP = 8;
 export const SIDEBAR_KEYBOARD_PAGE_STEP = 32;
 export const ACTIVITY_BAR_WIDTH = 48;
 
+export type SidebarPanel = 'files' | 'search' | 'outline';
+
+type SidebarPanelIntent = 'toggle' | 'show';
+
+type ResolveSidebarPanelStateInput = {
+  currentOpen: boolean;
+  currentPanel: SidebarPanel;
+  intent: SidebarPanelIntent;
+  targetPanel: SidebarPanel;
+};
+
+type SidebarPanelState = {
+  panel: SidebarPanel;
+  isOpen: boolean;
+  announcement: string | null;
+};
+
 type SidebarStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 export function readSidebarState(storage = getSidebarStorage()): boolean {
@@ -58,6 +75,22 @@ export function nextSidebarWidthFromKey(currentWidth: number, key: string): numb
   }
 }
 
+export function resolveSidebarPanelState({
+  currentOpen,
+  currentPanel,
+  intent,
+  targetPanel,
+}: ResolveSidebarPanelStateInput): SidebarPanelState {
+  const wasVisible = currentOpen && currentPanel === targetPanel;
+  const nextOpen = intent === 'show' ? true : !wasVisible;
+
+  return {
+    panel: targetPanel,
+    isOpen: nextOpen,
+    announcement: sidebarPanelAnnouncement(targetPanel, nextOpen, intent === 'show' && wasVisible),
+  };
+}
+
 export function readSidebarWidth(storage = getSidebarStorage()): number {
   try {
     const raw = storage?.getItem(SIDEBAR_WIDTH_KEY);
@@ -74,6 +107,28 @@ export function writeSidebarWidth(width: number, storage = getSidebarStorage()):
     storage?.setItem(SIDEBAR_WIDTH_KEY, String(clampSidebarWidth(width)));
   } catch {
     // localStorage unavailable; ignore
+  }
+}
+
+function sidebarPanelAnnouncement(
+  panel: SidebarPanel,
+  isOpen: boolean,
+  suppressShownMessage: boolean,
+): string | null {
+  if (!isOpen) {
+    return 'Sidebar hidden';
+  }
+  if (suppressShownMessage) {
+    return null;
+  }
+
+  switch (panel) {
+    case 'files':
+      return 'Files sidebar shown';
+    case 'search':
+      return 'Search sidebar shown';
+    case 'outline':
+      return 'Outline sidebar shown';
   }
 }
 

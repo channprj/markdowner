@@ -10,6 +10,7 @@ import {
   nextSidebarWidthFromKey,
   readSidebarState,
   readSidebarWidth,
+  resolveSidebarPanelState,
   sidebarWidthFromPointerX,
   writeSidebarState,
   writeSidebarWidth,
@@ -75,5 +76,63 @@ describe('sidebar state persistence', () => {
     expect(nextSidebarWidthFromKey(280, 'Home')).toBe(SIDEBAR_MIN_WIDTH);
     expect(nextSidebarWidthFromKey(280, 'End')).toBe(SIDEBAR_MAX_WIDTH);
     expect(nextSidebarWidthFromKey(280, 'Escape')).toBeNull();
+  });
+
+  it('toggles the current sidebar panel closed', () => {
+    expect(
+      resolveSidebarPanelState({
+        currentOpen: true,
+        currentPanel: 'files',
+        intent: 'toggle',
+        targetPanel: 'files',
+      }),
+    ).toEqual({
+      panel: 'files',
+      isOpen: false,
+      announcement: 'Sidebar hidden',
+    });
+  });
+
+  it('opens the requested panel when toggling from another panel or a closed sidebar', () => {
+    expect(
+      resolveSidebarPanelState({
+        currentOpen: true,
+        currentPanel: 'files',
+        intent: 'toggle',
+        targetPanel: 'search',
+      }),
+    ).toEqual({
+      panel: 'search',
+      isOpen: true,
+      announcement: 'Search sidebar shown',
+    });
+
+    expect(
+      resolveSidebarPanelState({
+        currentOpen: false,
+        currentPanel: 'outline',
+        intent: 'toggle',
+        targetPanel: 'files',
+      }),
+    ).toEqual({
+      panel: 'files',
+      isOpen: true,
+      announcement: 'Files sidebar shown',
+    });
+  });
+
+  it('shows a panel without re-announcing when it is already visible', () => {
+    expect(
+      resolveSidebarPanelState({
+        currentOpen: true,
+        currentPanel: 'search',
+        intent: 'show',
+        targetPanel: 'search',
+      }),
+    ).toEqual({
+      panel: 'search',
+      isOpen: true,
+      announcement: null,
+    });
   });
 });

@@ -249,9 +249,11 @@ import {
   nextSidebarWidthFromKey,
   readSidebarState,
   readSidebarWidth,
+  resolveSidebarPanelState,
   sidebarWidthFromPointerX,
   writeSidebarState,
   writeSidebarWidth,
+  type SidebarPanel,
 } from './lib/sidebarState';
 
 const EMPTY_SNAPSHOT: AppSnapshot = {
@@ -667,24 +669,28 @@ export default function App() {
     void getCurrentWindow().startDragging();
   };
 
-  const handleOpenFilesPanel = useEffectEvent(() => {
-    setSidebarPanel('files');
-    setIsSidebarOpen((current) => {
-      const next = current && sidebarPanel === 'files' ? !current : true;
-      writeSidebarState(next);
-      announceShell(next ? 'Files sidebar shown' : 'Sidebar hidden');
-      return next;
+  const applySidebarPanelState = (targetPanel: SidebarPanel, intent: 'toggle' | 'show') => {
+    const next = resolveSidebarPanelState({
+      currentOpen: isSidebarOpen,
+      currentPanel: sidebarPanel,
+      intent,
+      targetPanel,
     });
+    setSidebarPanel(next.panel);
+    setIsSidebarOpen(next.isOpen);
+    writeSidebarState(next.isOpen);
+    if (next.announcement) {
+      announceShell(next.announcement);
+    }
+    return next;
+  };
+
+  const handleOpenFilesPanel = useEffectEvent(() => {
+    applySidebarPanelState('files', 'toggle');
   });
 
   const handleShowExplorerPanel = useEffectEvent(() => {
-    const wasVisible = isSidebarOpen && sidebarPanel === 'files';
-    setSidebarPanel('files');
-    setIsSidebarOpen(true);
-    writeSidebarState(true);
-    if (!wasVisible) {
-      announceShell('Files sidebar shown');
-    }
+    applySidebarPanelState('files', 'show');
   });
 
   const handleToggleSidebar = useEffectEvent(() => {
@@ -787,33 +793,17 @@ export default function App() {
   };
 
   const handleOpenOutlinePanel = useEffectEvent(() => {
-    const next = !(isSidebarOpen && sidebarPanel === 'outline');
-    setSidebarPanel('outline');
-    setIsSidebarOpen(next);
-    writeSidebarState(next);
-    announceShell(next ? 'Outline sidebar shown' : 'Sidebar hidden');
+    applySidebarPanelState('outline', 'toggle');
   });
 
   const handleToggleSearchPanel = useEffectEvent(() => {
-    setSidebarPanel('search');
-    setIsSidebarOpen((current) => {
-      const next = current && sidebarPanel === 'search' ? !current : true;
-      writeSidebarState(next);
-      announceShell(next ? 'Search sidebar shown' : 'Sidebar hidden');
-      return next;
-    });
+    applySidebarPanelState('search', 'toggle');
     setSearchFocusToken((value) => value + 1);
   });
 
   const handleFocusSearchPanel = useEffectEvent(() => {
-    const wasAlreadyVisible = isSidebarOpen && sidebarPanel === 'search';
-    setSidebarPanel('search');
-    setIsSidebarOpen(true);
-    writeSidebarState(true);
+    applySidebarPanelState('search', 'show');
     setSearchFocusToken((value) => value + 1);
-    if (!wasAlreadyVisible) {
-      announceShell('Search sidebar shown');
-    }
   });
 
   const handleSearchQueryChange = (value: string) => {
