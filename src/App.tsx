@@ -113,9 +113,11 @@ import {
 } from './lib/fileDialogOptions';
 import { getErrorMessage } from './lib/errors';
 import {
+  CLEARED_EXTERNAL_CHANGE_STATE,
+  externalChangeDetectedState,
+  externalChangeVerificationErrorState,
   formatDiskReadError,
-  formatExternalChangeDetected,
-  formatExternalChangeVerificationError,
+  type ExternalChangeViewState,
 } from './lib/externalChanges';
 import { nextCursorPositionFromStatistics } from './lib/cursorPosition';
 import {
@@ -1667,12 +1669,20 @@ export default function App() {
   const workspaceTreeSignature = `${snapshot.rootDir ?? ''}\u0000${snapshot.workspaceDocuments.join('\u0000')}`;
   const outlinePanelSizing = resolveOutlinePanelSizing(settings);
 
+  const applyExternalChangeState = (next: ExternalChangeViewState) => {
+    setExternalChangeMessage(next.message);
+    setShowExternalChangeActions(next.showActions);
+    setExternalCompareSource(next.compareSource);
+  };
+
+  const clearExternalChangeState = () => {
+    applyExternalChangeState(CLEARED_EXTERNAL_CHANGE_STATE);
+  };
+
   const applySnapshot = (next: AppSnapshot, preserveDraft = false) => {
     startTransition(() => {
       setSnapshot(next);
-      setExternalChangeMessage(null);
-      setShowExternalChangeActions(false);
-      setExternalCompareSource(null);
+      clearExternalChangeState();
       if (!preserveDraft) {
         setLocalDraft(next.activeDocumentSource ?? '');
       }
@@ -1687,9 +1697,7 @@ export default function App() {
       setTabs([]);
       setActiveTabId(null);
       setLocalDraft('');
-      setExternalChangeMessage(null);
-      setShowExternalChangeActions(false);
-      setExternalCompareSource(null);
+      clearExternalChangeState();
       setSnapshot((current) => ({
         ...current,
         activeDocumentName: null,
@@ -1885,9 +1893,7 @@ export default function App() {
           startTransition(() => {
             if (nextSnapshot) {
               setSnapshot(nextSnapshot);
-              setExternalChangeMessage(null);
-              setShowExternalChangeActions(false);
-              setExternalCompareSource(null);
+              clearExternalChangeState();
               setLocalDraft(nextLocalDraft ?? '');
             } else if (nextLocalDraft !== null) {
               setLocalDraft(nextLocalDraft);
@@ -2071,9 +2077,7 @@ export default function App() {
               }
               return { ...next, mode: current.mode };
             });
-            setExternalChangeMessage(null);
-            setShowExternalChangeActions(false);
-            setExternalCompareSource(null);
+            clearExternalChangeState();
           });
         })
         .catch(() => undefined);
@@ -2244,32 +2248,24 @@ export default function App() {
 
   const hasExternalChanges = async () => {
     if (!activeDocumentOpen || !snapshot.activeDocumentPath) {
-      setExternalChangeMessage(null);
-      setShowExternalChangeActions(false);
-      setExternalCompareSource(null);
+      clearExternalChangeState();
       return false;
     }
 
     try {
       const changed = await hasActiveDocumentExternalChanges();
       if (!changed) {
-        setExternalChangeMessage(null);
-        setShowExternalChangeActions(false);
-        setExternalCompareSource(null);
+        clearExternalChangeState();
         return false;
       }
 
-      setExternalChangeMessage(formatExternalChangeDetected(snapshot.activeDocumentName));
-      setShowExternalChangeActions(true);
-      setExternalCompareSource(null);
+      applyExternalChangeState(externalChangeDetectedState(snapshot.activeDocumentName));
       return true;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      setExternalChangeMessage(
-        formatExternalChangeVerificationError(snapshot.activeDocumentName, reason),
+      applyExternalChangeState(
+        externalChangeVerificationErrorState(snapshot.activeDocumentName, reason),
       );
-      setShowExternalChangeActions(false);
-      setExternalCompareSource(null);
       return true;
     }
   };
@@ -2535,9 +2531,7 @@ export default function App() {
   };
 
   const handleKeepLocalChanges = () => {
-    setExternalChangeMessage(null);
-    setShowExternalChangeActions(false);
-    setExternalCompareSource(null);
+    clearExternalChangeState();
   };
 
   const handleCompareExternalChanges = async () => {

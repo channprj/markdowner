@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CLEARED_EXTERNAL_CHANGE_STATE,
+  externalChangeDetectedState,
+  externalChangeVerificationErrorState,
   formatDiskReadError,
   formatExternalChangeDetected,
   formatExternalChangeVerificationError,
@@ -32,5 +35,33 @@ describe('external change messages', () => {
     expect(formatDiskReadError(null, 'failed')).toBe(
       "Could not read disk version of 'Untitled.md': failed",
     );
+  });
+});
+
+describe('external change view state', () => {
+  it('describes the cleared external-change UI state', () => {
+    expect(CLEARED_EXTERNAL_CHANGE_STATE).toEqual({
+      message: null,
+      showActions: false,
+      compareSource: null,
+    });
+  });
+
+  it('builds the changed-on-disk state with visible actions', () => {
+    expect(externalChangeDetectedState('meeting-notes.md')).toEqual({
+      message: "Could not save 'meeting-notes.md' because it changed on disk.",
+      showActions: true,
+      compareSource: null,
+    });
+  });
+
+  it('builds the verification-error state without actions', () => {
+    expect(
+      externalChangeVerificationErrorState('meeting-notes.md', 'permission denied'),
+    ).toEqual({
+      message: "Could not verify external changes for 'meeting-notes.md': permission denied",
+      showActions: false,
+      compareSource: null,
+    });
   });
 });
