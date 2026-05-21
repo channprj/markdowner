@@ -5,8 +5,14 @@ src-tauri/target/
 node_modules/
 dist/
 .vite/
+
+# Local coding-agent artifacts
+AGENTS.md
+PLAN.md
+PRD.md
 tasks/
 .ralph-tui/
+.beads/
 docs/superpowers/
 
 
