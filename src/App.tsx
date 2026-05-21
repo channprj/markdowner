@@ -142,6 +142,7 @@ import {
 } from './lib/wysiwygFind';
 import {
   focusCodeBlockLanguageSelectorOnArrowUp,
+  shouldSuppressDuplicateImeTextInput,
   shouldSuppressSyntheticImeEnter,
 } from './lib/wysiwygKeyboard';
 
@@ -2211,33 +2212,17 @@ export default function App() {
         return false;
       },
       handleTextInput: (view: any, from: number, to: number, text: string) => {
-        // CJK IME duplicate-syllable guard. While the user is mid-composition,
-        // WebKit's Korean IME dispatches an extra `insertText` call that
-        // re-inserts the just-composed syllable AT THE CURSOR (from===to)
-        // immediately after the legitimate replace-with-final-form call,
-        // producing `# 안안녕하세요` from input `# 안녕하세요`. The duplicate
-        // is uniquely recognisable: it is an insertion (no range to replace)
-        // whose text exactly matches the characters already sitting just
-        // before the insertion point in the editor state. Swallow it.
-        //
-        // Constraints to avoid false positives:
-        //  • Only while a composition is active or has just ended — outside
-        //    that window, a user genuinely typing the same syllable twice in
-        //    a row (`안안경`, "안전" etc.) must still be honoured.
-        //  • Only when from === to (a pure insertion). Replacements are
-        //    composition-progress updates and are legitimate.
-        const now = Date.now();
-        if (
-          from === to &&
-          text.length > 0 &&
-          (isWysiwygComposingRef.current ||
-            now - lastWysiwygCompositionEndAtRef.current < 200)
-        ) {
-          const start = Math.max(0, from - text.length);
-          const before = view.state.doc.textBetween(start, from, '\n', '\n');
-          if (before === text) {
-            return true;
-          }
+        // CJK IME duplicate-syllable guard. See wysiwygKeyboard tests for the
+        // exact shape and false-positive constraints.
+        if (shouldSuppressDuplicateImeTextInput({
+          from,
+          to,
+          text,
+          isComposing: isWysiwygComposingRef.current,
+          lastCompositionEndAt: lastWysiwygCompositionEndAtRef.current,
+          textBetween: view.state.doc.textBetween.bind(view.state.doc),
+        })) {
+          return true;
         }
         return false;
       },

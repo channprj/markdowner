@@ -14,6 +14,16 @@ type CompositionState = {
   now?: number;
 };
 
+type DuplicateImeTextInputState = {
+  from: number;
+  to: number;
+  text: string;
+  isComposing: boolean;
+  lastCompositionEndAt?: number;
+  now?: number;
+  textBetween: (from: number, to: number, blockSeparator?: string, leafText?: string) => string;
+};
+
 type ProseMirrorResolvedPos = {
   depth: number;
   parentOffset: number;
@@ -34,6 +44,7 @@ type ProseMirrorKeyboardView = {
 };
 
 const SYNTHETIC_ENTER_COMPOSITION_WINDOW_MS = 500;
+const DUPLICATE_TEXT_INPUT_COMPOSITION_WINDOW_MS = 200;
 
 export function shouldSuppressSyntheticImeEnter(
   event: KeyboardLikeEvent,
@@ -49,6 +60,29 @@ export function shouldSuppressSyntheticImeEnter(
     Boolean(state.viewComposing) ||
     now - lastCompositionEndAt < SYNTHETIC_ENTER_COMPOSITION_WINDOW_MS
   );
+}
+
+/**
+ * WebKit's Korean IME can dispatch an extra pure insertion immediately after
+ * the legitimate replacement that commits a syllable. When the inserted text
+ * exactly matches the text before the cursor during the composition window,
+ * swallowing it prevents `# 안녕하세요` from becoming `# 안안녕하세요`.
+ */
+export function shouldSuppressDuplicateImeTextInput(
+  state: DuplicateImeTextInputState,
+): boolean {
+  if (state.from !== state.to || state.text.length === 0) return false;
+
+  const now = state.now ?? Date.now();
+  const lastCompositionEndAt = state.lastCompositionEndAt ?? Number.NEGATIVE_INFINITY;
+  const isInCompositionWindow =
+    state.isComposing ||
+    now - lastCompositionEndAt < DUPLICATE_TEXT_INPUT_COMPOSITION_WINDOW_MS;
+
+  if (!isInCompositionWindow) return false;
+
+  const start = Math.max(0, state.from - state.text.length);
+  return state.textBetween(start, state.from, '\n', '\n') === state.text;
 }
 
 export function focusCodeBlockLanguageSelectorOnArrowUp(

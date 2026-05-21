@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   focusCodeBlockLanguageSelectorOnArrowUp,
+  shouldSuppressDuplicateImeTextInput,
   shouldSuppressSyntheticImeEnter,
 } from './wysiwygKeyboard';
 
@@ -33,6 +34,61 @@ describe('shouldSuppressSyntheticImeEnter', () => {
         viewComposing: false,
         lastCompositionEndAt: 1_000,
         now: 1_250,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe('shouldSuppressDuplicateImeTextInput', () => {
+  it('suppresses pure insertions that duplicate the preceding text while composing', () => {
+    const textBetween = vi.fn(() => '안');
+
+    expect(
+      shouldSuppressDuplicateImeTextInput({
+        from: 3,
+        to: 3,
+        text: '안',
+        isComposing: true,
+        textBetween,
+      }),
+    ).toBe(true);
+    expect(textBetween).toHaveBeenCalledWith(2, 3, '\n', '\n');
+  });
+
+  it('keeps replacement composition updates', () => {
+    expect(
+      shouldSuppressDuplicateImeTextInput({
+        from: 2,
+        to: 3,
+        text: '안',
+        isComposing: true,
+        textBetween: vi.fn(() => '안'),
+      }),
+    ).toBe(false);
+  });
+
+  it('keeps non-matching insertions during composition', () => {
+    expect(
+      shouldSuppressDuplicateImeTextInput({
+        from: 3,
+        to: 3,
+        text: '녕',
+        isComposing: true,
+        textBetween: vi.fn(() => '안'),
+      }),
+    ).toBe(false);
+  });
+
+  it('uses the recent composition-end window for duplicate insertions', () => {
+    expect(
+      shouldSuppressDuplicateImeTextInput({
+        from: 3,
+        to: 3,
+        text: '안',
+        isComposing: false,
+        lastCompositionEndAt: 1_000,
+        now: 1_100,
+        textBetween: vi.fn(() => '안'),
       }),
     ).toBe(true);
   });
