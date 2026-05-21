@@ -8,6 +8,7 @@ import {
   findDocumentTabByPath,
   generateDocumentTabId,
   isDocumentTabDirty,
+  mergeRestoredDocumentTabs,
   type DocumentTab,
 } from './documentTabs';
 
@@ -153,5 +154,86 @@ describe('isDocumentTabDirty', () => {
         localDraft: 'changed',
       }),
     ).toBe(false);
+  });
+});
+
+describe('mergeRestoredDocumentTabs', () => {
+  it('keeps current document tabs, appends new restored documents, and keeps UI tabs last', () => {
+    const existing = documentTab({
+      id: 'existing',
+      path: '/tmp/existing.md',
+      name: 'existing.md',
+    });
+    const settings = createSettingsTab();
+    const restoredExisting = documentTab({
+      id: 'restored-existing',
+      path: '/tmp/existing.md',
+      name: 'existing.md',
+    });
+    const restoredNew = documentTab({
+      id: 'restored-new',
+      path: '/tmp/new.md',
+      name: 'new.md',
+    });
+
+    const result = mergeRestoredDocumentTabs({
+      currentTabs: [existing, settings],
+      restoredTabs: [restoredExisting, restoredNew],
+      currentActiveId: 'missing-active',
+      activePath: '/tmp/new.md',
+    });
+
+    expect(result.mergedTabs).toEqual([existing, restoredNew, settings]);
+    expect(result.nextActiveId).toBe('restored-new');
+    expect(result.nextActiveTab).toBe(restoredNew);
+  });
+
+  it('keeps the current active UI tab when it still exists after merging', () => {
+    const existing = documentTab({
+      id: 'existing',
+      path: '/tmp/existing.md',
+      name: 'existing.md',
+    });
+    const settings = createSettingsTab();
+    const restoredNew = documentTab({
+      id: 'restored-new',
+      path: '/tmp/new.md',
+      name: 'new.md',
+    });
+
+    const result = mergeRestoredDocumentTabs({
+      currentTabs: [existing, settings],
+      restoredTabs: [restoredNew],
+      currentActiveId: SETTINGS_TAB_ID,
+      activePath: '/tmp/new.md',
+    });
+
+    expect(result.mergedTabs).toEqual([existing, restoredNew, settings]);
+    expect(result.nextActiveId).toBe(SETTINGS_TAB_ID);
+    expect(result.nextActiveTab).toBe(settings);
+  });
+
+  it('falls back to the first merged tab when there is no active path or current active tab', () => {
+    const restoredFirst = documentTab({
+      id: 'restored-first',
+      path: '/tmp/first.md',
+      name: 'first.md',
+    });
+    const restoredSecond = documentTab({
+      id: 'restored-second',
+      path: '/tmp/second.md',
+      name: 'second.md',
+    });
+
+    const result = mergeRestoredDocumentTabs({
+      currentTabs: [],
+      restoredTabs: [restoredFirst, restoredSecond],
+      currentActiveId: null,
+      activePath: null,
+    });
+
+    expect(result.mergedTabs).toEqual([restoredFirst, restoredSecond]);
+    expect(result.nextActiveId).toBe('restored-first');
+    expect(result.nextActiveTab).toBe(restoredFirst);
   });
 });

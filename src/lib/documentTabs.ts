@@ -35,6 +35,19 @@ type TabDirtyContext = {
   localDraft: string;
 };
 
+type MergeRestoredDocumentTabsInput = {
+  currentTabs: readonly DocumentTab[];
+  restoredTabs: readonly DocumentTab[];
+  currentActiveId: string | null;
+  activePath: string | null;
+};
+
+type MergeRestoredDocumentTabsResult = {
+  mergedTabs: DocumentTab[];
+  nextActiveId: string | null;
+  nextActiveTab: DocumentTab | null;
+};
+
 export function generateDocumentTabId(entropy: TabIdEntropy = {}): string {
   const randomUUID =
     'randomUUID' in entropy
@@ -88,4 +101,30 @@ export function isDocumentTabDirty(tab: DocumentTab, context: TabDirtyContext): 
   if (tab.kind !== 'document') return false;
   const live = tab.id === context.activeTabId ? context.localDraft : tab.draft;
   return normalizeFinalNewline(live) !== normalizeFinalNewline(tab.source);
+}
+
+export function mergeRestoredDocumentTabs(
+  input: MergeRestoredDocumentTabsInput,
+): MergeRestoredDocumentTabsResult {
+  const currentDocumentTabs = input.currentTabs.filter((tab) => tab.kind === 'document');
+  const currentUiTabs = input.currentTabs.filter((tab) => tab.kind !== 'document');
+  const currentDocumentPaths = new Set(currentDocumentTabs.map((tab) => tab.path));
+  const restoredAdditions = input.restoredTabs.filter(
+    (tab) => !currentDocumentPaths.has(tab.path),
+  );
+  const mergedTabs = [...currentDocumentTabs, ...restoredAdditions, ...currentUiTabs];
+  const target = input.activePath
+    ? input.restoredTabs.find((tab) => tab.path === input.activePath)
+    : input.restoredTabs[0];
+  const currentActiveStillExists =
+    input.currentActiveId !== null &&
+    mergedTabs.some((tab) => tab.id === input.currentActiveId);
+  const nextActiveId = currentActiveStillExists
+    ? input.currentActiveId
+    : target?.id ?? mergedTabs[0]?.id ?? null;
+  const nextActiveTab = nextActiveId
+    ? mergedTabs.find((tab) => tab.id === nextActiveId) ?? null
+    : null;
+
+  return { mergedTabs, nextActiveId, nextActiveTab };
 }

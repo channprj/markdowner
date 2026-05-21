@@ -108,6 +108,7 @@ import {
   findDocumentTabByPath,
   generateDocumentTabId,
   isDocumentTabDirty,
+  mergeRestoredDocumentTabs,
   type DocumentTab,
 } from './lib/documentTabs';
 import {
@@ -1975,24 +1976,14 @@ export default function App() {
           }
           if (cancelled) return;
           const activePath = persistedTabs.activeTabPath;
-          const target = activePath
-            ? restored.find((tab) => tab.path === activePath)
-            : restored[0];
-          const currentTabs = tabsRef.current;
-          const currentActiveId = activeTabIdRef.current;
-          const currentDocumentTabs = currentTabs.filter((tab) => tab.kind === 'document');
-          const currentUiTabs = currentTabs.filter((tab) => tab.kind !== 'document');
-          const currentDocumentPaths = new Set(currentDocumentTabs.map((tab) => tab.path));
-          const restoredAdditions = restored.filter((tab) => !currentDocumentPaths.has(tab.path));
-          let mergedTabs = [...currentDocumentTabs, ...restoredAdditions, ...currentUiTabs];
-          const currentActiveStillExists =
-            currentActiveId !== null && mergedTabs.some((tab) => tab.id === currentActiveId);
-          const nextActiveId = currentActiveStillExists
-            ? currentActiveId
-            : target?.id ?? mergedTabs[0]?.id ?? null;
-          const nextActiveTab = nextActiveId
-            ? mergedTabs.find((tab) => tab.id === nextActiveId) ?? null
-            : null;
+          const restoredMerge = mergeRestoredDocumentTabs({
+            currentTabs: tabsRef.current,
+            restoredTabs: restored,
+            currentActiveId: activeTabIdRef.current,
+            activePath,
+          });
+          let { mergedTabs } = restoredMerge;
+          const { nextActiveId, nextActiveTab } = restoredMerge;
           let nextSnapshot: AppSnapshot | null = null;
           let nextLocalDraft: string | null = null;
 
