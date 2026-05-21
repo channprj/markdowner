@@ -8,6 +8,12 @@ export function buildSourceLineStartOffsets(source: string): number[] {
   return offsets;
 }
 
+export function lineTextFromOffset(source: string, offset: number): string {
+  const lineEnd = source.indexOf('\n', offset);
+  const text = source.slice(offset, lineEnd === -1 ? source.length : lineEnd);
+  return text.endsWith('\r') ? text.slice(0, -1) : text;
+}
+
 export function sourceOffsetForLine(
   lineNumber: number,
   lineStartOffsets: readonly number[],

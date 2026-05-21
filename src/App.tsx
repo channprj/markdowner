@@ -148,6 +148,7 @@ import {
   buildSourceLineStartOffsets,
   clampSourceOffset,
   countLiteralOccurrencesBefore,
+  lineTextFromOffset,
   normalizeFinalNewline,
   sourceOffsetForLine,
 } from './lib/sourceText';
@@ -293,12 +294,6 @@ const CHORD_PREFIX_TIMEOUT_MS = 1500;
 // at this cadence and force-flush at synchronization points (save, mode
 // switch, tab stash, close prompts) to keep correctness without the cost.
 const WYSIWYG_FLUSH_DEBOUNCE_MS = 120;
-
-function lineTextFromOffset(source: string, offset: number) {
-  const lineEnd = source.indexOf('\n', offset);
-  const text = source.slice(offset, lineEnd === -1 ? source.length : lineEnd);
-  return text.endsWith('\r') ? text.slice(0, -1) : text;
-}
 
 function syncScrollPosition(source: HTMLElement, target: HTMLElement | null) {
   if (!target) return;

@@ -4,6 +4,7 @@ import {
   buildSourceLineStartOffsets,
   clampSourceOffset,
   countLiteralOccurrencesBefore,
+  lineTextFromOffset,
   normalizeFinalNewline,
   sourceOffsetForLine,
 } from './sourceText';
@@ -53,5 +54,15 @@ describe('countLiteralOccurrencesBefore', () => {
 
   it('returns zero for empty needles', () => {
     expect(countLiteralOccurrencesBefore('alpha', '', 5)).toBe(0);
+  });
+});
+
+describe('lineTextFromOffset', () => {
+  it('returns the text from an offset through the next newline', () => {
+    expect(lineTextFromOffset('alpha\nbeta\ngamma', 6)).toBe('beta');
+  });
+
+  it('strips a trailing carriage return from CRLF lines', () => {
+    expect(lineTextFromOffset('alpha\r\nbeta', 0)).toBe('alpha');
   });
 });
