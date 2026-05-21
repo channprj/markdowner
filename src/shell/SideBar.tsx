@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { FindReplaceOptions } from '@/lib/findReplace';
+import type { OutlineItem } from '@/lib/outline';
 import {
   KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
@@ -50,16 +51,6 @@ function readCollapsedSections(): Record<ExplorerSectionId, boolean> {
 }
 
 export type SideBarPanel = 'files' | 'search' | 'outline';
-
-export interface OutlineItem {
-  id: string;
-  title: string;
-  depth: number;
-  titleStart: number;
-  titleEnd: number;
-  selectionStart: number;
-  selectionEnd: number;
-}
 
 export interface SearchResultMatch {
   line: number;

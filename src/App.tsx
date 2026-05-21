@@ -62,7 +62,6 @@ import { Tabs } from '@/shell/Tabs';
 import { QuickOpen, type QuickOpenItem } from '@/shell/QuickOpen';
 import {
   SideBar,
-  type OutlineItem,
   type SearchResultFile,
   type SearchResultMatch,
   type SideBarPanel,
@@ -132,6 +131,7 @@ import {
   isOpenLinkClick,
   openMarkdownLink,
 } from './lib/linkOpener';
+import { parseMarkdownOutline, type OutlineItem } from './lib/outline';
 import { createSourceLinkClickExtension } from './lib/sourceLinkClick';
 import {
   buildSourceLineStartOffsets,
@@ -1243,32 +1243,10 @@ export default function App() {
       tables,
     };
   }, [deferredLocalDraft]);
-  const outlineItems = useMemo<OutlineItem[]>(() => {
-    if (!activeDocumentOpen) {
-      return [];
-    }
-
-    const matches = Array.from(deferredLocalDraft.matchAll(/^(#{1,6})\s+(.+?)\s*#*\s*$/gm));
-    return matches.map((match, index) => {
-      const lineStart = match.index ?? 0;
-      const rawTitle = match[2] ?? '';
-      const title = rawTitle.trim();
-      const rawTitleStartInLine = match[0].indexOf(rawTitle);
-      const trimmedPrefixLength = rawTitle.length - rawTitle.trimStart().length;
-      const titleStart =
-        lineStart + Math.max(0, rawTitleStartInLine) + trimmedPrefixLength;
-
-      return {
-        id: `${index}-${lineStart}`,
-        depth: match[1]?.length ?? 1,
-        title,
-        titleStart,
-        titleEnd: titleStart + title.length,
-        selectionStart: lineStart,
-        selectionEnd: lineStart + match[0].trimEnd().length,
-      };
-    });
-  }, [activeDocumentOpen, deferredLocalDraft]);
+  const outlineItems = useMemo<OutlineItem[]>(
+    () => (activeDocumentOpen ? parseMarkdownOutline(deferredLocalDraft) : []),
+    [activeDocumentOpen, deferredLocalDraft],
+  );
   const sourceLineStartOffsets = useMemo(
     () => buildSourceLineStartOffsets(localDraft),
     [localDraft],
