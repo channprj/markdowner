@@ -129,6 +129,7 @@ import {
   MARKDOWN_CONTENT_SCOPE_CLASS,
   scopeImportedStylesheet,
 } from './lib/themeScope';
+import { WINDOW_TITLE, buildWindowTitle, formatThemeLabel } from './lib/shellDisplay';
 import {
   findClickedAnchorHref,
   isOpenLinkClick,
@@ -194,7 +195,6 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 };
 
 const MARKDOWN_FILE_EXTENSIONS = ['md', 'markdown', 'mdown', 'mkd'];
-const WINDOW_TITLE = 'Markdowner';
 const MENU_COMMAND_EVENT = 'markdowner://menu-command';
 const SNAPSHOT_UPDATE_EVENT = 'markdowner://update-snapshot';
 const MENU_COMMAND_CLOSE_WINDOW = 'close-window';
@@ -471,16 +471,6 @@ function formatEditorMode(mode: EditorMode): string {
   return EDITOR_MODE_LABELS[mode] ?? mode;
 }
 
-const THEME_KIND_LABELS: Record<ThemeKind, string> = {
-  BuiltInLight: 'Light',
-  BuiltInDark: 'Dark',
-  CustomCss: 'Custom',
-};
-
-function formatThemeLabel(kind: ThemeKind): string {
-  return THEME_KIND_LABELS[kind] ?? kind;
-}
-
 function applyThemeSelection(themeKind: ThemeKind) {
   document.documentElement.dataset.theme = themeKind;
 }
@@ -498,15 +488,6 @@ function applyImportedStylesheet(snapshot: AppSnapshot) {
   if (!existing) {
     document.head.appendChild(style);
   }
-}
-
-function buildWindowTitle(snapshot: AppSnapshot) {
-  if (snapshot.activeDocumentSource === null || !snapshot.activeDocumentName) {
-    return WINDOW_TITLE;
-  }
-
-  const prefix = snapshot.activeDocumentDirty ? '● ' : '';
-  return `${prefix}${snapshot.activeDocumentName} — ${WINDOW_TITLE}`;
 }
 
 function centerSourceEditorLine(view: EditorView) {
