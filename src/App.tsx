@@ -160,6 +160,18 @@ import {
   filterWorkspaceTree,
   type WorkspaceTreeNode,
 } from './lib/workspaceTree';
+import {
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_KEYBOARD_PAGE_STEP,
+  SIDEBAR_KEYBOARD_STEP,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  clampSidebarWidth,
+  readSidebarState,
+  readSidebarWidth,
+  writeSidebarState,
+  writeSidebarWidth,
+} from './lib/sidebarState';
 
 const EMPTY_SNAPSHOT: AppSnapshot = {
   rootDir: null,
@@ -276,13 +288,6 @@ const sourceLineMarkdownComponents = {
   tr: createSourceLineComponent('tr'),
 } satisfies Components;
 
-const SIDEBAR_STATE_KEY = 'markdowner.sidebarOpen';
-const SIDEBAR_WIDTH_KEY = 'markdowner.sidebarWidth';
-const SIDEBAR_MIN_WIDTH = 220;
-const SIDEBAR_MAX_WIDTH = 720;
-const SIDEBAR_DEFAULT_WIDTH = 280;
-const SIDEBAR_KEYBOARD_STEP = 8;
-const SIDEBAR_KEYBOARD_PAGE_STEP = 32;
 const CHORD_PREFIX_TIMEOUT_MS = 1500;
 // Debounce window for serializing the WYSIWYG ProseMirror tree into markdown.
 // `editor.getMarkdown()` is O(N) over the doc; on multi-thousand-line files
@@ -290,48 +295,6 @@ const CHORD_PREFIX_TIMEOUT_MS = 1500;
 // at this cadence and force-flush at synchronization points (save, mode
 // switch, tab stash, close prompts) to keep correctness without the cost.
 const WYSIWYG_FLUSH_DEBOUNCE_MS = 120;
-
-function readSidebarState(): boolean {
-  try {
-    const value = window.localStorage.getItem(SIDEBAR_STATE_KEY);
-    if (value === null) return false; // Collapsed by default
-    return value === 'true';
-  } catch {
-    return false;
-  }
-}
-
-function writeSidebarState(isOpen: boolean) {
-  try {
-    window.localStorage.setItem(SIDEBAR_STATE_KEY, String(isOpen));
-  } catch {
-    // localStorage unavailable; ignore
-  }
-}
-
-function clampSidebarWidth(width: number): number {
-  if (!Number.isFinite(width)) return SIDEBAR_DEFAULT_WIDTH;
-  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)));
-}
-
-function readSidebarWidth(): number {
-  try {
-    const raw = window.localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    if (raw === null) return SIDEBAR_DEFAULT_WIDTH;
-    const parsed = Number.parseInt(raw, 10);
-    return clampSidebarWidth(parsed);
-  } catch {
-    return SIDEBAR_DEFAULT_WIDTH;
-  }
-}
-
-function writeSidebarWidth(width: number) {
-  try {
-    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(clampSidebarWidth(width)));
-  } catch {
-    // localStorage unavailable; ignore
-  }
-}
 
 function lineTextFromOffset(source: string, offset: number) {
   const lineEnd = source.indexOf('\n', offset);

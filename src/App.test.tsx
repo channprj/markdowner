@@ -324,6 +324,8 @@ describe('App recent documents', () => {
     closeRequestedHandler = undefined;
     menuCommandHandler = undefined;
     updateSnapshotHandler = undefined;
+    window.localStorage.removeItem('markdowner.sidebarOpen');
+    window.localStorage.removeItem('markdowner.sidebarWidth');
     onCloseRequestedMock.mockImplementation(async (handler) => {
       closeRequestedHandler = handler;
       return vi.fn();
@@ -3332,7 +3334,9 @@ describe('App recent documents', () => {
     render(<App />);
 
     const sourceEditor = await screen.findByRole('textbox', { name: /source editor/i });
-    const initialSelectionStart = (sourceEditor as HTMLTextAreaElement).selectionStart;
+    const sourceTextarea = sourceEditor as HTMLTextAreaElement;
+    sourceTextarea.setSelectionRange(0, 0);
+    const initialSelectionStart = sourceTextarea.selectionStart;
 
     fireEvent.keyDown(window, { key: 'f', metaKey: true });
 
@@ -3345,13 +3349,13 @@ describe('App recent documents', () => {
     // editor selection has not moved to a match.
     expect(within(search).getByText(/press enter to search/i)).toBeInTheDocument();
     expect(within(search).queryByText(/of /i)).toBeNull();
-    expect((sourceEditor as HTMLTextAreaElement).selectionStart).toBe(initialSelectionStart);
+    expect(sourceTextarea.selectionStart).toBe(initialSelectionStart);
 
     fireEvent.keyDown(findInput, { key: 'Enter' });
 
     await waitFor(() => {
       expect(within(search).getByText('1 of 3')).toBeInTheDocument();
-      expect((sourceEditor as HTMLTextAreaElement).selectionStart).toBe(2);
+      expect(sourceTextarea.selectionStart).toBe(2);
     });
   });
 
