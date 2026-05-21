@@ -124,6 +124,7 @@ import {
   type ExternalChangeViewState,
 } from './lib/externalChanges';
 import { nextCursorPositionFromStatistics } from './lib/cursorPosition';
+import { clearActiveDocumentSnapshot } from './lib/snapshotState';
 import {
   SETTINGS_TAB_ID,
   createDocumentTab,
@@ -1698,14 +1699,7 @@ export default function App() {
       setActiveTabId(null);
       setLocalDraft('');
       clearExternalChangeState();
-      setSnapshot((current) => ({
-        ...current,
-        activeDocumentName: null,
-        activeDocumentPath: null,
-        activeDocumentSource: null,
-        activeDocumentDirty: false,
-        lastError: null,
-      }));
+      setSnapshot(clearActiveDocumentSnapshot);
     });
   };
 
