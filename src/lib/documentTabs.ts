@@ -48,6 +48,22 @@ type MergeRestoredDocumentTabsResult = {
   nextActiveTab: DocumentTab | null;
 };
 
+type UpsertDocumentTabInput = {
+  currentTabs: readonly DocumentTab[];
+  currentActiveId: string | null;
+  path: string | null;
+  name: string;
+  source: string;
+  reuseTabId?: string | null;
+  preserveSettingsActive?: boolean;
+  generateId?: () => string;
+};
+
+type UpsertDocumentTabResult = {
+  tabs: DocumentTab[];
+  activeTabId: string | null;
+};
+
 export function generateDocumentTabId(entropy: TabIdEntropy = {}): string {
   const randomUUID =
     'randomUUID' in entropy
@@ -127,4 +143,66 @@ export function mergeRestoredDocumentTabs(
     : null;
 
   return { mergedTabs, nextActiveId, nextActiveTab };
+}
+
+export function upsertDocumentTab(input: UpsertDocumentTabInput): UpsertDocumentTabResult {
+  const current = input.currentTabs;
+  let tabs = current;
+  let documentTabId: string | null = null;
+
+  const replaceAt = (index: number) => {
+    tabs = current.map((tab, tabIndex) =>
+      tabIndex === index
+        ? createDocumentTab({
+            id: tab.id,
+            path: input.path,
+            name: input.name,
+            source: input.source,
+          })
+        : tab,
+    );
+    documentTabId = tabs[index].id;
+  };
+
+  if (input.reuseTabId) {
+    const reusedAt = current.findIndex(
+      (tab) => tab.kind === 'document' && tab.id === input.reuseTabId,
+    );
+    if (reusedAt >= 0) replaceAt(reusedAt);
+  }
+
+  if (documentTabId === null && input.path !== null) {
+    const matchAt = current.findIndex(
+      (tab) => tab.kind === 'document' && tab.path === input.path,
+    );
+    if (matchAt >= 0) replaceAt(matchAt);
+  }
+
+  if (documentTabId === null && input.path === null) {
+    const untitledAt = current.findIndex(
+      (tab) => tab.kind === 'document' && tab.path === null,
+    );
+    if (untitledAt >= 0) replaceAt(untitledAt);
+  }
+
+  if (documentTabId === null) {
+    const newTab = createDocumentTab({
+      id: input.generateId?.() ?? generateDocumentTabId(),
+      path: input.path,
+      name: input.name,
+      source: input.source,
+    });
+    tabs = [...current, newTab];
+    documentTabId = newTab.id;
+  }
+
+  const currentActiveIsSettings =
+    input.preserveSettingsActive === true &&
+    input.currentActiveId !== null &&
+    tabs.some((tab) => tab.id === input.currentActiveId && tab.kind === 'settings');
+
+  return {
+    tabs: [...tabs],
+    activeTabId: currentActiveIsSettings ? input.currentActiveId : documentTabId,
+  };
 }

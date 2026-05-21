@@ -9,6 +9,7 @@ import {
   generateDocumentTabId,
   isDocumentTabDirty,
   mergeRestoredDocumentTabs,
+  upsertDocumentTab,
   type DocumentTab,
 } from './documentTabs';
 
@@ -235,5 +236,96 @@ describe('mergeRestoredDocumentTabs', () => {
     expect(result.mergedTabs).toEqual([restoredFirst, restoredSecond]);
     expect(result.nextActiveId).toBe('restored-first');
     expect(result.nextActiveTab).toBe(restoredFirst);
+  });
+});
+
+describe('upsertDocumentTab', () => {
+  it('reuses an explicit document tab and preserves an active settings tab', () => {
+    const draft = documentTab({
+      id: 'draft',
+      path: null,
+      name: 'Untitled',
+      draft: 'unsaved',
+    });
+    const settings = createSettingsTab();
+
+    const result = upsertDocumentTab({
+      currentTabs: [draft, settings],
+      currentActiveId: SETTINGS_TAB_ID,
+      path: '/tmp/restored.md',
+      name: 'restored.md',
+      source: '# Restored',
+      reuseTabId: 'draft',
+      preserveSettingsActive: true,
+      generateId: () => 'unused',
+    });
+
+    expect(result.tabs).toEqual([
+      createDocumentTab({
+        id: 'draft',
+        path: '/tmp/restored.md',
+        name: 'restored.md',
+        source: '# Restored',
+      }),
+      settings,
+    ]);
+    expect(result.activeTabId).toBe(SETTINGS_TAB_ID);
+  });
+
+  it('replaces a matching path before appending a new tab', () => {
+    const existing = documentTab({
+      id: 'existing',
+      path: '/tmp/existing.md',
+      name: 'existing.md',
+    });
+    const other = documentTab({
+      id: 'other',
+      path: '/tmp/other.md',
+      name: 'other.md',
+    });
+
+    const result = upsertDocumentTab({
+      currentTabs: [existing, other],
+      currentActiveId: 'other',
+      path: '/tmp/existing.md',
+      name: 'existing-renamed.md',
+      source: '# Reloaded',
+      generateId: () => 'unused',
+    });
+
+    expect(result.tabs).toEqual([
+      createDocumentTab({
+        id: 'existing',
+        path: '/tmp/existing.md',
+        name: 'existing-renamed.md',
+        source: '# Reloaded',
+      }),
+      other,
+    ]);
+    expect(result.activeTabId).toBe('existing');
+  });
+
+  it('appends a generated document tab when no existing tab matches', () => {
+    const settings = createSettingsTab();
+
+    const result = upsertDocumentTab({
+      currentTabs: [settings],
+      currentActiveId: SETTINGS_TAB_ID,
+      path: '/tmp/new.md',
+      name: 'new.md',
+      source: '# New',
+      generateId: () => 'generated',
+    });
+
+    expect(result.tabs).toEqual([
+      settings,
+      createDocumentTab({
+        id: 'generated',
+        path: '/tmp/new.md',
+        name: 'new.md',
+        source: '# New',
+      }),
+    ]);
+    expect(result.activeTabId).toBe('generated');
   });
 });

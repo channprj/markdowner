@@ -584,6 +584,11 @@ describe('App recent documents', () => {
     });
     bootstrapMock.mockResolvedValue(activeSnapshot);
     openDialogMock.mockResolvedValue(null);
+    replaceActiveDocumentSourceMock.mockImplementation(async (source: string) => ({
+      ...activeSnapshot,
+      activeDocumentSource: source,
+      activeDocumentDirty: true,
+    }));
     saveActiveDocumentMock.mockResolvedValue(activeSnapshot);
     openWorkspaceDocumentMock.mockResolvedValue({
       ...activeSnapshot,

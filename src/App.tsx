@@ -109,6 +109,7 @@ import {
   generateDocumentTabId,
   isDocumentTabDirty,
   mergeRestoredDocumentTabs,
+  upsertDocumentTab,
   type DocumentTab,
 } from './lib/documentTabs';
 import {
@@ -517,65 +518,23 @@ export default function App() {
     const name = next.activeDocumentName ?? 'Untitled';
     const source = next.activeDocumentSource ?? '';
     const reuseId = options.reuseTabId ?? null;
-    const current = tabsRef.current;
+    const result = upsertDocumentTab({
+      currentTabs: tabsRef.current,
+      currentActiveId: activeTabIdRef.current,
+      path,
+      name,
+      source,
+      reuseTabId: reuseId,
+      preserveSettingsActive: options.preserveSettingsActive,
+    });
 
-    let newTabs = current;
-    let newActiveId: string | null = null;
-
-    const replaceAt = (index: number) => {
-      newTabs = current.map((tab, i) =>
-        i === index
-          ? createDocumentTab({ id: tab.id, path, name, source })
-          : tab,
-      );
-      newActiveId = newTabs[index].id;
-    };
-
-    if (reuseId) {
-      const reusedAt = current.findIndex(
-        (tab) => tab.kind === 'document' && tab.id === reuseId,
-      );
-      if (reusedAt >= 0) replaceAt(reusedAt);
-    }
-
-    if (newActiveId === null && path !== null) {
-      const matchAt = current.findIndex(
-        (tab) => tab.kind === 'document' && tab.path === path,
-      );
-      if (matchAt >= 0) replaceAt(matchAt);
-    }
-
-    if (newActiveId === null && path === null) {
-      const untitledAt = current.findIndex(
-        (tab) => tab.kind === 'document' && tab.path === null,
-      );
-      if (untitledAt >= 0) replaceAt(untitledAt);
-    }
-
-    if (newActiveId === null) {
-      const newTab = createDocumentTab({
-        id: generateDocumentTabId(),
-        path,
-        name,
-        source,
-      });
-      newTabs = [...current, newTab];
-      newActiveId = newTab.id;
-    }
-
-    tabsRef.current = newTabs;
+    tabsRef.current = result.tabs;
     // Startup can finish after the user has already opened Settings. In that
     // narrow path, keep Settings active while still adding the document tab.
-    const currentActive = activeTabIdRef.current;
-    const currentActiveIsSettings =
-      options.preserveSettingsActive === true &&
-      currentActive !== null &&
-      newTabs.some((tab) => tab.id === currentActive && tab.kind === 'settings');
-    const committedActiveId = currentActiveIsSettings ? currentActive : newActiveId;
-    activeTabIdRef.current = committedActiveId;
+    activeTabIdRef.current = result.activeTabId;
     startTransition(() => {
-      setTabs(newTabs);
-      setActiveTabId(committedActiveId);
+      setTabs(result.tabs);
+      setActiveTabId(result.activeTabId);
       if (options.markStartupTabsReady) {
         setStartupTabsReady(true);
       }
