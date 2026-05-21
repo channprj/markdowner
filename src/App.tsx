@@ -100,6 +100,7 @@ import {
   replaceSingleMatch,
   type FindReplaceOptions,
 } from './lib/findReplace';
+import { getErrorMessage } from './lib/errors';
 import { nextCursorPositionFromStatistics } from './lib/cursorPosition';
 import {
   wysiwygCursorMarkdownOffset,
@@ -421,16 +422,6 @@ function countLiteralOccurrencesBefore(source: string, needle: string, endOffset
   }
 
   return count;
-}
-
-function getErrorMessage(error: unknown, fallback = 'Operation failed') {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-  if (typeof error === 'string' && error.trim().length > 0) {
-    return error;
-  }
-  return fallback;
 }
 
 type EditorModeOption = {
