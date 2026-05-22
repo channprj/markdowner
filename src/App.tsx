@@ -35,8 +35,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -54,6 +52,7 @@ import { AppMenu } from '@/shell/AppMenu';
 import { AppOverlays } from '@/shell/AppOverlays';
 import { EditorArea } from '@/shell/EditorArea';
 import { FindReplaceBar } from '@/shell/FindReplaceBar';
+import { MarkdownPreviewPane } from '@/shell/MarkdownPreviewPane';
 import { Tabs } from '@/shell/Tabs';
 import { TitleBar } from '@/shell/TitleBar';
 import {
@@ -222,7 +221,6 @@ import {
   readSourceNumber,
 } from './lib/sourcePreviewClick';
 import { createSourceLinkClickExtension } from './lib/sourceLinkClick';
-import { sourceLineMarkdownComponents } from './lib/sourceLineComponents';
 import { parseNativeMenuCommand } from './lib/nativeMenuCommand';
 import {
   createLatestRequestTracker,
@@ -3813,19 +3811,7 @@ export default function App() {
           />
         }
         splitViewPreview={
-          <div
-            className={cn(
-              'markdown-surface flex-1 px-8 py-6',
-              MARKDOWN_CONTENT_SCOPE_CLASS,
-            )}
-          >
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={sourceLineMarkdownComponents}
-            >
-              {previewSource}
-            </ReactMarkdown>
-          </div>
+          <MarkdownPreviewPane source={previewSource} />
         }
       />
       </div>
