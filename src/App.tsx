@@ -86,7 +86,10 @@ import {
   saveOpenTabs,
   searchWorkspace,
 } from './lib/desktop';
-import { calculateDocumentStats } from './lib/documentStats';
+import {
+  buildEditorDocumentMetrics,
+  resolveEditorPreviewSource,
+} from './lib/editorDocumentState';
 import { resolveCloseDecisionAction } from './lib/closeDecision';
 import {
   buildCloseConfirmationDialog,
@@ -205,7 +208,7 @@ import {
   resolveTabShortcut,
   resolveTabShortcutAction,
 } from './lib/keyboardShortcuts';
-import { parseMarkdownOutline, type OutlineItem } from './lib/outline';
+import type { OutlineItem } from './lib/outline';
 import { syncScrollPosition } from './lib/scrollSync';
 import {
   estimateRenderedTextOffset,
@@ -597,19 +600,18 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [localDraft]);
 
-  // Heavy text-derived values: defer them off the keystroke critical path.
-  // useDeferredValue lets CodeMirror commit the new draft synchronously while
-  // React schedules the expensive recomputations (stats, outline, minimap,
-  // line offsets) at a lower priority. Without this, 2-3k line documents
-  // recompute every regex on every cursor tick and stall key repeat.
+  // Heavy text-derived values: defer document metrics off the keystroke
+  // critical path. CodeMirror still sees the live draft for selection and
+  // line-offset mapping, while React schedules stats and outline work at a
+  // lower priority.
   const deferredLocalDraft = useDeferredValue(localDraft);
 
-  const documentStats = useMemo(
-    () => calculateDocumentStats(deferredLocalDraft),
-    [deferredLocalDraft],
-  );
-  const outlineItems = useMemo<OutlineItem[]>(
-    () => (activeDocumentOpen ? parseMarkdownOutline(deferredLocalDraft) : []),
+  const { documentStats, outlineItems } = useMemo(
+    () =>
+      buildEditorDocumentMetrics({
+        activeDocumentOpen,
+        deferredDraft: deferredLocalDraft,
+      }),
     [activeDocumentOpen, deferredLocalDraft],
   );
   const sourceLineStartOffsets = useMemo(
@@ -2166,9 +2168,10 @@ export default function App() {
     }
   }, [editor, localDraft, activeTabId]);
 
-  const previewSource = activeDocumentOpen
-    ? debouncedLocalDraft
-    : '*Open a Markdown document to preview it.*';
+  const previewSource = resolveEditorPreviewSource({
+    activeDocumentOpen,
+    debouncedDraft: debouncedLocalDraft,
+  });
   const sourceEditorExtensions = useMemo(
     () =>
       buildSourceEditorExtensions({
