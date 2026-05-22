@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDocumentMeta,
   buildOpenEditorItems,
+  buildStatusBarModel,
   buildTabStripItems,
 } from './shellModel';
 import type { DocumentTab } from './documentTabs';
@@ -133,5 +134,77 @@ describe('buildDocumentMeta', () => {
         activeDocumentOpen: false,
       }),
     ).toBe('Open a workspace or a Markdown file to begin.');
+  });
+});
+
+describe('buildStatusBarModel', () => {
+  it('maps active document state into status bar display props', () => {
+    expect(
+      buildStatusBarModel({
+        currentMode: 'Editor',
+        themeKind: 'BuiltInDark',
+        busy: true,
+        activeDocumentOpen: true,
+        activeDocumentDirty: true,
+        activeDocumentName: 'draft.md',
+        activeDocumentPath: '/tmp/project/docs/draft.md',
+        rootDir: '/tmp/project',
+        cursorPosition: { line: 12, column: 4 },
+        documentStats: {
+          words: 321,
+          characters: 1800,
+          readingTimeMinutes: 2,
+        },
+      }),
+    ).toEqual({
+      mode: 'Editor',
+      theme: 'Dark',
+      busy: true,
+      isDirty: true,
+      documentName: 'draft.md',
+      documentPath: '/tmp/project/docs/draft.md',
+      workspaceName: 'project',
+      activeDocumentLabel: 'docs/draft.md',
+      cursorLine: 12,
+      cursorColumn: 4,
+      wordCount: 321,
+      characterCount: 1800,
+      readingTimeMinutes: 2,
+    });
+  });
+
+  it('hides document-only details when there is no active document or WYSIWYG owns the cursor', () => {
+    expect(
+      buildStatusBarModel({
+        currentMode: 'Wysiwyg',
+        themeKind: 'BuiltInLight',
+        busy: false,
+        activeDocumentOpen: false,
+        activeDocumentDirty: false,
+        activeDocumentName: null,
+        activeDocumentPath: null,
+        rootDir: '/tmp/project',
+        cursorPosition: { line: 6, column: 3 },
+        documentStats: {
+          words: 12,
+          characters: 48,
+          readingTimeMinutes: 1,
+        },
+      }),
+    ).toEqual({
+      mode: 'WYSIWYG',
+      theme: 'Light',
+      busy: false,
+      isDirty: null,
+      documentName: null,
+      documentPath: null,
+      workspaceName: 'project',
+      activeDocumentLabel: null,
+      cursorLine: null,
+      cursorColumn: null,
+      wordCount: null,
+      characterCount: null,
+      readingTimeMinutes: null,
+    });
   });
 });

@@ -193,11 +193,11 @@ import {
   WINDOW_TITLE,
   buildWindowTitle,
   formatEditorMode,
-  formatThemeLabel,
 } from './lib/shellDisplay';
 import {
   buildDocumentMeta,
   buildOpenEditorItems,
+  buildStatusBarModel,
   buildTabStripItems,
 } from './lib/shellModel';
 import {
@@ -3527,6 +3527,18 @@ export default function App() {
     tabs,
     isDirty: tabIsDirty,
   });
+  const statusBarModel = buildStatusBarModel({
+    currentMode,
+    themeKind: snapshot.theme.kind,
+    busy,
+    activeDocumentOpen,
+    activeDocumentDirty: snapshot.activeDocumentDirty,
+    activeDocumentName: snapshot.activeDocumentName,
+    activeDocumentPath: snapshot.activeDocumentPath,
+    rootDir: snapshot.rootDir,
+    cursorPosition,
+    documentStats,
+  });
   const sidebarLayout = resolveSidebarLayoutState({
     isOpen: isSidebarOpen,
     width: sidebarWidth,
@@ -3842,25 +3854,7 @@ export default function App() {
       />
       <ShortcutsDialog open={isShortcutsOpen} onOpenChange={setIsShortcutsOpen} />
 
-      <StatusBar
-        mode={formatEditorMode(currentMode)}
-        theme={formatThemeLabel(snapshot.theme.kind)}
-        busy={busy}
-        isDirty={activeDocumentOpen ? snapshot.activeDocumentDirty : null}
-        documentName={snapshot.activeDocumentName}
-        documentPath={snapshot.activeDocumentPath}
-        workspaceName={snapshot.rootDir ? displayFileName(snapshot.rootDir) : null}
-        activeDocumentLabel={
-          snapshot.activeDocumentPath
-            ? displayWorkspacePath(snapshot.activeDocumentPath, snapshot.rootDir)
-            : null
-        }
-        cursorLine={currentMode === 'Wysiwyg' ? null : cursorPosition.line}
-        cursorColumn={currentMode === 'Wysiwyg' ? null : cursorPosition.column}
-        wordCount={activeDocumentOpen ? documentStats.words : null}
-        characterCount={activeDocumentOpen ? documentStats.characters : null}
-        readingTimeMinutes={activeDocumentOpen ? documentStats.readingTimeMinutes : null}
-      />
+      <StatusBar {...statusBarModel} />
     </div>
   );
 }
