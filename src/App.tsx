@@ -20,7 +20,6 @@ import { createCodeBlockExtension } from '@/components/wysiwyg/codeBlockExtensio
 import { PreventTableHoverSelection } from '@/components/wysiwyg/preventTableHoverSelection';
 import { SourceEditorView } from '@/components/SourceEditorView';
 import CodeMirror, { EditorView } from '@uiw/react-codemirror';
-import { ChevronDown, ChevronRight, FileText, FolderOpen } from 'lucide-react';
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
@@ -67,6 +66,7 @@ import {
 } from '@/shell/SideBar';
 import { StatusBar } from '@/shell/StatusBar';
 import { SettingsPanel } from '@/shell/SettingsPanel';
+import { WorkspaceTree } from '@/shell/WorkspaceTree';
 import { buildCommandPaletteCommands } from '@/shell/commandPaletteCommands';
 
 import {
@@ -251,7 +251,6 @@ import {
   filterWorkspaceTree,
   pruneCollapsedWorkspaceFolderKeys,
   toggleWorkspaceFolderKey,
-  type WorkspaceTreeNode,
 } from './lib/workspaceTree';
 import { buildQuickOpenItems } from './lib/quickOpenItems';
 import {
@@ -3021,58 +3020,6 @@ export default function App() {
     }
   });
 
-  const renderWorkspaceTreeNode = (node: WorkspaceTreeNode, depth = 0) => {
-    if (node.kind === 'folder') {
-      const collapsed = !filteringWorkspace && collapsedFolderKeys.includes(node.key);
-
-      return (
-        <div key={node.key} className="flex flex-col">
-          <button
-            type="button"
-            className="explorer-tree-row flex w-full items-center gap-1.5 text-left text-xs text-sidebar-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            aria-expanded={!collapsed}
-            data-explorer-row=""
-            onClick={() => handleToggleWorkspaceFolder(node.key)}
-            style={{ paddingLeft: `${4 + depth * 12}px` }}
-          >
-            {collapsed ? (
-              <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-            ) : (
-              <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-            )}
-            <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <span className="truncate">{node.name}</span>
-          </button>
-          {!collapsed ? (
-            <div className="flex flex-col">
-              {node.children.map((child) => renderWorkspaceTreeNode(child, depth + 1))}
-            </div>
-          ) : null}
-        </div>
-      );
-    }
-
-    const isActive = node.path === snapshot.activeDocumentPath;
-
-    return (
-      <button
-        key={node.key}
-        type="button"
-        className={cn(
-          'explorer-tree-row flex w-full items-center gap-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground',
-          isActive && 'bg-accent text-accent-foreground',
-        )}
-        data-explorer-row=""
-        onClick={() => handleOpenWorkspaceDocument(node.path)}
-        style={{ paddingLeft: `${24 + depth * 12}px` }}
-      >
-        <FileText className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span className="truncate">{node.name}</span>
-        <span className="sr-only" aria-hidden="true">{node.relativePath}</span>
-      </button>
-    );
-  };
-
   useEffect(() => {
     const handleKeyboardShortcut = (event: KeyboardEvent) => {
       if (busy) {
@@ -3716,7 +3663,16 @@ export default function App() {
           onSelectOpenEditor={(id) => void switchToTab(id)}
           onCloseOpenEditor={(id) => void handleCloseTab(id)}
           onOpenRecentDocument={handleOpenRecentDocument}
-          renderWorkspaceTreeNodes={() => filteredWorkspaceTree.map((node) => renderWorkspaceTreeNode(node))}
+          renderWorkspaceTreeNodes={() => (
+            <WorkspaceTree
+              nodes={filteredWorkspaceTree}
+              activePath={snapshot.activeDocumentPath}
+              collapsedKeys={collapsedFolderKeys}
+              filtering={filteringWorkspace}
+              onToggleFolder={handleToggleWorkspaceFolder}
+              onOpenFile={(path) => void handleOpenWorkspaceDocument(path)}
+            />
+          )}
           displayFileName={displayFileName}
           displayWorkspacePath={displayWorkspacePath}
           outlineItems={outlineItems}
