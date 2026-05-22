@@ -226,6 +226,8 @@ import {
   resolveSourcePreviewSelectionOffset,
 } from './lib/sourcePreviewClick';
 import { buildSourceEditorExtensions } from './lib/sourceEditorExtensions';
+import { resolveSourceSurfaceMouseDown } from './lib/sourceEditorInteractions';
+import { shouldFocusStartupEditor } from './lib/startupEditorFocus';
 import { parseNativeMenuCommand } from './lib/nativeMenuCommand';
 import {
   createLatestRequestTracker,
@@ -1034,17 +1036,17 @@ export default function App() {
   // clicking the wrapper's padding zone should move the caret to the closest
   // text position, not silently do nothing.
   const handleSourceSurfaceMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
-    const view = sourceEditorViewRef.current;
-    if (!view) return;
-    if (currentMode !== 'Editor' && currentMode !== 'SplitView') return;
-    const target = event.target as Node | null;
-    if (!target) return;
-    if (view.dom.contains(target)) return;
+    const action = resolveSourceSurfaceMouseDown({
+      currentMode,
+      view: sourceEditorViewRef.current,
+      target: event.target as Node | null,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+    if (action.kind === 'ignore') return;
+
     event.preventDefault();
-    const pos =
-      view.posAtCoords({ x: event.clientX, y: event.clientY }, false) ??
-      view.state.doc.length;
-    focusSourceSelection(pos);
+    focusSourceSelection(action.position);
   };
 
   const handleSplitPreviewClick = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -1917,14 +1919,26 @@ export default function App() {
       const docSize = editorInstance.state.doc.content.size;
       if (pending.location && docSize <= 2 && (localDraft?.length ?? 0) > 0) return;
       const pos = wysiwygPositionAtSourceLocation(editorInstance, location);
+      const shouldFocus = shouldFocusStartupEditor({
+        activeElement: document.activeElement,
+        documentBody: document.body,
+        documentElement: document.documentElement,
+        editorDom: editorInstance.view.dom,
+      });
       try {
         if (pos !== null) {
-          editorInstance.chain().focus().setTextSelection(pos).scrollIntoView().run();
-        } else {
+          if (shouldFocus) {
+            editorInstance.chain().focus().setTextSelection(pos).scrollIntoView().run();
+          } else {
+            editorInstance.chain().setTextSelection(pos).scrollIntoView().run();
+          }
+        } else if (shouldFocus) {
           editorInstance.chain().focus('start').run();
         }
       } catch {
-        editorInstance.commands.focus?.();
+        if (shouldFocus) {
+          editorInstance.commands.focus?.();
+        }
       }
       startupRestoreRef.current = null;
       return;
@@ -1937,7 +1951,16 @@ export default function App() {
       selection: sourceEditorSelectionForLocation(view.state.doc, location),
       scrollIntoView: true,
     });
-    view.focus();
+    if (
+      shouldFocusStartupEditor({
+        activeElement: document.activeElement,
+        documentBody: document.body,
+        documentElement: document.documentElement,
+        editorDom: view.dom,
+      })
+    ) {
+      view.focus();
+    }
     startupRestoreRef.current = null;
   }, [
     snapshot,
