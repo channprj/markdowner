@@ -101,7 +101,7 @@ import {
   nextFindMatchIndexAfterReplace,
   replaceAllMatches,
   replaceSingleMatch,
-  resolveFindMatchSelection,
+  resolveFindReplaceViewState,
   type FindReplaceOptions,
 } from './lib/findReplace';
 import {
@@ -1495,14 +1495,22 @@ export default function App() {
         : null,
     [currentMode, editor, findOptions, findQuery, localDraft],
   );
-  const findResult = wysiwygFindResult ?? sourceFindResult;
-  const findMatches = findResult.matches;
-  const findMatchCount = findMatches.length;
-  const findMatchSelection = resolveFindMatchSelection(findMatches, activeFindMatchIndex);
-  const activeFindMatch = findMatchSelection.activeMatch;
-  const canReplaceFindMatch =
-    activeDocumentOpen && (currentMode !== 'Wysiwyg' || Boolean(editor));
-  const activeFindMatchNumber = findMatchSelection.activeMatchNumber;
+  const findViewState = resolveFindReplaceViewState({
+    sourceResult: sourceFindResult,
+    wysiwygResult: wysiwygFindResult,
+    activeIndex: activeFindMatchIndex,
+    activeDocumentOpen,
+    currentMode,
+    wysiwygEditorAvailable: Boolean(editor),
+  });
+  const {
+    result: findResult,
+    matches: findMatches,
+    matchCount: findMatchCount,
+    activeMatch: activeFindMatch,
+    canReplace: canReplaceFindMatch,
+    activeMatchNumber: activeFindMatchNumber,
+  } = findViewState;
 
   useEffect(() => {
     if (activeFindMatchIndex >= findMatchCount) {

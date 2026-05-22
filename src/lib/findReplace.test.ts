@@ -7,6 +7,7 @@ import {
   replaceAllMatches,
   replaceSingleMatch,
   resolveFindMatchSelection,
+  resolveFindReplaceViewState,
   type FindReplaceOptions,
 } from './findReplace';
 
@@ -81,6 +82,49 @@ describe('findReplace', () => {
       activeMatchNumber: 0,
       activeIndex: 0,
     });
+  });
+
+  it('resolves the app find/replace view state from source or WYSIWYG results', () => {
+    const sourceResult = findTextMatches('Alpha beta alpha', 'alpha', defaultOptions);
+    const wysiwygResult = {
+      matches: [
+        {
+          ...sourceResult.matches[0],
+          wysiwygFrom: 3,
+          wysiwygTo: 8,
+        },
+      ],
+      error: null,
+    };
+
+    expect(
+      resolveFindReplaceViewState({
+        sourceResult,
+        wysiwygResult,
+        activeIndex: 3,
+        activeDocumentOpen: true,
+        currentMode: 'Wysiwyg',
+        wysiwygEditorAvailable: true,
+      }),
+    ).toEqual({
+      result: wysiwygResult,
+      matches: wysiwygResult.matches,
+      matchCount: 1,
+      activeMatch: wysiwygResult.matches[0],
+      activeMatchNumber: 1,
+      canReplace: true,
+    });
+
+    expect(
+      resolveFindReplaceViewState({
+        sourceResult,
+        wysiwygResult: null,
+        activeIndex: 0,
+        activeDocumentOpen: true,
+        currentMode: 'Wysiwyg',
+        wysiwygEditorAvailable: false,
+      }).canReplace,
+    ).toBe(false);
   });
 
   it('wraps next and previous match indexes', () => {

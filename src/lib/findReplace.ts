@@ -26,6 +26,26 @@ export type FindMatchSelection = {
   activeIndex: number;
 };
 
+type FindReplaceMode = 'Wysiwyg' | 'Editor' | 'SplitView';
+
+type ResolveFindReplaceViewStateInput = {
+  sourceResult: FindTextResult;
+  wysiwygResult: FindTextResult | null;
+  activeIndex: number;
+  activeDocumentOpen: boolean;
+  currentMode: FindReplaceMode;
+  wysiwygEditorAvailable: boolean;
+};
+
+export type FindReplaceViewState = {
+  result: FindTextResult;
+  matches: FindMatch[];
+  matchCount: number;
+  activeMatch: FindMatch | undefined;
+  activeMatchNumber: number;
+  canReplace: boolean;
+};
+
 const WORD_CHARACTER_PATTERN = /[A-Za-z0-9_]/;
 
 function isWordCharacter(value: string | undefined) {
@@ -190,6 +210,29 @@ export function resolveFindMatchSelection(
     activeMatch: matches[clampedIndex],
     activeMatchNumber: clampedIndex + 1,
     activeIndex: clampedIndex,
+  };
+}
+
+export function resolveFindReplaceViewState({
+  sourceResult,
+  wysiwygResult,
+  activeIndex,
+  activeDocumentOpen,
+  currentMode,
+  wysiwygEditorAvailable,
+}: ResolveFindReplaceViewStateInput): FindReplaceViewState {
+  const result = wysiwygResult ?? sourceResult;
+  const matches = result.matches;
+  const selection = resolveFindMatchSelection(matches, activeIndex);
+
+  return {
+    result,
+    matches,
+    matchCount: matches.length,
+    activeMatch: selection.activeMatch,
+    activeMatchNumber: selection.activeMatchNumber,
+    canReplace:
+      activeDocumentOpen && (currentMode !== 'Wysiwyg' || wysiwygEditorAvailable),
   };
 }
 
