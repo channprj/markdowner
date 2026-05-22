@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveActiveDraftSyncPlan } from './draftSync';
+import {
+  resolveActiveDraftSyncPlan,
+  resolveAutoSaveEligibility,
+} from './draftSync';
 
 describe('resolveActiveDraftSyncPlan', () => {
   it('does nothing when there is no active document source to sync', () => {
@@ -66,5 +69,58 @@ describe('resolveActiveDraftSyncPlan', () => {
       shouldReplaceActiveSource: false,
       shouldUpdateLocalDraft: false,
     });
+  });
+});
+
+describe('resolveAutoSaveEligibility', () => {
+  it('schedules when auto-save has a dirty path-backed document and runs only when not busy', () => {
+    expect(
+      resolveAutoSaveEligibility({
+        autoSave: true,
+        busy: true,
+        activeDocumentOpen: true,
+        activeDocumentPath: '/tmp/draft.md',
+        hasUnsavedChanges: true,
+      }),
+    ).toEqual({
+      shouldSchedule: true,
+      shouldRun: false,
+    });
+
+    expect(
+      resolveAutoSaveEligibility({
+        autoSave: true,
+        busy: false,
+        activeDocumentOpen: true,
+        activeDocumentPath: '/tmp/draft.md',
+        hasUnsavedChanges: true,
+      }),
+    ).toEqual({
+      shouldSchedule: true,
+      shouldRun: true,
+    });
+  });
+
+  it('does not schedule for disabled, clean, untitled, or closed documents', () => {
+    const base = {
+      autoSave: true,
+      busy: false,
+      activeDocumentOpen: true,
+      activeDocumentPath: '/tmp/draft.md',
+      hasUnsavedChanges: true,
+    };
+
+    expect(resolveAutoSaveEligibility({ ...base, autoSave: false }).shouldSchedule).toBe(
+      false,
+    );
+    expect(
+      resolveAutoSaveEligibility({ ...base, activeDocumentOpen: false }).shouldSchedule,
+    ).toBe(false);
+    expect(
+      resolveAutoSaveEligibility({ ...base, activeDocumentPath: null }).shouldSchedule,
+    ).toBe(false);
+    expect(
+      resolveAutoSaveEligibility({ ...base, hasUnsavedChanges: false }).shouldSchedule,
+    ).toBe(false);
   });
 });

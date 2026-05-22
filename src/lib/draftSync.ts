@@ -14,6 +14,19 @@ type ActiveDraftSyncPlan = {
   shouldUpdateLocalDraft: boolean;
 };
 
+type ResolveAutoSaveEligibilityInput = {
+  autoSave: boolean;
+  busy: boolean;
+  activeDocumentOpen: boolean;
+  activeDocumentPath: string | null | undefined;
+  hasUnsavedChanges: boolean;
+};
+
+type AutoSaveEligibility = {
+  shouldSchedule: boolean;
+  shouldRun: boolean;
+};
+
 export function resolveActiveDraftSyncPlan(
   input: ResolveActiveDraftSyncPlanInput,
 ): ActiveDraftSyncPlan | null {
@@ -29,5 +42,24 @@ export function resolveActiveDraftSyncPlan(
     shouldReplaceActiveSource:
       normalizeFinalNewline(outgoingDraft) !== normalizeFinalNewline(input.activeDocumentSource),
     shouldUpdateLocalDraft: outgoingDraft !== draft,
+  };
+}
+
+export function resolveAutoSaveEligibility({
+  autoSave,
+  busy,
+  activeDocumentOpen,
+  activeDocumentPath,
+  hasUnsavedChanges,
+}: ResolveAutoSaveEligibilityInput): AutoSaveEligibility {
+  const shouldSchedule =
+    autoSave &&
+    activeDocumentOpen &&
+    Boolean(activeDocumentPath) &&
+    hasUnsavedChanges;
+
+  return {
+    shouldSchedule,
+    shouldRun: shouldSchedule && !busy,
   };
 }

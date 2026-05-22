@@ -97,7 +97,10 @@ import {
   resolveClosePromptState,
   resolveCloseRequestAction,
 } from './lib/closePrompt';
-import { resolveActiveDraftSyncPlan } from './lib/draftSync';
+import {
+  resolveActiveDraftSyncPlan,
+  resolveAutoSaveEligibility,
+} from './lib/draftSync';
 import {
   findTextMatches,
   nextFindMatchIndex,
@@ -2639,20 +2642,21 @@ export default function App() {
     });
   };
 
+  const autoSaveEligibility = resolveAutoSaveEligibility({
+    autoSave: settings.autoSave,
+    busy,
+    activeDocumentOpen,
+    activeDocumentPath: snapshot.activeDocumentPath,
+    hasUnsavedChanges,
+  });
+
   const triggerAutoSave = useEffectEvent(() => {
-    if (!settings.autoSave) return;
-    if (busy) return;
-    if (!activeDocumentOpen) return;
-    if (!snapshot.activeDocumentPath) return;
-    if (!hasUnsavedChanges) return;
+    if (!autoSaveEligibility.shouldRun) return;
     void handleSave();
   });
 
   useEffect(() => {
-    if (!settings.autoSave) return;
-    if (!activeDocumentOpen) return;
-    if (!snapshot.activeDocumentPath) return;
-    if (!hasUnsavedChanges) return;
+    if (!autoSaveEligibility.shouldSchedule) return;
 
     const timer = window.setTimeout(() => {
       triggerAutoSave();
@@ -2663,6 +2667,7 @@ export default function App() {
     activeDocumentOpen,
     snapshot.activeDocumentPath,
     hasUnsavedChanges,
+    autoSaveEligibility.shouldSchedule,
     localDraft,
   ]);
 
