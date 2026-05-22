@@ -10,6 +10,7 @@ import {
   nextSidebarWidthFromKey,
   readSidebarState,
   readSidebarWidth,
+  resolveSidebarLayoutState,
   resolveSidebarPanelState,
   sidebarWidthFromPointerX,
   writeSidebarState,
@@ -133,6 +134,40 @@ describe('sidebar state persistence', () => {
       panel: 'search',
       isOpen: true,
       announcement: null,
+    });
+  });
+
+  it('derives open sidebar layout state for the app grid and resize handle', () => {
+    expect(
+      resolveSidebarLayoutState({
+        isOpen: true,
+        width: 312,
+        isResizing: false,
+      }),
+    ).toEqual({
+      gridTemplateColumns: '48px 312px 4px minmax(0, 1fr)',
+      gridShouldAnimate: true,
+      resizeHandleTabIndex: 0,
+      resizeHandleInteractive: true,
+      resizeRailActive: false,
+      resizeRailHoverable: true,
+    });
+  });
+
+  it('derives collapsed and resizing sidebar layout state', () => {
+    expect(
+      resolveSidebarLayoutState({
+        isOpen: false,
+        width: 312,
+        isResizing: true,
+      }),
+    ).toEqual({
+      gridTemplateColumns: '48px 0px 0px minmax(0, 1fr)',
+      gridShouldAnimate: false,
+      resizeHandleTabIndex: -1,
+      resizeHandleInteractive: false,
+      resizeRailActive: true,
+      resizeRailHoverable: false,
     });
   });
 });

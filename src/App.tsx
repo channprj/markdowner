@@ -277,6 +277,7 @@ import {
   nextSidebarWidthFromKey,
   readSidebarState,
   readSidebarWidth,
+  resolveSidebarLayoutState,
   resolveSidebarPanelState,
   sidebarWidthFromPointerX,
   writeSidebarState,
@@ -3526,6 +3527,11 @@ export default function App() {
     tabs,
     isDirty: tabIsDirty,
   });
+  const sidebarLayout = resolveSidebarLayoutState({
+    isOpen: isSidebarOpen,
+    width: sidebarWidth,
+    isResizing: isResizingSidebar,
+  });
   const quickOpenItems = buildQuickOpenItems(snapshot);
 
   const handleQuickOpenSelect = (path: string) => {
@@ -3626,13 +3632,10 @@ export default function App() {
       <div
         className={cn(
           'min-h-0 flex-1 grid',
-          !isResizingSidebar && 'transition-[grid-template-columns] duration-300 ease-in-out',
+          sidebarLayout.gridShouldAnimate &&
+            'transition-[grid-template-columns] duration-300 ease-in-out',
         )}
-        style={{
-          gridTemplateColumns: isSidebarOpen
-            ? `48px ${sidebarWidth}px 4px minmax(0, 1fr)`
-            : '48px 0px 0px minmax(0, 1fr)',
-        }}
+        style={{ gridTemplateColumns: sidebarLayout.gridTemplateColumns }}
       >
         <ActivityBar
           onOpenSettings={() => void toggleSettingsTab()}
@@ -3700,21 +3703,23 @@ export default function App() {
           aria-valuemin={SIDEBAR_MIN_WIDTH}
           aria-valuemax={SIDEBAR_MAX_WIDTH}
           title="Drag to resize sidebar (double-click to reset, arrow keys to adjust)"
-          tabIndex={isSidebarOpen ? 0 : -1}
+          tabIndex={sidebarLayout.resizeHandleTabIndex}
           onPointerDown={handleSidebarResizeStart}
           onDoubleClick={handleSidebarResetWidth}
           onKeyDown={handleSidebarResizeKeyDown}
           className={cn(
             'group relative h-full select-none',
-            isSidebarOpen ? 'cursor-col-resize' : 'pointer-events-none',
+            sidebarLayout.resizeHandleInteractive
+              ? 'cursor-col-resize'
+              : 'pointer-events-none',
           )}
           style={{ touchAction: 'none' }}
         >
           <div
             className={cn(
               'absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border transition-colors',
-              isResizingSidebar && 'bg-primary',
-              isSidebarOpen && 'group-hover:bg-primary/60',
+              sidebarLayout.resizeRailActive && 'bg-primary',
+              sidebarLayout.resizeRailHoverable && 'group-hover:bg-primary/60',
             )}
           />
         </div>

@@ -26,6 +26,21 @@ type SidebarPanelState = {
 
 type SidebarStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
+type ResolveSidebarLayoutStateInput = {
+  isOpen: boolean;
+  width: number;
+  isResizing: boolean;
+};
+
+type SidebarLayoutState = {
+  gridTemplateColumns: string;
+  gridShouldAnimate: boolean;
+  resizeHandleTabIndex: 0 | -1;
+  resizeHandleInteractive: boolean;
+  resizeRailActive: boolean;
+  resizeRailHoverable: boolean;
+};
+
 export function readSidebarState(storage = getSidebarStorage()): boolean {
   try {
     const value = storage?.getItem(SIDEBAR_STATE_KEY);
@@ -88,6 +103,23 @@ export function resolveSidebarPanelState({
     panel: targetPanel,
     isOpen: nextOpen,
     announcement: sidebarPanelAnnouncement(targetPanel, nextOpen, intent === 'show' && wasVisible),
+  };
+}
+
+export function resolveSidebarLayoutState({
+  isOpen,
+  width,
+  isResizing,
+}: ResolveSidebarLayoutStateInput): SidebarLayoutState {
+  return {
+    gridTemplateColumns: isOpen
+      ? `${ACTIVITY_BAR_WIDTH}px ${clampSidebarWidth(width)}px 4px minmax(0, 1fr)`
+      : `${ACTIVITY_BAR_WIDTH}px 0px 0px minmax(0, 1fr)`,
+    gridShouldAnimate: !isResizing,
+    resizeHandleTabIndex: isOpen ? 0 : -1,
+    resizeHandleInteractive: isOpen,
+    resizeRailActive: isResizing,
+    resizeRailHoverable: isOpen,
   };
 }
 
