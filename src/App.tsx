@@ -59,7 +59,7 @@ import {
 } from '@/shell/SideBar';
 import { SidebarResizeHandle } from '@/shell/SidebarResizeHandle';
 import { StatusBar } from '@/shell/StatusBar';
-import { SettingsPanel } from '@/shell/SettingsPanel';
+import { SettingsTabContent } from '@/shell/SettingsTabContent';
 import { WorkspaceTree } from '@/shell/WorkspaceTree';
 import { WysiwygEditorChrome } from '@/shell/WysiwygEditorChrome';
 import { buildCommandPaletteCommands } from '@/shell/commandPaletteCommands';
@@ -2884,7 +2884,7 @@ export default function App() {
         if (transition.kind === 'activateSettings') {
           // Settings is a UI-only surface — stay on the current snapshot but
           // hand the active-tab pointer to the settings tab so the editor
-          // area swaps to SettingsPanel.
+          // area swaps to the settings content.
           setActiveTabId(transition.target.id);
           return;
         }
@@ -3704,25 +3704,12 @@ export default function App() {
           onCloseTab={(id) => void handleCloseTab(id)}
         />
       {isSettingsTabActive ? (
-        <SettingsPanel
+        <SettingsTabContent
           settings={settings}
           onSettingsChange={handleSettingsChange}
-          currentTheme={
-            settings.themeFollowSystem
-              ? 'system'
-              : snapshot.theme.kind === 'BuiltInDark'
-                ? 'dark'
-                : 'light'
-          }
-          onThemeChange={(choice) => {
-            if (choice === 'system') {
-              void handleFollowSystemTheme();
-            } else if (choice === 'dark') {
-              void handleSetTheme('BuiltInDark');
-            } else {
-              void handleSetTheme('BuiltInLight');
-            }
-          }}
+          themeKind={snapshot.theme.kind}
+          onSetTheme={(theme) => void handleSetTheme(theme)}
+          onFollowSystemTheme={() => void handleFollowSystemTheme()}
         />
       ) : null}
       <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', isSettingsTabActive && 'hidden')}>
