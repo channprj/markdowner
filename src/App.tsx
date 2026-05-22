@@ -221,6 +221,10 @@ import { createSourceLinkClickExtension } from './lib/sourceLinkClick';
 import { sourceLineMarkdownComponents } from './lib/sourceLineComponents';
 import { parseNativeMenuCommand } from './lib/nativeMenuCommand';
 import {
+  createLatestRequestTracker,
+  type LatestRequestTracker,
+} from './lib/latestRequest';
+import {
   buildSourceLineStartOffsets,
   clampSourceOffset,
   countLiteralOccurrencesBefore,
@@ -307,6 +311,14 @@ const CHORD_PREFIX_TIMEOUT_MS = 1500;
 // switch, tab stash, close prompts) to keep correctness without the cost.
 const WYSIWYG_FLUSH_DEBOUNCE_MS = 120;
 
+function useLatestRequestTracker(): LatestRequestTracker {
+  const trackerRef = useRef<LatestRequestTracker | null>(null);
+  if (trackerRef.current === null) {
+    trackerRef.current = createLatestRequestTracker();
+  }
+  return trackerRef.current;
+}
+
 const sourceFocusModeExtension = EditorView.theme({
   '&.cm-focused .cm-line': {
     opacity: '0.46',
@@ -365,7 +377,7 @@ export default function App() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchHasRun, setSearchHasRun] = useState(false);
   const [searchFocusToken, setSearchFocusToken] = useState(0);
-  const searchRequestIdRef = useRef(0);
+  const searchRequests = useLatestRequestTracker();
   const [shellAnnouncement, setShellAnnouncement] = useState('');
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [debouncedLocalDraft, setDebouncedLocalDraft] = useState(localDraft);
@@ -377,9 +389,9 @@ export default function App() {
   const sourceEditorContainerRef = useRef<HTMLDivElement | null>(null);
   const splitSourceScrollRef = useRef<HTMLDivElement | null>(null);
   const splitPreviewScrollRef = useRef<HTMLDivElement | null>(null);
-  const modeRequestIdRef = useRef(0);
-  const themeRequestIdRef = useRef(0);
-  const externalCompareRequestIdRef = useRef(0);
+  const modeRequests = useLatestRequestTracker();
+  const themeRequests = useLatestRequestTracker();
+  const externalCompareRequests = useLatestRequestTracker();
   const busyDepthRef = useRef(0);
   const liveRegionTimerRef = useRef<number | null>(null);
   const lastAnnouncedModeRef = useRef<EditorMode | null>(null);
@@ -528,13 +540,10 @@ export default function App() {
   // this guard, two overlapping flows (e.g. CMD+N fired while a close-then-
   // switch is mid-await) commit state in arrival order rather than user
   // intent order, leaving the editor on the previous file's contents.
-  const editorOpRequestIdRef = useRef(0);
-  const nextEditorOpRequest = () => ++editorOpRequestIdRef.current;
-  const isEditorOpStale = (token: number) =>
-    editorOpRequestIdRef.current !== token;
-  const editorOpAbortOptions = (token: number) => ({
-    shouldAbort: () => isEditorOpStale(token),
-  });
+  const editorOpRequests = useLatestRequestTracker();
+  const nextEditorOpRequest = () => editorOpRequests.begin();
+  const isEditorOpStale = (token: number) => editorOpRequests.isStale(token);
+  const editorOpAbortOptions = (token: number) => editorOpRequests.abortOptions(token);
   // Tracks the document tab that was active immediately before the settings
   // tab was opened. Closing the settings tab restores this without
   // round-tripping through Rust (the snapshot never changed while settings
@@ -840,8 +849,7 @@ export default function App() {
       return;
     }
 
-    const requestId = searchRequestIdRef.current + 1;
-    searchRequestIdRef.current = requestId;
+    const requestId = searchRequests.begin();
     setSearchBusy(true);
     setSearchError(null);
 
@@ -851,17 +859,17 @@ export default function App() {
         tabs,
       });
       const result = await searchWorkspace(searchQuery, searchOptions, paths);
-      if (searchRequestIdRef.current !== requestId) return;
+      if (searchRequests.isStale(requestId)) return;
       setSearchResults(result.files);
       setSearchHasRun(true);
     } catch (error) {
-      if (searchRequestIdRef.current !== requestId) return;
+      if (searchRequests.isStale(requestId)) return;
       const message = error instanceof Error ? error.message : String(error);
       setSearchError(message || 'Search failed');
       setSearchResults([]);
       setSearchHasRun(true);
     } finally {
-      if (searchRequestIdRef.current === requestId) {
+      if (searchRequests.isCurrent(requestId)) {
         setSearchBusy(false);
       }
     }
@@ -1946,9 +1954,8 @@ export default function App() {
     sourceEditorViewToken,
   ]);
 
-  const nextThemeRequest = () => ++themeRequestIdRef.current;
-  const isThemeRequestStale = (requestId: number) =>
-    themeRequestIdRef.current !== requestId;
+  const nextThemeRequest = () => themeRequests.begin();
+  const isThemeRequestStale = (requestId: number) => themeRequests.isStale(requestId);
   const applyThemeSnapshotIfCurrent = (requestId: number, next: AppSnapshot) => {
     if (isThemeRequestStale(requestId)) return false;
     applySnapshot(next, true);
@@ -2579,17 +2586,16 @@ export default function App() {
       return;
     }
 
-    const token = editorOpRequestIdRef.current;
-    const compareRequestId = externalCompareRequestIdRef.current + 1;
-    externalCompareRequestIdRef.current = compareRequestId;
+    const token = editorOpRequests.current();
+    const compareRequestId = externalCompareRequests.begin();
     try {
       const source = await activeDocumentDiskSource();
       if (isEditorOpStale(token)) return;
-      if (externalCompareRequestIdRef.current !== compareRequestId) return;
+      if (externalCompareRequests.isStale(compareRequestId)) return;
       setExternalCompareSource(source);
     } catch (error) {
       if (isEditorOpStale(token)) return;
-      if (externalCompareRequestIdRef.current !== compareRequestId) return;
+      if (externalCompareRequests.isStale(compareRequestId)) return;
       const reason = error instanceof Error ? error.message : String(error);
       setExternalChangeMessage(formatDiskReadError(snapshot.activeDocumentName, reason));
       setShowExternalChangeActions(false);
@@ -2765,19 +2771,18 @@ export default function App() {
       flushWysiwygDraftNow();
     }
 
-    const requestId = modeRequestIdRef.current + 1;
-    modeRequestIdRef.current = requestId;
+    const requestId = modeRequests.begin();
     const previousMode = snapshot.mode;
     applyModeOptimistically(nextMode);
 
     try {
       const next = await setMode(nextMode);
-      if (modeRequestIdRef.current !== requestId) {
+      if (modeRequests.isStale(requestId)) {
         return;
       }
       applySnapshot({ ...next, mode: nextMode }, true);
     } catch (error) {
-      if (modeRequestIdRef.current === requestId) {
+      if (modeRequests.isCurrent(requestId)) {
         reportOperationError(error, 'Could not switch editor mode');
         applyModeOptimistically(previousMode);
       }
