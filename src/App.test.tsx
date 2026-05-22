@@ -4818,6 +4818,60 @@ describe('App recent documents', () => {
     });
   });
 
+  it('keeps search results empty when a pending search resolves after clearing the query', async () => {
+    let resolveSearch:
+      | ((result: { files: ReturnType<typeof workspaceSearchFile>[] }) => void)
+      | undefined;
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        rootDir: '/tmp/project',
+        workspaceDocuments: ['/tmp/project/alpha.md'],
+      }),
+    );
+    searchWorkspaceMock.mockImplementation(
+      () =>
+        new Promise<{ files: ReturnType<typeof workspaceSearchFile>[] }>((resolve) => {
+          resolveSearch = resolve;
+        }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /search \(cmd\+shift\+f\)/i }));
+    const searchPanel = await screen.findByTestId('sidebar-search-panel');
+    const searchInput = within(searchPanel).getByTestId('sidebar-search-input');
+
+    fireEvent.change(searchInput, { target: { value: 'alpha' } });
+
+    await waitFor(() => {
+      expect(searchWorkspaceMock).toHaveBeenCalledWith(
+        'alpha',
+        expect.any(Object),
+        ['/tmp/project/alpha.md'],
+      );
+      expect(resolveSearch).toBeTypeOf('function');
+    });
+
+    fireEvent.change(searchInput, { target: { value: '' } });
+
+    await waitFor(() => {
+      expect(within(searchPanel).queryByText('Searching…')).not.toBeInTheDocument();
+      expect(within(searchPanel).getByText(/type to search workspace/i)).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      resolveSearch?.({
+        files: [workspaceSearchFile('/tmp/project/alpha.md', 'Alpha')],
+      });
+    });
+
+    expect(within(searchPanel).queryByText(/1 result in 1 file/i)).not.toBeInTheDocument();
+    expect(within(searchPanel).queryByText('alpha.md')).not.toBeInTheDocument();
+    expect(within(searchPanel).getByText(/type to search workspace/i)).toBeInTheDocument();
+  });
+
   it('keeps the shell busy while any overlapping document open is still pending', async () => {
     const pendingOpens = new Map<string, (snapshot: AppSnapshot) => void>();
     bootstrapMock.mockResolvedValue(

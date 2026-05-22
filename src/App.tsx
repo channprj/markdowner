@@ -827,12 +827,18 @@ export default function App() {
     setSearchFocusToken((value) => value + 1);
   });
 
+  const resetWorkspaceSearch = () => {
+    searchRequests.begin();
+    setSearchResults([]);
+    setSearchError(null);
+    setSearchHasRun(false);
+    setSearchBusy(false);
+  };
+
   const handleSearchQueryChange = (value: string) => {
     setSearchQuery(value);
-    if (value.length === 0) {
-      setSearchResults([]);
-      setSearchError(null);
-      setSearchHasRun(false);
+    if (value.trim().length === 0) {
+      resetWorkspaceSearch();
     }
   };
 
@@ -843,9 +849,7 @@ export default function App() {
   const handleRunWorkspaceSearch = useEffectEvent(async () => {
     const trimmed = searchQuery.trim();
     if (trimmed.length === 0) {
-      setSearchResults([]);
-      setSearchError(null);
-      setSearchHasRun(false);
+      resetWorkspaceSearch();
       return;
     }
 
