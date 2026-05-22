@@ -378,6 +378,7 @@ export default function App() {
   const splitSourceScrollRef = useRef<HTMLDivElement | null>(null);
   const splitPreviewScrollRef = useRef<HTMLDivElement | null>(null);
   const modeRequestIdRef = useRef(0);
+  const busyDepthRef = useRef(0);
   const liveRegionTimerRef = useRef<number | null>(null);
   const lastAnnouncedModeRef = useRef<EditorMode | null>(null);
   const lastAnnouncedTabIdRef = useRef<string | null>(null);
@@ -2197,13 +2198,17 @@ export default function App() {
   }, [settings.typewriterModeEnabled, currentMode, editor]);
 
   const withBusy = async (action: () => Promise<void>, fallback?: string) => {
+    busyDepthRef.current += 1;
     setBusy(true);
     try {
       await action();
     } catch (error) {
       reportOperationError(error, fallback);
     } finally {
-      setBusy(false);
+      busyDepthRef.current = Math.max(0, busyDepthRef.current - 1);
+      if (busyDepthRef.current === 0) {
+        setBusy(false);
+      }
     }
   };
 
