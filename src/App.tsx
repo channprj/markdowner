@@ -879,21 +879,7 @@ export default function App() {
   const handleSelectSearchMatch = useEffectEvent(
     async (file: SearchResultFile, match: SearchResultMatch | undefined) => {
       const targetMatch = match ?? file.matches[0];
-      const pathTransition = resolveOpenDocumentPathTransition({
-        currentTabs: tabs,
-        path: file.path,
-      });
-      if (pathTransition.kind === 'switchExisting') {
-        await switchToTab(pathTransition.activeTabId);
-      } else {
-        await withBusy(async () => {
-          stashActiveTabDraft();
-          await syncActiveDraftBestEffort();
-          const next = await openWorkspaceDocument(pathTransition.path);
-          applySnapshot(next);
-          upsertActiveTabFromSnapshot(next);
-        });
-      }
+      await openKnownDocumentPath(file.path, openWorkspaceDocument);
       if (targetMatch) {
         const offset = targetMatch.absoluteOffset;
         const end = offset + (targetMatch.matchEnd - targetMatch.matchStart);

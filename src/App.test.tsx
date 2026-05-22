@@ -29,6 +29,7 @@ const openDroppedPathMock = vi.fn();
 const quitAppMock = vi.fn();
 const loadOpenTabsMock = vi.fn();
 const saveOpenTabsMock = vi.fn();
+const searchWorkspaceMock = vi.fn();
 const openDialogMock = vi.fn();
 const saveDialogMock = vi.fn();
 const messageMock = vi.fn();
@@ -65,6 +66,7 @@ vi.mock('./lib/desktop', () => ({
   quitApp: quitAppMock,
   loadOpenTabs: loadOpenTabsMock,
   saveOpenTabs: saveOpenTabsMock,
+  searchWorkspace: searchWorkspaceMock,
 }));
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({
@@ -160,6 +162,22 @@ const baseSnapshot = (overrides: Partial<AppSnapshot> = {}): AppSnapshot => ({
   lastError: null,
   ...overrides,
 });
+
+function workspaceSearchFile(path: string, heading: string) {
+  return {
+    path,
+    matches: [
+      {
+        line: 1,
+        column: 3,
+        preview: `# ${heading}`,
+        matchStart: 2,
+        matchEnd: 2 + heading.length,
+        absoluteOffset: 2,
+      },
+    ],
+  };
+}
 
 async function openAppMenu() {
   const menuButton = await screen.findByRole('button', { name: /^app menu$/i });
@@ -310,6 +328,8 @@ describe('App recent documents', () => {
     loadOpenTabsMock.mockResolvedValue({ openTabs: [], activeTabPath: null });
     saveOpenTabsMock.mockReset();
     saveOpenTabsMock.mockResolvedValue(undefined);
+    searchWorkspaceMock.mockReset();
+    searchWorkspaceMock.mockResolvedValue({ files: [] });
     openDialogMock.mockReset();
     saveDialogMock.mockReset();
     messageMock.mockReset();
@@ -3703,6 +3723,91 @@ describe('App recent documents', () => {
 
     await screen.findByTestId('sidebar-search-panel');
     expect(searchButton).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('keeps the latest clicked search result active when an earlier open resolves later', async () => {
+    const pendingOpens = new Map<string, (snapshot: AppSnapshot) => void>();
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        rootDir: '/tmp/project',
+        workspaceDocuments: ['/tmp/project/alpha.md', '/tmp/project/beta.md'],
+        activeDocumentName: 'current.md',
+        activeDocumentPath: '/tmp/project/current.md',
+        activeDocumentSource: '# Current',
+        mode: 'Editor',
+      }),
+    );
+    searchWorkspaceMock.mockResolvedValue({
+      files: [
+        workspaceSearchFile('/tmp/project/alpha.md', 'Alpha'),
+        workspaceSearchFile('/tmp/project/beta.md', 'Beta'),
+      ],
+    });
+    openWorkspaceDocumentMock.mockImplementation(
+      (path: string) =>
+        new Promise<AppSnapshot>((resolve) => {
+          pendingOpens.set(path, resolve);
+        }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /search \(cmd\+shift\+f\)/i }));
+    const searchPanel = await screen.findByTestId('sidebar-search-panel');
+    fireEvent.change(within(searchPanel).getByTestId('sidebar-search-input'), {
+      target: { value: 'heading' },
+    });
+
+    const matches = await within(searchPanel).findAllByTestId('sidebar-search-match');
+    fireEvent.click(matches[0]);
+    await waitFor(() => {
+      expect(openWorkspaceDocumentMock).toHaveBeenCalledWith('/tmp/project/alpha.md');
+    });
+
+    fireEvent.click(matches[1]);
+    await waitFor(() => {
+      expect(openWorkspaceDocumentMock).toHaveBeenCalledWith('/tmp/project/beta.md');
+    });
+
+    await act(async () => {
+      pendingOpens.get('/tmp/project/beta.md')?.(
+        baseSnapshot({
+          rootDir: '/tmp/project',
+          workspaceDocuments: ['/tmp/project/alpha.md', '/tmp/project/beta.md'],
+          activeDocumentName: 'beta.md',
+          activeDocumentPath: '/tmp/project/beta.md',
+          activeDocumentSource: '# Beta',
+          mode: 'Editor',
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /beta\.md/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+    });
+
+    await act(async () => {
+      pendingOpens.get('/tmp/project/alpha.md')?.(
+        baseSnapshot({
+          rootDir: '/tmp/project',
+          workspaceDocuments: ['/tmp/project/alpha.md', '/tmp/project/beta.md'],
+          activeDocumentName: 'alpha.md',
+          activeDocumentPath: '/tmp/project/alpha.md',
+          activeDocumentSource: '# Alpha',
+          mode: 'Editor',
+        }),
+      );
+    });
+
+    expect(screen.getByRole('tab', { name: /beta\.md/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
   });
 
   it('opens Quick Open without mounting the shared Radix dialog overlay', async () => {
