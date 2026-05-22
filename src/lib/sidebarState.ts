@@ -32,7 +32,7 @@ type ResolveSidebarLayoutStateInput = {
   isResizing: boolean;
 };
 
-type SidebarLayoutState = {
+export type SidebarLayoutState = {
   gridTemplateColumns: string;
   gridShouldAnimate: boolean;
   resizeHandleTabIndex: 0 | -1;

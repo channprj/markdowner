@@ -64,6 +64,7 @@ import {
   type SearchResultMatch,
   type SideBarPanel,
 } from '@/shell/SideBar';
+import { SidebarResizeHandle } from '@/shell/SidebarResizeHandle';
 import { StatusBar } from '@/shell/StatusBar';
 import { SettingsPanel } from '@/shell/SettingsPanel';
 import { WorkspaceTree } from '@/shell/WorkspaceTree';
@@ -272,8 +273,6 @@ import {
 } from './lib/openDocumentSelection';
 import {
   SIDEBAR_DEFAULT_WIDTH,
-  SIDEBAR_MAX_WIDTH,
-  SIDEBAR_MIN_WIDTH,
   nextSidebarWidthFromKey,
   readSidebarState,
   readSidebarWidth,
@@ -3695,34 +3694,13 @@ export default function App() {
           onRunSearch={() => void handleRunWorkspaceSearch()}
           onSelectSearchMatch={(file, match) => void handleSelectSearchMatch(file, match)}
         />
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize sidebar"
-          aria-valuenow={sidebarWidth}
-          aria-valuemin={SIDEBAR_MIN_WIDTH}
-          aria-valuemax={SIDEBAR_MAX_WIDTH}
-          title="Drag to resize sidebar (double-click to reset, arrow keys to adjust)"
-          tabIndex={sidebarLayout.resizeHandleTabIndex}
+        <SidebarResizeHandle
+          width={sidebarWidth}
+          layout={sidebarLayout}
           onPointerDown={handleSidebarResizeStart}
-          onDoubleClick={handleSidebarResetWidth}
+          onResetWidth={handleSidebarResetWidth}
           onKeyDown={handleSidebarResizeKeyDown}
-          className={cn(
-            'group relative h-full select-none',
-            sidebarLayout.resizeHandleInteractive
-              ? 'cursor-col-resize'
-              : 'pointer-events-none',
-          )}
-          style={{ touchAction: 'none' }}
-        >
-          <div
-            className={cn(
-              'absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border transition-colors',
-              sidebarLayout.resizeRailActive && 'bg-primary',
-              sidebarLayout.resizeRailHoverable && 'group-hover:bg-primary/60',
-            )}
-          />
-        </div>
+        />
 
       <div className="flex min-h-0 min-w-0 flex-col">
         <Tabs
