@@ -60,6 +60,21 @@ type TabDirtyContext = {
   localDraft: string;
 };
 
+type ResolveDocumentTabViewStateInput = {
+  tabs: readonly DocumentTab[];
+  activeTabId: string | null;
+  localDraft: string;
+};
+
+export type DocumentTabViewState = {
+  activeTab: DocumentTab | null;
+  dirtyTabIds: ReadonlySet<string>;
+  isSettingsTabActive: boolean;
+  hasActiveTabEdits: boolean;
+  hasAnyTabEdits: boolean;
+  hasUnsavedChanges: boolean;
+};
+
 type MergeRestoredDocumentTabsInput = {
   currentTabs: readonly DocumentTab[];
   restoredTabs: readonly DocumentTab[];
@@ -295,8 +310,41 @@ export function findDocumentTabByPath(
 
 export function isDocumentTabDirty(tab: DocumentTab, context: TabDirtyContext): boolean {
   if (tab.kind !== 'document') return false;
+
+  // Close/quit prompts need a strict live-content comparison, not Rust's
+  // sticky "document changed since load" flag. Normalizing one final newline
+  // also ignores the WYSIWYG trailing paragraph that is not written to disk.
   const live = tab.id === context.activeTabId ? context.localDraft : tab.draft;
   return normalizeFinalNewline(live) !== normalizeFinalNewline(tab.source);
+}
+
+export function resolveDocumentTabViewState({
+  tabs,
+  activeTabId,
+  localDraft,
+}: ResolveDocumentTabViewStateInput): DocumentTabViewState {
+  let activeTab: DocumentTab | null = null;
+  const dirtyTabIds = new Set<string>();
+
+  for (const tab of tabs) {
+    if (tab.id === activeTabId) {
+      activeTab = tab;
+    }
+    if (isDocumentTabDirty(tab, { activeTabId, localDraft })) {
+      dirtyTabIds.add(tab.id);
+    }
+  }
+
+  const hasActiveTabEdits = activeTab ? dirtyTabIds.has(activeTab.id) : false;
+
+  return {
+    activeTab,
+    dirtyTabIds,
+    isSettingsTabActive: activeTab?.kind === 'settings',
+    hasActiveTabEdits,
+    hasAnyTabEdits: dirtyTabIds.size > 0,
+    hasUnsavedChanges: hasActiveTabEdits,
+  };
 }
 
 export function mergeRestoredDocumentTabs(

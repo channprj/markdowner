@@ -19,6 +19,7 @@ import {
   refreshSwitchedDocumentTab,
   refreshSwitchedDocumentTabFromSnapshot,
   resolveCloseTabTransition,
+  resolveDocumentTabViewState,
   resolveSettingsTabToggle,
   resolveSwitchTabTransition,
   startupRestoreTargetForDocumentTab,
@@ -266,6 +267,71 @@ describe('isDocumentTabDirty', () => {
         localDraft: 'changed',
       }),
     ).toBe(false);
+  });
+});
+
+describe('resolveDocumentTabViewState', () => {
+  it('derives active-tab and dirty state from the tab list', () => {
+    const active = documentTab({
+      id: 'active',
+      source: 'saved',
+      draft: 'saved',
+    });
+    const inactiveDirty = documentTab({
+      id: 'inactive',
+      source: 'old',
+      draft: 'changed',
+    });
+
+    expect(
+      resolveDocumentTabViewState({
+        tabs: [active, createSettingsTab(), inactiveDirty],
+        activeTabId: 'active',
+        localDraft: 'live edit',
+      }),
+    ).toEqual({
+      activeTab: active,
+      dirtyTabIds: new Set(['active', 'inactive']),
+      isSettingsTabActive: false,
+      hasActiveTabEdits: true,
+      hasAnyTabEdits: true,
+      hasUnsavedChanges: true,
+    });
+  });
+
+  it('treats settings and missing active ids as non-document active surfaces', () => {
+    const saved = documentTab({ id: 'saved' });
+    const settings = createSettingsTab();
+
+    expect(
+      resolveDocumentTabViewState({
+        tabs: [saved, settings],
+        activeTabId: SETTINGS_TAB_ID,
+        localDraft: 'changed active surface',
+      }),
+    ).toMatchObject({
+      activeTab: settings,
+      dirtyTabIds: new Set<string>(),
+      isSettingsTabActive: true,
+      hasActiveTabEdits: false,
+      hasAnyTabEdits: false,
+      hasUnsavedChanges: false,
+    });
+
+    expect(
+      resolveDocumentTabViewState({
+        tabs: [saved],
+        activeTabId: 'missing',
+        localDraft: 'changed',
+      }),
+    ).toMatchObject({
+      activeTab: null,
+      dirtyTabIds: new Set<string>(),
+      isSettingsTabActive: false,
+      hasActiveTabEdits: false,
+      hasAnyTabEdits: false,
+      hasUnsavedChanges: false,
+    });
   });
 });
 

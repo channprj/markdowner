@@ -128,12 +128,12 @@ import {
   findDocumentTabByPath,
   generateDocumentTabId,
   hydrateRestoredActiveDocumentTab,
-  isDocumentTabDirty,
   markDocumentTabMissing,
   mergeRestoredDocumentTabs,
   refreshActiveDocumentTabFromSnapshot,
   refreshSwitchedDocumentTabFromSnapshot,
   resolveCloseTabTransition,
+  resolveDocumentTabViewState,
   resolveSettingsTabToggle,
   resolveSwitchTabTransition,
   startupRestoreTargetForDocumentTab,
@@ -1621,19 +1621,18 @@ export default function App() {
     setActiveFindMatchIndex(0);
   };
 
-  // The Rust-side activeDocumentDirty flag tracks "in-memory source != disk"
-  // which stays true after edits even if the user undoes back to the original
-  // content. For close/quit prompts we want a strict comparison against the
-  // last loaded/saved baseline, mirroring Zed's behavior — "Save changes" only
-  // appears when the live content actually differs from what's on disk.
-  // Both sides are normalized to a single trailing newline so the WYSIWYG
-  // TrailingNode's extra empty paragraph (which exists only in the view, not
-  // on disk) doesn't flag a freshly-loaded document as dirty.
-  const tabIsDirty = (tab: DocumentTab) =>
-    isDocumentTabDirty(tab, { activeTabId, localDraft });
-  const activeTab = activeTabId
-    ? tabs.find((tab) => tab.id === activeTabId) ?? null
-    : null;
+  const tabViewState = useMemo(
+    () => resolveDocumentTabViewState({ tabs, activeTabId, localDraft }),
+    [activeTabId, localDraft, tabs],
+  );
+  const {
+    activeTab,
+    isSettingsTabActive,
+    hasActiveTabEdits,
+    hasAnyTabEdits,
+    hasUnsavedChanges,
+  } = tabViewState;
+  const tabIsDirty = (tab: DocumentTab) => tabViewState.dirtyTabIds.has(tab.id);
 
   useEffect(() => {
     if (!activeTab) {
@@ -1647,12 +1646,6 @@ export default function App() {
     }
   }, [activeTab?.id, activeTab?.name]);
 
-  const isSettingsTabActive = activeTab?.kind === 'settings';
-  const hasActiveTabEdits = activeTab ? tabIsDirty(activeTab) : false;
-  const hasAnyTabEdits = tabs.some(tabIsDirty);
-  // Preserved for the existing Cmd+W close-confirmation surface (which prompts
-  // about the active document specifically).
-  const hasUnsavedChanges = hasActiveTabEdits;
   const errorMessage = snapshot.lastError;
   const workspaceTree = buildWorkspaceTree(snapshot.workspaceDocuments, snapshot.rootDir);
   const filteredWorkspaceTree = filterWorkspaceTree(workspaceTree, workspaceFilter);
