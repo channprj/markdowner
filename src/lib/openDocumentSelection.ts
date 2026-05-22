@@ -28,6 +28,11 @@ type ResolveOpenSelectedDocumentTabsTransitionInput = {
   currentTabs: readonly DocumentTab[];
 };
 
+type ResolveOpenDocumentPathTransitionInput = {
+  currentTabs: readonly DocumentTab[];
+  path: string;
+};
+
 type OpenSelectedDocumentTabsTransition =
   | { kind: 'noop' }
   | {
@@ -40,6 +45,33 @@ type OpenSelectedDocumentTabsTransition =
       kind: 'switchExisting';
       activeTabId: string;
     };
+
+type OpenDocumentPathTransition =
+  | {
+      kind: 'switchExisting';
+      activeTabId: string;
+    }
+  | {
+      kind: 'openPath';
+      path: string;
+    };
+
+export function resolveOpenDocumentPathTransition(
+  input: ResolveOpenDocumentPathTransitionInput,
+): OpenDocumentPathTransition {
+  const existing = findDocumentTabByPath(input.currentTabs, input.path);
+  if (existing) {
+    return {
+      kind: 'switchExisting',
+      activeTabId: existing.id,
+    };
+  }
+
+  return {
+    kind: 'openPath',
+    path: input.path,
+  };
+}
 
 export async function openSelectedDocumentTabs(
   input: OpenSelectedDocumentTabsInput,

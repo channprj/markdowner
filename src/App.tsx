@@ -259,6 +259,7 @@ import {
 import { buildWorkspaceSearchPaths } from './lib/workspaceSearchScope';
 import {
   openSelectedDocumentTabs,
+  resolveOpenDocumentPathTransition,
   resolveOpenSelectedDocumentTabsTransition,
 } from './lib/openDocumentSelection';
 import {
@@ -2732,10 +2733,17 @@ export default function App() {
     });
   };
 
-  const handleOpenWorkspaceDocument = async (path: string) => {
-    const existing = findDocumentTabByPath(tabs, path);
-    if (existing) {
-      await switchToTab(existing.id);
+  const openKnownDocumentPath = async (
+    path: string,
+    openPath: (path: string) => Promise<AppSnapshot>,
+  ) => {
+    const pathTransition = resolveOpenDocumentPathTransition({
+      currentTabs: tabs,
+      path,
+    });
+
+    if (pathTransition.kind === 'switchExisting') {
+      await switchToTab(pathTransition.activeTabId);
       focusActiveEditor();
       return;
     }
@@ -2745,7 +2753,7 @@ export default function App() {
       stashActiveTabDraft();
       await syncActiveDraftBestEffort();
       if (isEditorOpStale(token)) return;
-      const next = await openWorkspaceDocument(path);
+      const next = await openPath(pathTransition.path);
       if (isEditorOpStale(token)) return;
       applySnapshot(next);
       upsertActiveTabFromSnapshot(next);
@@ -2757,27 +2765,12 @@ export default function App() {
     focusActiveEditor();
   };
 
+  const handleOpenWorkspaceDocument = async (path: string) => {
+    await openKnownDocumentPath(path, openWorkspaceDocument);
+  };
+
   const handleOpenRecentDocument = async (path: string) => {
-    const existing = findDocumentTabByPath(tabs, path);
-    if (existing) {
-      await switchToTab(existing.id);
-      focusActiveEditor();
-      return;
-    }
-
-    const token = nextEditorOpRequest();
-    await withBusy(async () => {
-      stashActiveTabDraft();
-      await syncActiveDraftBestEffort();
-      if (isEditorOpStale(token)) return;
-      const next = await openDocument(path);
-      if (isEditorOpStale(token)) return;
-      applySnapshot(next);
-      upsertActiveTabFromSnapshot(next);
-    });
-
-    if (isEditorOpStale(token)) return;
-    focusActiveEditor();
+    await openKnownDocumentPath(path, openDocument);
   };
 
   const handleToggleWorkspaceFolder = (key: string) => {

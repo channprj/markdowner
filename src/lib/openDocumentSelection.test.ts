@@ -4,6 +4,7 @@ import type { AppSnapshot } from './desktop';
 import { createDocumentTab } from './documentTabs';
 import {
   openSelectedDocumentTabs,
+  resolveOpenDocumentPathTransition,
   resolveOpenSelectedDocumentTabsTransition,
 } from './openDocumentSelection';
 
@@ -223,5 +224,34 @@ describe('resolveOpenSelectedDocumentTabsTransition', () => {
         currentTabs: [],
       }),
     ).toEqual({ kind: 'noop' });
+  });
+});
+
+describe('resolveOpenDocumentPathTransition', () => {
+  it('switches to an existing tab for a known path', () => {
+    expect(
+      resolveOpenDocumentPathTransition({
+        currentTabs: [
+          createDocumentTab({ id: 'existing', path: '/tmp/existing.md' }),
+          createDocumentTab({ id: 'other', path: '/tmp/other.md' }),
+        ],
+        path: '/tmp/existing.md',
+      }),
+    ).toEqual({
+      kind: 'switchExisting',
+      activeTabId: 'existing',
+    });
+  });
+
+  it('opens the path when it is not already tabbed', () => {
+    expect(
+      resolveOpenDocumentPathTransition({
+        currentTabs: [createDocumentTab({ id: 'existing', path: '/tmp/existing.md' })],
+        path: '/tmp/new.md',
+      }),
+    ).toEqual({
+      kind: 'openPath',
+      path: '/tmp/new.md',
+    });
   });
 });
