@@ -50,4 +50,22 @@ describe('parseMarkdownOutline', () => {
       },
     ]);
   });
+
+  it('ignores headings inside fenced code blocks', () => {
+    const source = [
+      '# Visible',
+      '',
+      '```python',
+      '# Not an outline heading',
+      'print("still code")',
+      '```',
+      '',
+      '## Also visible',
+    ].join('\n');
+
+    expect(parseMarkdownOutline(source).map((item) => item.title)).toEqual([
+      'Visible',
+      'Also visible',
+    ]);
+  });
 });
