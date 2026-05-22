@@ -25,6 +25,7 @@ import {
   type SearchResultFile,
   type SearchResultMatch,
 } from './SearchPanel';
+import { OutlinePanel } from './OutlinePanel';
 
 export type { SearchResultFile, SearchResultMatch } from './SearchPanel';
 
@@ -146,7 +147,6 @@ export function SideBar({
   const showOutline = panel === 'outline';
   const showSearch = panel === 'search';
   const showExplorer = !showOutline && !showSearch;
-  const outlinePaddingY = Math.max(2, outlineRowSpacing + 2);
   const workspaceSectionTitle = workspaceName ? workspaceName.toUpperCase() : 'NO FOLDER OPENED';
 
   const [collapsedSections, setCollapsedSections] = useState<Record<ExplorerSectionId, boolean>>(
@@ -245,42 +245,13 @@ export function SideBar({
     }
   };
 
-  const handleOutlineKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-
-    const active = (event.target as HTMLElement | null) ?? null;
-    if (!active?.matches('[data-outline-row]')) return;
-
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      active.click();
-      return;
-    }
-
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-
-    const aside = event.currentTarget;
-    const rows = Array.from(aside.querySelectorAll<HTMLElement>('[data-outline-row]'));
-    const currentIndex = rows.indexOf(active);
-    if (currentIndex < 0) return;
-
-    event.preventDefault();
-    const nextIndex =
-      event.key === 'ArrowDown'
-        ? Math.min(currentIndex + 1, rows.length - 1)
-        : Math.max(currentIndex - 1, 0);
-    rows[nextIndex]?.focus();
-  };
-
   return (
     <aside
       aria-label={showOutline ? 'Outline' : showSearch ? 'Search' : 'Explorer'}
       data-explorer-root={showExplorer ? '' : undefined}
       data-outline-root={showOutline ? '' : undefined}
       tabIndex={showOutline ? -1 : undefined}
-      onKeyDown={
-        showExplorer ? handleExplorerKeyDown : showOutline ? handleOutlineKeyDown : undefined
-      }
+      onKeyDown={showExplorer ? handleExplorerKeyDown : undefined}
       className={cn(
         'flex min-h-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground transition-opacity duration-300 ease-in-out',
         'explorer-sidebar',
@@ -288,49 +259,13 @@ export function SideBar({
       )}
     >
       {showOutline ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex h-9 shrink-0 items-center px-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-sidebar-foreground">
-              OUTLINE
-            </div>
-          </div>
-          <section className="explorer-section flex min-h-0 flex-1 flex-col border-t border-sidebar-border/70">
-            <div className="explorer-section-header">Outline</div>
-            {outlineItems.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-muted-foreground">
-                No headings
-              </p>
-            ) : (
-              <ScrollArea className="min-h-0 flex-1">
-                <div
-                  data-testid="outline-list"
-                  className="flex flex-col py-1"
-                  style={{ gap: `${outlineRowSpacing}px` }}
-                >
-                  {outlineItems.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      data-outline-row=""
-                      className="explorer-tree-row flex w-full items-center text-left transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                      style={{
-                        fontSize: `${outlineFontSize}px`,
-                        lineHeight: 1.25,
-                        paddingTop: `${outlinePaddingY}px`,
-                        paddingBottom: `${outlinePaddingY}px`,
-                        paddingLeft: `${8 + Math.max(0, item.depth - 1) * 12}px`,
-                      }}
-                      disabled={busy}
-                      onClick={() => onSelectOutlineItem?.(item)}
-                    >
-                      <span className="truncate font-medium">{item.title}</span>
-                    </button>
-                  ))}
-                </div>
-              </ScrollArea>
-            )}
-          </section>
-        </div>
+        <OutlinePanel
+          items={outlineItems}
+          busy={busy}
+          fontSize={outlineFontSize}
+          rowSpacing={outlineRowSpacing}
+          onSelectItem={onSelectOutlineItem}
+        />
       ) : showSearch ? (
         <SearchPanel
           query={searchQuery}
