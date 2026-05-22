@@ -1814,6 +1814,145 @@ describe('App recent documents', () => {
     expect(document.documentElement.dataset.theme).toBe('BuiltInLight');
   });
 
+  it('keeps a manual theme selection when an earlier OS theme sync resolves later', async () => {
+    const originalMatchMedia = window.matchMedia;
+    const osThemeListeners = new Set<(event: MediaQueryListEvent) => void>();
+    let osThemeMatchesDark = true;
+    const pendingThemeResolutions = new Map<
+      AppSnapshot['theme']['kind'],
+      (snapshot: AppSnapshot) => void
+    >();
+
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) =>
+        ({
+          media: query,
+          matches: osThemeMatchesDark,
+          onchange: null,
+          addEventListener: (
+            eventName: string,
+            listener: (event: MediaQueryListEvent) => void,
+          ) => {
+            if (eventName === 'change') {
+              osThemeListeners.add(listener);
+            }
+          },
+          removeEventListener: (
+            eventName: string,
+            listener: (event: MediaQueryListEvent) => void,
+          ) => {
+            if (eventName === 'change') {
+              osThemeListeners.delete(listener);
+            }
+          },
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          dispatchEvent: vi.fn(),
+        }) as unknown as MediaQueryList,
+    });
+
+    try {
+      invokeMock.mockImplementation(async (command: string) => {
+        if (command === 'load_settings') {
+          return {
+            autoSave: false,
+            editorFontSize: 14,
+            editorFontFamily: '',
+            editorLineWrap: true,
+            themeFollowSystem: true,
+          };
+        }
+        return undefined;
+      });
+      bootstrapMock.mockResolvedValue(
+        baseSnapshot({
+          activeDocumentName: 'meeting-notes.md',
+          activeDocumentPath: '/tmp/project/meeting-notes.md',
+          activeDocumentSource: '# Meeting notes',
+          theme: { kind: 'BuiltInDark', stylesheet: null, stylesheetPath: null },
+        }),
+      );
+      setThemeMock.mockImplementation(
+        (kind: AppSnapshot['theme']['kind']) =>
+          new Promise<AppSnapshot>((resolve) => {
+            pendingThemeResolutions.set(kind, resolve);
+          }),
+      );
+
+      const { default: App } = await import('./App');
+
+      render(<App />);
+
+      await waitFor(() => {
+        expect(document.documentElement.dataset.theme).toBe('BuiltInDark');
+        expect(osThemeListeners.size).toBeGreaterThan(0);
+      });
+
+      fireEvent.keyDown(window, { key: ',', metaKey: true });
+      const dialog = await screen.findByTestId('settings-panel');
+      const themeToggleGroup = within(dialog).getByTestId('settings-theme-toggle');
+      const systemThemeToggle = within(themeToggleGroup).getByRole('radio', {
+        name: /system/i,
+      });
+      const darkThemeToggle = within(themeToggleGroup).getByRole('radio', {
+        name: /dark/i,
+      });
+
+      await waitFor(() => {
+        expect(systemThemeToggle).toHaveAttribute('data-state', 'on');
+      });
+
+      osThemeMatchesDark = false;
+      act(() => {
+        for (const listener of Array.from(osThemeListeners)) {
+          listener({ matches: false } as MediaQueryListEvent);
+        }
+      });
+
+      await waitFor(() => {
+        expect(setThemeMock).toHaveBeenCalledWith('BuiltInLight');
+      });
+
+      fireEvent.click(darkThemeToggle);
+      await waitFor(() => {
+        expect(setThemeMock).toHaveBeenCalledWith('BuiltInDark');
+      });
+
+      await act(async () => {
+        pendingThemeResolutions.get('BuiltInDark')?.(
+          baseSnapshot({
+            activeDocumentName: 'meeting-notes.md',
+            activeDocumentPath: '/tmp/project/meeting-notes.md',
+            activeDocumentSource: '# Meeting notes',
+            theme: { kind: 'BuiltInDark', stylesheet: null, stylesheetPath: null },
+          }),
+        );
+      });
+      await waitFor(() => {
+        expect(document.documentElement.dataset.theme).toBe('BuiltInDark');
+      });
+
+      await act(async () => {
+        pendingThemeResolutions.get('BuiltInLight')?.(
+          baseSnapshot({
+            activeDocumentName: 'meeting-notes.md',
+            activeDocumentPath: '/tmp/project/meeting-notes.md',
+            activeDocumentSource: '# Meeting notes',
+            theme: { kind: 'BuiltInLight', stylesheet: null, stylesheetPath: null },
+          }),
+        );
+      });
+
+      expect(document.documentElement.dataset.theme).toBe('BuiltInDark');
+    } finally {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
   it('persists the code block theme sync toggle from Settings', async () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {

@@ -1986,10 +1986,13 @@ export default function App() {
       if (!settings.themeFollowSystem) {
         return;
       }
+      const requestId = nextThemeRequest();
       try {
         const next = await setTheme(resolveOsTheme());
+        if (isThemeRequestStale(requestId)) return;
         applySnapshot(next, true);
       } catch (error) {
+        if (isThemeRequestStale(requestId)) return;
         reportOperationError(error, 'Could not follow the system theme');
       }
     };
