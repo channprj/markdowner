@@ -1,4 +1,3 @@
-import { markdown } from '@codemirror/lang-markdown';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
@@ -18,7 +17,7 @@ import { useEditor, type Editor as TiptapEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { createCodeBlockExtension } from '@/components/wysiwyg/codeBlockExtension';
 import { PreventTableHoverSelection } from '@/components/wysiwyg/preventTableHoverSelection';
-import CodeMirror, { EditorView } from '@uiw/react-codemirror';
+import { EditorView } from '@uiw/react-codemirror';
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
@@ -217,7 +216,7 @@ import {
   mapRenderedTextOffsetToSourceOffset,
   readSourceNumber,
 } from './lib/sourcePreviewClick';
-import { createSourceLinkClickExtension } from './lib/sourceLinkClick';
+import { buildSourceEditorExtensions } from './lib/sourceEditorExtensions';
 import { parseNativeMenuCommand } from './lib/nativeMenuCommand';
 import {
   createLatestRequestTracker,
@@ -315,26 +314,6 @@ function useLatestRequestTracker(): LatestRequestTracker {
   }
   return trackerRef.current;
 }
-
-const sourceFocusModeExtension = EditorView.theme({
-  '&.cm-focused .cm-line': {
-    opacity: '0.46',
-    transition: 'opacity 120ms ease',
-  },
-  '&.cm-focused .cm-line:hover, &.cm-focused .cm-line:has(.cm-selectionBackground)': {
-    opacity: '1',
-  },
-});
-
-const sourceTypewriterModeExtension = EditorView.theme({
-  '.cm-scroller': {
-    scrollPaddingBlock: '45%',
-  },
-  '.cm-content': {
-    paddingTop: '35vh',
-    paddingBottom: '35vh',
-  },
-});
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(EMPTY_SNAPSHOT);
@@ -2180,25 +2159,15 @@ export default function App() {
     ? debouncedLocalDraft
     : '*Open a Markdown document to preview it.*';
   const sourceEditorExtensions = useMemo(
-    () => [
-      markdown(),
-      // Cmd/Ctrl+Click on `[text](url)` in the source editor opens the link
-      // through the unified linkOpener flow (browser for URLs, editor tab
-      // for markdown files). Plain clicks keep CodeMirror's default
-      // caret-positioning behavior.
-      createSourceLinkClickExtension(() => activeDocumentPathRef.current),
-      ...(settings.editorLineWrap ? [EditorView.lineWrapping] : []),
-      ...(settings.focusModeEnabled ? [sourceFocusModeExtension] : []),
-      ...(settings.typewriterModeEnabled ? [sourceTypewriterModeExtension] : []),
-      EditorView.updateListener.of((update) => {
-        if (update.viewportChanged) {
-          handleSourceEditorViewportChange(update.view.scrollDOM);
-        }
-        if (update.selectionSet || update.docChanged || update.focusChanged) {
-          handleSourceEditorTypewriterChange(update.view);
-        }
+    () =>
+      buildSourceEditorExtensions({
+        activeDocumentPath: () => activeDocumentPathRef.current,
+        editorLineWrap: settings.editorLineWrap,
+        focusModeEnabled: settings.focusModeEnabled,
+        typewriterModeEnabled: settings.typewriterModeEnabled,
+        onViewportChange: handleSourceEditorViewportChange,
+        onTypewriterChange: handleSourceEditorTypewriterChange,
       }),
-    ],
     [
       handleSourceEditorTypewriterChange,
       handleSourceEditorViewportChange,
