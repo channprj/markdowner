@@ -222,8 +222,8 @@ import { syncScrollPosition } from './lib/scrollSync';
 import {
   estimateRenderedTextOffset,
   getRenderedTextOffset,
-  mapRenderedTextOffsetToSourceOffset,
   readSourceNumber,
+  resolveSourcePreviewSelectionOffset,
 } from './lib/sourcePreviewClick';
 import { buildSourceEditorExtensions } from './lib/sourceEditorExtensions';
 import { parseNativeMenuCommand } from './lib/nativeMenuCommand';
@@ -234,7 +234,6 @@ import {
 import {
   buildSourceLineStartOffsets,
   clampSourceOffset,
-  lineTextFromOffset,
   sourceOffsetForLine,
 } from './lib/sourceText';
 import {
@@ -1072,21 +1071,18 @@ export default function App() {
     if (sourceLine === null) return;
 
     const lineStart = getSourceOffsetForLine(sourceLine);
-    const lineText = lineTextFromOffset(localDraft, lineStart);
-    const sourceOffset = readSourceNumber(sourceLineElement, 'sourceOffset') ?? lineStart;
-    const sourceEndOffset =
-      readSourceNumber(sourceLineElement, 'sourceEndOffset') ?? lineStart + lineText.length;
     const renderedTextLength = sourceLineElement.textContent?.length ?? 0;
     const renderedOffset =
       getRenderedTextOffset(sourceLineElement, event.clientX, event.clientY) ??
       estimateRenderedTextOffset(sourceLineElement, event, renderedTextLength);
-    const selectionOffset = mapRenderedTextOffsetToSourceOffset(
-      sourceLineElement,
-      localDraft,
-      sourceOffset,
-      sourceEndOffset,
+    const selectionOffset = resolveSourcePreviewSelectionOffset({
+      source: localDraft,
+      lineStart,
+      sourceOffset: readSourceNumber(sourceLineElement, 'sourceOffset'),
+      sourceEndOffset: readSourceNumber(sourceLineElement, 'sourceEndOffset'),
+      renderedText: sourceLineElement.textContent ?? '',
       renderedOffset,
-    );
+    });
 
     focusSourceSelection(selectionOffset);
   };

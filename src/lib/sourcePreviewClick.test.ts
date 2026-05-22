@@ -5,6 +5,7 @@ import {
   getRenderedTextOffset,
   mapRenderedTextOffsetToSourceOffset,
   readSourceNumber,
+  resolveSourcePreviewSelectionOffset,
 } from './sourcePreviewClick';
 
 describe('readSourceNumber', () => {
@@ -84,5 +85,33 @@ describe('mapRenderedTextOffsetToSourceOffset', () => {
     element.textContent = 'Rendered';
 
     expect(mapRenderedTextOffsetToSourceOffset(element, 'raw source', 4, 10, 99)).toBe(10);
+  });
+});
+
+describe('resolveSourcePreviewSelectionOffset', () => {
+  it('uses the clicked line bounds when source metadata is missing', () => {
+    expect(
+      resolveSourcePreviewSelectionOffset({
+        source: '## [Guide](./guide.md)\nNext',
+        lineStart: 0,
+        sourceOffset: null,
+        sourceEndOffset: null,
+        renderedText: 'Guide',
+        renderedOffset: 2,
+      }),
+    ).toBe(6);
+  });
+
+  it('prefers explicit source metadata when the rendered span maps to a nested source range', () => {
+    expect(
+      resolveSourcePreviewSelectionOffset({
+        source: 'alpha **bold** tail',
+        lineStart: 0,
+        sourceOffset: 8,
+        sourceEndOffset: 12,
+        renderedText: 'bold',
+        renderedOffset: 3,
+      }),
+    ).toBe(11);
   });
 });

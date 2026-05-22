@@ -1,4 +1,4 @@
-import { clampSourceOffset } from './sourceText';
+import { clampSourceOffset, lineTextFromOffset } from './sourceText';
 
 type CaretDocument = Document & {
   caretPositionFromPoint?: (
@@ -68,7 +68,50 @@ export function mapRenderedTextOffsetToSourceOffset(
   sourceEndOffset: number,
   renderedOffset: number,
 ): number {
-  const renderedText = element.textContent ?? '';
+  return mapRenderedTextToSourceOffset(
+    element.textContent ?? '',
+    source,
+    sourceOffset,
+    sourceEndOffset,
+    renderedOffset,
+  );
+}
+
+export function resolveSourcePreviewSelectionOffset({
+  source,
+  lineStart,
+  sourceOffset,
+  sourceEndOffset,
+  renderedText,
+  renderedOffset,
+}: {
+  source: string;
+  lineStart: number;
+  sourceOffset: number | null;
+  sourceEndOffset: number | null;
+  renderedText: string;
+  renderedOffset: number;
+}): number {
+  const lineText = lineTextFromOffset(source, lineStart);
+  const rawStart = sourceOffset ?? lineStart;
+  const rawEnd = sourceEndOffset ?? lineStart + lineText.length;
+
+  return mapRenderedTextToSourceOffset(
+    renderedText,
+    source,
+    rawStart,
+    rawEnd,
+    renderedOffset,
+  );
+}
+
+function mapRenderedTextToSourceOffset(
+  renderedText: string,
+  source: string,
+  sourceOffset: number,
+  sourceEndOffset: number,
+  renderedOffset: number,
+): number {
   const rawStart = clampSourceOffset(sourceOffset, source.length);
   const rawEnd = Math.max(rawStart, clampSourceOffset(sourceEndOffset, source.length));
   const rawText = source.slice(rawStart, rawEnd);
