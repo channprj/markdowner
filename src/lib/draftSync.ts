@@ -27,6 +27,17 @@ type AutoSaveEligibility = {
   shouldRun: boolean;
 };
 
+type ResolveDraftMirrorSyncPlanInput = {
+  activeDocumentSource: string | null;
+  activeDocumentPath: string | null;
+  localDraft: string;
+};
+
+type DraftMirrorSyncPlan = {
+  draft: string;
+  activeDocumentPath: string | null;
+};
+
 export function resolveActiveDraftSyncPlan(
   input: ResolveActiveDraftSyncPlanInput,
 ): ActiveDraftSyncPlan | null {
@@ -61,5 +72,24 @@ export function resolveAutoSaveEligibility({
   return {
     shouldSchedule,
     shouldRun: shouldSchedule && !busy,
+  };
+}
+
+export function resolveDraftMirrorSyncPlan({
+  activeDocumentSource,
+  activeDocumentPath,
+  localDraft,
+}: ResolveDraftMirrorSyncPlanInput): DraftMirrorSyncPlan | null {
+  if (activeDocumentSource === null) {
+    return null;
+  }
+
+  if (localDraft === activeDocumentSource) {
+    return null;
+  }
+
+  return {
+    draft: localDraft,
+    activeDocumentPath,
   };
 }

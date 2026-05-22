@@ -100,6 +100,7 @@ import {
 import {
   resolveActiveDraftSyncPlan,
   resolveAutoSaveEligibility,
+  resolveDraftMirrorSyncPlan,
 } from './lib/draftSync';
 import {
   findTextMatches,
@@ -2055,20 +2056,21 @@ export default function App() {
   }, [snapshot.rootDir]);
 
   useEffect(() => {
-    if (snapshot.activeDocumentSource === null) {
-      return;
-    }
-    if (localDraft === (snapshot.activeDocumentSource ?? '')) {
+    const plan = resolveDraftMirrorSyncPlan({
+      activeDocumentSource: snapshot.activeDocumentSource,
+      activeDocumentPath: snapshot.activeDocumentPath,
+      localDraft,
+    });
+    if (!plan) {
       return;
     }
 
-    const activeDocumentPath = snapshot.activeDocumentPath;
     const timeout = window.setTimeout(() => {
-      replaceActiveDocumentSource(localDraft)
+      replaceActiveDocumentSource(plan.draft)
         .then((next) => {
           startTransition(() => {
             setSnapshot((current) =>
-              resolveSyncedDraftSnapshot(current, next, activeDocumentPath),
+              resolveSyncedDraftSnapshot(current, next, plan.activeDocumentPath),
             );
             clearExternalChangeState();
           });

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   resolveActiveDraftSyncPlan,
   resolveAutoSaveEligibility,
+  resolveDraftMirrorSyncPlan,
 } from './draftSync';
 
 describe('resolveActiveDraftSyncPlan', () => {
@@ -122,5 +123,38 @@ describe('resolveAutoSaveEligibility', () => {
     expect(
       resolveAutoSaveEligibility({ ...base, hasUnsavedChanges: false }).shouldSchedule,
     ).toBe(false);
+  });
+});
+
+describe('resolveDraftMirrorSyncPlan', () => {
+  it('skips mirror sync when there is no active document source or no draft change', () => {
+    expect(
+      resolveDraftMirrorSyncPlan({
+        activeDocumentSource: null,
+        activeDocumentPath: '/tmp/draft.md',
+        localDraft: '# Draft',
+      }),
+    ).toBeNull();
+
+    expect(
+      resolveDraftMirrorSyncPlan({
+        activeDocumentSource: '# Saved',
+        activeDocumentPath: '/tmp/draft.md',
+        localDraft: '# Saved',
+      }),
+    ).toBeNull();
+  });
+
+  it('returns the draft and active path when the local draft should be mirrored to the backend', () => {
+    expect(
+      resolveDraftMirrorSyncPlan({
+        activeDocumentSource: '# Saved',
+        activeDocumentPath: '/tmp/draft.md',
+        localDraft: '# Edited',
+      }),
+    ).toEqual({
+      draft: '# Edited',
+      activeDocumentPath: '/tmp/draft.md',
+    });
   });
 });
