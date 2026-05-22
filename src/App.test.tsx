@@ -7288,6 +7288,94 @@ describe('App recent documents', () => {
     expect(destroyWindowMock).not.toHaveBeenCalled();
   });
 
+  it('prompts for the inactive dirty tab name after switching to it on quit', async () => {
+    const alphaPath = '/tmp/project/alpha.md';
+    const betaPath = '/tmp/project/beta.md';
+
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+    loadOpenTabsMock.mockResolvedValue({
+      openTabs: [alphaPath, betaPath],
+      activeTabPath: alphaPath,
+      cursorPositions: {},
+    });
+    openDocumentMock.mockImplementation((path: string) => {
+      const isAlpha = path === alphaPath;
+      return Promise.resolve(
+        baseSnapshot({
+          activeDocumentName: isAlpha ? 'alpha.md' : 'beta.md',
+          activeDocumentPath: path,
+          activeDocumentSource: isAlpha ? '# Alpha' : '# Beta',
+          mode: 'Editor',
+        }),
+      );
+    });
+    replaceActiveDocumentSourceMock.mockImplementation(async (source: string) =>
+      baseSnapshot({
+        activeDocumentName: 'beta.md',
+        activeDocumentPath: betaPath,
+        activeDocumentSource: source,
+        activeDocumentDirty: true,
+        mode: 'Editor',
+      }),
+    );
+    messageMock.mockResolvedValue('Cancel');
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    await waitFor(() => {
+      expect(sourceEditor).toHaveValue('# Alpha');
+      expect(screen.getByRole('tab', { name: /alpha\.md/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: /beta\.md/i }));
+    await waitFor(() => {
+      expect(sourceEditor).toHaveValue('# Beta');
+    });
+    fireEvent.change(sourceEditor, { target: { value: '# Beta edited' } });
+    fireEvent.click(screen.getByRole('tab', { name: /alpha\.md/i }));
+
+    await waitFor(() => {
+      expect(sourceEditor).toHaveValue('# Alpha');
+      expect(screen.getByRole('tab', { name: /alpha\.md/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      expect(
+        within(screen.getByRole('tab', { name: /beta\.md/i })).getByLabelText(
+          'Unsaved changes',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(window, { key: 'q', metaKey: true });
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /beta\.md/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      expect(messageMock).toHaveBeenCalledWith(
+        "Save changes to 'beta.md' before closing?",
+        {
+          buttons: {
+            yes: 'Save',
+            no: "Don't Save",
+            cancel: 'Cancel',
+          },
+          kind: 'warning',
+          title: 'Markdowner',
+        },
+      );
+    });
+    expect(quitAppMock).not.toHaveBeenCalled();
+  });
+
   it('keeps the window open when the active document changed externally and user chose save', async () => {
     hasActiveDocumentExternalChangesMock.mockResolvedValue(true);
     bootstrapMock.mockResolvedValue(

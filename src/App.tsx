@@ -2505,6 +2505,12 @@ export default function App() {
     return true;
   };
 
+  const requestCloseDecision = async (documentName = snapshot.activeDocumentName) => {
+    const confirmation = buildCloseConfirmationDialog(documentName, WINDOW_TITLE);
+    const decision = await message(confirmation.message, confirmation.options);
+    return resolveCloseDecisionAction(decision);
+  };
+
   const closeOnlyRemainingTab = useEffectEvent(async () => {
     // Pull any pending WYSIWYG edits across the debounce boundary so the
     // dirty check below reflects the user's actual most-recent state.
@@ -2525,9 +2531,7 @@ export default function App() {
     }
 
     try {
-      const confirmation = buildCloseConfirmationDialog(snapshot.activeDocumentName, WINDOW_TITLE);
-      const decision = await message(confirmation.message, confirmation.options);
-      const closeDecisionAction = resolveCloseDecisionAction(decision);
+      const closeDecisionAction = await requestCloseDecision();
 
       if (closeDecisionAction.kind === 'save') {
         await withBusy(async () => {
@@ -3391,17 +3395,16 @@ export default function App() {
         return;
       }
 
+      const promptDocumentName = closeRequestAction.switchToTabId
+        ? tabs.find((tab) => tab.id === closeRequestAction.switchToTabId)?.name
+        : snapshot.activeDocumentName;
+
       if (closeRequestAction.switchToTabId) {
         await switchToTab(closeRequestAction.switchToTabId);
       }
 
       try {
-        const confirmation = buildCloseConfirmationDialog(
-          snapshot.activeDocumentName,
-          WINDOW_TITLE,
-        );
-        const decision = await message(confirmation.message, confirmation.options);
-        const closeDecisionAction = resolveCloseDecisionAction(decision);
+        const closeDecisionAction = await requestCloseDecision(promptDocumentName);
 
         if (closeDecisionAction.kind === 'save') {
           await withBusy(async () => {
