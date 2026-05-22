@@ -879,7 +879,8 @@ export default function App() {
   const handleSelectSearchMatch = useEffectEvent(
     async (file: SearchResultFile, match: SearchResultMatch | undefined) => {
       const targetMatch = match ?? file.matches[0];
-      await openKnownDocumentPath(file.path, openWorkspaceDocument);
+      const opened = await openKnownDocumentPath(file.path, openWorkspaceDocument);
+      if (!opened) return;
       if (targetMatch) {
         const offset = targetMatch.absoluteOffset;
         const end = offset + (targetMatch.matchEnd - targetMatch.matchStart);
@@ -2737,10 +2738,11 @@ export default function App() {
     if (pathTransition.kind === 'switchExisting') {
       await switchToTab(pathTransition.activeTabId);
       focusActiveEditor();
-      return;
+      return true;
     }
 
     const token = nextEditorOpRequest();
+    let applied = false;
     await withBusy(async () => {
       stashActiveTabDraft();
       await syncActiveDraftBestEffort();
@@ -2749,12 +2751,14 @@ export default function App() {
       if (isEditorOpStale(token)) return;
       applySnapshot(next);
       upsertActiveTabFromSnapshot(next);
+      applied = true;
     });
 
     // Clicking a file in the Explorer sidebar should leave the caret in the
     // editor, not on the tree row — same UX as Cmd+N / Cmd+O.
-    if (isEditorOpStale(token)) return;
+    if (!applied || isEditorOpStale(token)) return false;
     focusActiveEditor();
+    return true;
   };
 
   const handleOpenWorkspaceDocument = async (path: string) => {

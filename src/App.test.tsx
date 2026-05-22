@@ -163,7 +163,15 @@ const baseSnapshot = (overrides: Partial<AppSnapshot> = {}): AppSnapshot => ({
   ...overrides,
 });
 
-function workspaceSearchFile(path: string, heading: string) {
+function workspaceSearchFile(
+  path: string,
+  heading: string,
+  match: { start: number; end: number; absoluteOffset: number } = {
+    start: 2,
+    end: 2 + heading.length,
+    absoluteOffset: 2,
+  },
+) {
   return {
     path,
     matches: [
@@ -171,9 +179,9 @@ function workspaceSearchFile(path: string, heading: string) {
         line: 1,
         column: 3,
         preview: `# ${heading}`,
-        matchStart: 2,
-        matchEnd: 2 + heading.length,
-        absoluteOffset: 2,
+        matchStart: match.start,
+        matchEnd: match.end,
+        absoluteOffset: match.absoluteOffset,
       },
     ],
   };
@@ -3739,7 +3747,11 @@ describe('App recent documents', () => {
     );
     searchWorkspaceMock.mockResolvedValue({
       files: [
-        workspaceSearchFile('/tmp/project/alpha.md', 'Alpha'),
+        workspaceSearchFile('/tmp/project/alpha.md', 'Alpha', {
+          start: 0,
+          end: 1,
+          absoluteOffset: 0,
+        }),
         workspaceSearchFile('/tmp/project/beta.md', 'Beta'),
       ],
     });
@@ -3808,6 +3820,13 @@ describe('App recent documents', () => {
       'aria-selected',
       'true',
     );
+    await waitFor(() => {
+      const sourceEditor = screen.getByRole('textbox', {
+        name: /source editor/i,
+      }) as HTMLTextAreaElement;
+      expect(sourceEditor.selectionStart).toBe(2);
+      expect(sourceEditor.selectionEnd).toBe(6);
+    });
   });
 
   it('opens Quick Open without mounting the shared Radix dialog overlay', async () => {
