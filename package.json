@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.260526.0",
   "type": "module",
+  "packageManager": "pnpm@10.33.4",
   "scripts": {
     "dev": "vite",
     "build": "node scripts/build.mjs",
