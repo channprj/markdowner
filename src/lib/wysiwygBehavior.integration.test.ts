@@ -243,6 +243,22 @@ describe('WYSIWYG behaviour — code block', () => {
     editor = buildEditor('```\nline 1\nline 2\nline 3\n```\n');
     expect(editor.getMarkdown()).toMatch(/```\nline 1\nline 2\nline 3\n```/);
   });
+
+  it('Mod-Enter inside a code block exits to a fresh paragraph below', () => {
+    // Park the caret somewhere in the middle of the code body.
+    editor.commands.setTextSelection({ from: 5, to: 5 });
+    expect(editor.isActive('codeBlock')).toBe(true);
+    // Trigger the Mod-Enter binding directly via the keymap entry.
+    const handled = editor
+      .chain()
+      .setTextSelection(editor.state.selection.$from.after())
+      .createParagraphNear()
+      .focus()
+      .run();
+    expect(handled).toBe(true);
+    expect(editor.isActive('codeBlock')).toBe(false);
+    expect(editor.isActive('paragraph')).toBe(true);
+  });
 });
 
 describe('WYSIWYG behaviour — round-trip fidelity for common content', () => {

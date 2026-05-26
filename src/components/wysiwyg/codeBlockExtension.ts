@@ -4,10 +4,19 @@ import { common, createLowlight } from 'lowlight';
 
 import { CodeBlockView } from './CodeBlockView';
 
-// Shared lowlight registry. `common` covers the languages exposed through
-// `CODE_BLOCK_LANGUAGES` plus a few near-aliases (e.g. shell vs bash) that
-// users may type into the dropdown.
+// Shared lowlight registry. `common` covers ~38 languages out of the box;
+// we additionally register aliases for language names that appear in
+// `CODE_BLOCK_LANGUAGES` (and in markdown source written by the wider world)
+// but aren't in lowlight's default set — without these aliases, fenced
+// blocks like ```html or ```toml render with no syntax highlighting and
+// look "weird" compared to the source-mode rendering.
 const lowlight = createLowlight(common);
+// `html` is the obvious tag name for HTML code blocks; lowlight ships it
+// only under `xml`. registerAlias makes `html` resolve to the xml grammar.
+lowlight.registerAlias({ xml: ['html'] });
+// `toml` isn't in `common`; the `ini` grammar is the closest visual match
+// (sections + key=value pairs) so we alias it.
+lowlight.registerAlias({ ini: ['toml'] });
 
 // Move keyboard focus to the language picker rendered by the NodeView at the
 // given document position. Returns true when the focus actually moved so the
@@ -61,6 +70,27 @@ export function createCodeBlockExtension() {
           if (beforeText.includes('\n')) return false;
           const codeBlockPos = $from.before($from.depth);
           return focusLanguageSelectorAtPos(editor, codeBlockPos);
+        },
+        // Mod-Enter inside a code block exits the block — Notion/StackOverflow
+        // convention. Plain Enter still inserts a newline character (so users
+        // can write multi-line code without juggling shortcuts), but the
+        // explicit modifier provides a one-keystroke escape hatch that
+        // doesn't require reaching for ArrowDown several times.
+        'Mod-Enter': ({ editor }) => {
+          const { state } = editor;
+          const { $from } = state.selection;
+          if ($from.parent.type.name !== 'codeBlock') return false;
+          // Move the caret to just after the codeBlock, then split. The
+          // split lands the user inside a fresh paragraph immediately below
+          // the code block, mirroring the result of pressing ArrowDown +
+          // Home + Enter.
+          const afterPos = $from.after();
+          return editor
+            .chain()
+            .setTextSelection(afterPos)
+            .createParagraphNear()
+            .focus()
+            .run();
         },
       };
     },

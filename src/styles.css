@@ -384,12 +384,42 @@
   }
   .notion-editor-content .ProseMirror table {
     @apply my-3 border-collapse overflow-hidden rounded-md border border-border;
+    /* Cells inherit the table's font size — fix to a single line-height so
+       the visible cell heights stay uniform regardless of paragraph spacing. */
+    line-height: 1.4;
+    width: 100%;
   }
   .notion-editor-content .ProseMirror .tableWrapper {
     @apply my-3 overflow-x-auto;
   }
   .notion-editor-content .ProseMirror .tableWrapper table {
     @apply my-0;
+  }
+  /* Visible cell borders. Without these every cell looked like a single
+     monolithic blob because border-collapse on the outer table only paints
+     the table's own border, not the inner grid. */
+  .notion-editor-content .ProseMirror table th,
+  .notion-editor-content .ProseMirror table td {
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    vertical-align: top;
+    min-width: 6rem;
+    position: relative;
+  }
+  /* Header row: distinct background so the user can see a header exists.
+     The Tiptap Table extension renders the first row as `<th>` when
+     `withHeaderRow: true`. */
+  .notion-editor-content .ProseMirror table th {
+    background: color-mix(in srgb, var(--muted) 60%, transparent);
+    font-weight: 600;
+    text-align: left;
+  }
+  /* Paragraphs inside cells: drop the surrounding `.ProseMirror p` margin so
+     single-paragraph cells don't get a top/bottom gap that makes them feel
+     vertically off-centre. */
+  .notion-editor-content .ProseMirror table th > p,
+  .notion-editor-content .ProseMirror table td > p {
+    margin: 0;
   }
   .notion-editor-content .ProseMirror .selectedCell::after {
     content: '';
@@ -877,19 +907,35 @@ section[data-minimap='on'] .editor-pane-preview {
 }
 .code-block-view > pre {
   margin: 0;
-  /* Leave room on the right for the floating language selector. */
-  padding: 1rem 9rem 1rem 1rem;
+  /* Leave just enough room on the right that the inline language picker (max
+     ~10rem wide when its label fills) can't visually overlap the last
+     character of a long line. Earlier `9rem` was based on a larger picker
+     trigger that has since shrunk; the wider padding ate horizontal space
+     for no benefit. */
+  padding: 0.85rem 1rem;
+  /* Per-element offset that lifts long lines clear of the floating toolbar
+     ONLY on the top line, where the toolbar actually sits. The toolbar is
+     positioned absolute at top:6px right:6px, occupies the upper-right
+     ~10rem corner. Padding-top alone would create dead space below it. */
+  padding-right: max(1rem, 11rem);
+  padding-top: 1.6rem;
   background: transparent;
   overflow: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.875rem;
   line-height: 1.5;
+  /* Empty code blocks otherwise collapse to a zero-height pre with no caret
+     anchor — they read as "the block disappeared" until the user starts
+     typing. A min-height keeps the block visually present. */
+  min-height: 2.6rem;
+  white-space: pre;
 }
 .code-block-view > pre > code {
   display: block;
   background: transparent;
   padding: 0;
   font-family: inherit;
+  white-space: pre;
 }
 /* Float the toolbar inside the codeblock at the top-right so the language
    selector reads as a chip attached to the code rather than a header bar. */
