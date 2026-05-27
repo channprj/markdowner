@@ -1697,7 +1697,20 @@ export default function App() {
               ed.chain()
                 .focus()
                 .command(({ commands }) =>
+                  // Mirror Tiptap's real Enter keymap so the replayed newline
+                  // behaves identically to a non-IME Enter in every block.
+                  // The base keymap (newlineInCode/createParagraphNear/
+                  // liftEmptyBlock/splitBlock) does NOT know about list items —
+                  // those are added by the list extensions — so without the
+                  // splitListItem steps a replayed Enter inside a list split the
+                  // paragraph wrongly instead of making a new item / exiting an
+                  // empty one. On an empty item splitListItem fails and
+                  // liftEmptyBlock lifts it out (double-Enter exits the list);
+                  // the same liftEmptyBlock handles exiting an empty blockquote
+                  // line.
                   commands.first([
+                    () => commands.splitListItem('taskItem'),
+                    () => commands.splitListItem('listItem'),
                     () => commands.newlineInCode(),
                     () => commands.createParagraphNear(),
                     () => commands.liftEmptyBlock(),

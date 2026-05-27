@@ -40,17 +40,46 @@ export function createCodeBlockExtension() {
     },
     addKeyboardShortcuts() {
       return {
-        // ArrowDown into a code block: stop at the language picker first so
-        // the user can change the language (or just press ArrowDown again to
-        // continue into the code body).
         ArrowDown: ({ editor }) => {
           const { state } = editor;
           const { selection } = state;
           if (!selection.empty) return false;
           const { $from } = selection;
-          if ($from.parent.type.name === 'codeBlock') return false;
-          // Only intercept when the caret sits at the very end of its block,
-          // i.e. the next ArrowDown would otherwise step into a sibling node.
+
+          // Inside a code block: ArrowDown on the LAST line exits the block to
+          // the paragraph below (creating one when the code block is the last
+          // node). Plain Enter always inserts a newline in code, so this arrow
+          // is the deliberate escape hatch the user asked for. Replaces
+          // CodeBlockLowlight's built-in exitOnArrowDown, which our
+          // addKeyboardShortcuts override would otherwise shadow.
+          if ($from.parent.type.name === 'codeBlock') {
+            const textAfterCaret = $from.parent.textBetween(
+              $from.parentOffset,
+              $from.parent.content.size,
+            );
+            // Not on the last line yet — let the caret move down within the code.
+            if (textAfterCaret.includes('\n')) return false;
+            const afterPos = $from.after();
+            const nodeAfter = state.doc.nodeAt(afterPos);
+            if (!nodeAfter) {
+              return editor
+                .chain()
+                .insertContentAt(afterPos, { type: 'paragraph' })
+                .setTextSelection(afterPos + 1)
+                .scrollIntoView()
+                .focus()
+                .run();
+            }
+            return editor
+              .chain()
+              .setTextSelection(afterPos + 1)
+              .scrollIntoView()
+              .focus()
+              .run();
+          }
+
+          // Above a code block: stop at the language picker first so the user
+          // can change the language (or press ArrowDown again to continue in).
           if ($from.parentOffset < $from.parent.content.size) return false;
           if ($from.depth === 0) return false;
           const afterPos = $from.after();
