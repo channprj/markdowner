@@ -63,6 +63,44 @@ export function clearImeLog(): void {
   for (const l of listeners) l(ring.slice());
 }
 
+/** Selection shape we read for diagnostics (loosely typed to avoid PM deps). */
+interface ImeViewLike {
+  state?: {
+    selection?: {
+      from?: number;
+      to?: number;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      $from?: any;
+    };
+  };
+}
+
+/**
+ * Read the text of the textblock the caret sits in, plus whether that block is
+ * inside a table cell. This is the single most useful signal for the CJK
+ * reversal: it shows the actual character order forming in the cell ("안" →
+ * "녕안" → "녕하안"), so one screenshot of the overlay reveals the mechanism.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function describeBlock($from: any): { cellText?: string; inCell?: boolean } {
+  if (!$from || typeof $from.depth !== 'number') return {};
+  try {
+    const parent = $from.parent;
+    const cellText = typeof parent?.textContent === 'string' ? parent.textContent : undefined;
+    let inCell = false;
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const role = $from.node(depth)?.type?.spec?.tableRole;
+      if (role === 'cell' || role === 'header_cell') {
+        inCell = true;
+        break;
+      }
+    }
+    return { cellText, inCell };
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Log an IME-related event with the current selection so we can see exactly
  * where each composed syllable lands in WebKit. `extra` carries
@@ -70,12 +108,17 @@ export function clearImeLog(): void {
  */
 export function imeLog(
   label: string,
-  view: { state?: { selection?: { from?: number; to?: number } } } | null | undefined,
+  view: ImeViewLike | null | undefined,
   extra: Record<string, unknown> = {},
 ): void {
   if (!imeDebugEnabled()) return;
   const sel = view?.state?.selection;
-  const detail = JSON.stringify({ from: sel?.from, to: sel?.to, ...extra });
+  const detail = JSON.stringify({
+    from: sel?.from,
+    to: sel?.to,
+    ...describeBlock(sel?.$from),
+    ...extra,
+  });
   // eslint-disable-next-line no-console
   console.log(`[IME] ${label}`, detail);
   ring.push({ seq: (seq += 1), label, detail });
