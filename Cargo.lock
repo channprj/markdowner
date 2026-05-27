@@ -2092,7 +2092,7 @@ dependencies = [
 
 [[package]]
 name = "markdowner-desktop"
-version = "0.260527.19"
+version = "0.260528.1"
 dependencies = [
  "markdowner-core",
  "regex",
