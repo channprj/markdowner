@@ -329,6 +329,22 @@ const CHORD_PREFIX_TIMEOUT_MS = 1500;
 // switch, tab stash, close prompts) to keep correctness without the cost.
 const WYSIWYG_FLUSH_DEBOUNCE_MS = 120;
 
+/**
+ * True when the current selection's anchor sits inside a table cell. Used to
+ * scope the WebKit composition caret-jump correction to table cells only —
+ * plain paragraph composition works correctly and must not be touched.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function selectionInsideTableCell(state: any): boolean {
+  const $from = state?.selection?.$from;
+  if (!$from) return false;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const role = $from.node(depth)?.type?.spec?.tableRole;
+    if (role === 'cell' || role === 'header_cell') return true;
+  }
+  return false;
+}
+
 function useLatestRequestTracker(): LatestRequestTracker {
   const trackerRef = useRef<LatestRequestTracker | null>(null);
   if (trackerRef.current === null) {
@@ -439,6 +455,15 @@ export default function App() {
   // and concludes "엔터가 안 먹는다". We remember the intent here and replay
   // a real Enter once `compositionend` fires and the doc is stable again.
   const pendingEnterAfterCompositionRef = useRef(false);
+  // Document position where the current CJK composition began, captured at
+  // compositionstart ONLY when the caret is inside a table cell. WebKit
+  // jumps the caret to the cell start after the first syllable of an
+  // empty cell commits, so the next syllable inserts in front of it and
+  // "안녕하세요" comes out "녕하세요안". On compositionend we use this anchor
+  // to detect that backward jump and restore the caret to anchor + the
+  // committed length. Null when composition started outside a table cell
+  // (plain paragraphs don't exhibit the bug and must stay untouched).
+  const tableCompositionAnchorRef = useRef<number | null>(null);
   const wysiwygCompositionFlushTimerRef = useRef<number | null>(null);
   // Wall-clock timestamp of the most recent WYSIWYG compositionend. Used to
   // suppress synthetic Enter keys that ProseMirror's readDOMChange dispatches
@@ -1582,6 +1607,11 @@ export default function App() {
         compositionstart: (view: any) => {
           isWysiwygComposingRef.current = true;
           imeLog('compositionstart', view);
+          // Record where this composition begins, but only inside a table
+          // cell (the only place the WebKit caret-jump reversal occurs).
+          tableCompositionAnchorRef.current = selectionInsideTableCell(view.state)
+            ? view.state.selection.from
+            : null;
           if (wysiwygCompositionFlushTimerRef.current !== null) {
             window.clearTimeout(wysiwygCompositionFlushTimerRef.current);
             wysiwygCompositionFlushTimerRef.current = null;
@@ -1636,12 +1666,43 @@ export default function App() {
                 .run();
             }, 80);
           }
+          // Table-cell caret-jump correction. WebKit can reset the caret to
+          // the cell start after committing the first syllable in a
+          // previously-empty cell, so the next syllable lands in front of it
+          // ("안녕하세요" → "녕하세요안"). We recorded the composition anchor
+          // at compositionstart; if the caret has jumped to BEFORE
+          // anchor + committed-length, push it back to where it belongs. We
+          // act only when the jump actually happened (otherwise it's a no-op,
+          // no jank) and only inside a table cell (paragraphs are untouched).
+          // Deferred past ProseMirror's ~50ms composition-cleanup window so
+          // our correction isn't overwritten when the view finalises.
+          const anchor = tableCompositionAnchorRef.current;
+          const committed = (event as CompositionEvent).data ?? '';
+          tableCompositionAnchorRef.current = null;
+          if (anchor !== null && committed.length > 0) {
+            const expected = anchor + committed.length;
+            window.setTimeout(() => {
+              const ed = editorInstanceRef.current;
+              if (!ed || currentModeRef.current !== 'Wysiwyg') return;
+              if (isWysiwygComposingRef.current || ed.view?.composing) return;
+              if (!selectionInsideTableCell(ed.state)) return;
+              const current = ed.state.selection.from;
+              const docSize = ed.state.doc.content.size;
+              // Only correct a genuine backward jump that still lands inside
+              // the doc; never move the caret forward or out of range.
+              if (current < expected && expected <= docSize) {
+                ed.chain().setTextSelection(expected).run();
+                imeLog('cell caret corrected', ed.view, { from: current, to: expected });
+              }
+            }, 60);
+          }
           scheduleWysiwygCompositionFlush();
           return false;
         },
         compositioncancel: () => {
           isWysiwygComposingRef.current = false;
           pendingEnterAfterCompositionRef.current = false;
+          tableCompositionAnchorRef.current = null;
           lastWysiwygCompositionEndAtRef.current = Date.now();
           lastWysiwygCompositionDataRef.current = '';
           scheduleWysiwygCompositionFlush();
