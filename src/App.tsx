@@ -1640,6 +1640,10 @@ export default function App() {
 
   const handleWysiwygUpdate = useEffectEvent(
     ({ editor: nextEditor }: { editor: TiptapEditor }) => {
+      imeLog('onUpdate', nextEditor.view, {
+        composing: nextEditor.view?.composing,
+        refComposing: isWysiwygComposingRef.current,
+      });
       if (currentModeRef.current === 'Wysiwyg') {
         if (isWysiwygComposingRef.current || nextEditor.view?.composing) {
           // Keep ProseMirror's editable DOM authoritative during CJK
@@ -1665,6 +1669,10 @@ export default function App() {
 
   const handleWysiwygSelectionUpdate = useEffectEvent(
     ({ editor: nextEditor }: { editor: TiptapEditor }) => {
+      imeLog('onSelectionUpdate', nextEditor.view, {
+        composing: nextEditor.view?.composing,
+        parent: nextEditor.state.selection.$from.parent.type.name,
+      });
       // Mirror the WYSIWYG selection as a markdown source location (line +
       // column) so mode switches can hand the caret to CodeMirror at the same
       // logical position.
