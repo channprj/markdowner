@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Markdowner",
-  "version": "0.260527.4",
+  "version": "0.260527.5",
   "identifier": "dev.chann.markdowner",
   "build": {
     "beforeDevCommand": "pnpm dev",
