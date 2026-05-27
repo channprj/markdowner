@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  computeTableCaretCarryForward,
   computeTableCaretCorrection,
   focusCodeBlockLanguageSelectorOnArrowUp,
   shouldSuppressDuplicateImeTextInput,
@@ -216,5 +217,39 @@ describe('computeTableCaretCorrection', () => {
     expect(
       computeTableCaretCorrection({ ...base, committedLength: 5, currentCaret: 10, docSize: 12 }),
     ).toBeNull();
+  });
+});
+
+describe('computeTableCaretCarryForward', () => {
+  const base = {
+    expectedEnd: 11,
+    currentCaret: 10,
+    docSize: 100,
+    insideTableCell: true,
+  };
+
+  it('moves the caret forward to where the previous syllable ended after a reset', () => {
+    // Caret was reset to the cell start (10); the previous syllable ended at 11.
+    expect(computeTableCaretCarryForward(base)).toBe(11);
+  });
+
+  it('is a no-op when the caret is already at the expected end (Chrome)', () => {
+    expect(computeTableCaretCarryForward({ ...base, currentCaret: 11 })).toBeNull();
+  });
+
+  it('never pulls the caret backward', () => {
+    expect(computeTableCaretCarryForward({ ...base, currentCaret: 15 })).toBeNull();
+  });
+
+  it('does nothing when there is no recorded expected end', () => {
+    expect(computeTableCaretCarryForward({ ...base, expectedEnd: null })).toBeNull();
+  });
+
+  it('does nothing outside a table cell', () => {
+    expect(computeTableCaretCarryForward({ ...base, insideTableCell: false })).toBeNull();
+  });
+
+  it('refuses an expected end past the document size', () => {
+    expect(computeTableCaretCarryForward({ ...base, expectedEnd: 200 })).toBeNull();
   });
 });

@@ -251,6 +251,7 @@ import {
   selectWysiwygFindMatch,
 } from './lib/wysiwygFind';
 import {
+  computeTableCaretCarryForward,
   computeTableCaretCorrection,
   focusCodeBlockLanguageSelectorOnArrowUp,
   shouldSuppressDuplicateImeTextInput,
@@ -329,6 +330,10 @@ const CHORD_PREFIX_TIMEOUT_MS = 1500;
 // at this cadence and force-flush at synchronization points (save, mode
 // switch, tab stash, close prompts) to keep correctness without the cost.
 const WYSIWYG_FLUSH_DEBOUNCE_MS = 120;
+// Max gap between a syllable's compositionend and the next syllable's
+// compositionstart for the table-cell caret carry-forward to apply. Continuous
+// CJK typing fires these within tens of ms; deliberate caret moves are slower.
+const CARRY_FORWARD_WINDOW_MS = 600;
 
 /**
  * True when the current selection's anchor sits inside a table cell. Used to
@@ -465,6 +470,14 @@ export default function App() {
   // committed length. Null when composition started outside a table cell
   // (plain paragraphs don't exhibit the bug and must stay untouched).
   const tableCompositionAnchorRef = useRef<number | null>(null);
+  // Where the PREVIOUS composition in the current table cell left the caret
+  // (anchor + committed length). At the NEXT syllable's compositionstart we
+  // check whether WebKit has reset the caret to before this position and, if
+  // so, move it forward before the new syllable composes — the primary repair
+  // for the reversal, since a compositionend-time fix can't run while
+  // `view.composing` lingers between syllables. Null outside a cell / after a
+  // commit that moved on cleanly.
+  const tableCompositionExpectedEndRef = useRef<number | null>(null);
   const wysiwygCompositionFlushTimerRef = useRef<number | null>(null);
   // Wall-clock timestamp of the most recent WYSIWYG compositionend. Used to
   // suppress synthetic Enter keys that ProseMirror's readDOMChange dispatches
@@ -1608,10 +1621,37 @@ export default function App() {
         compositionstart: (view: any) => {
           isWysiwygComposingRef.current = true;
           imeLog('compositionstart', view);
-          // Record where this composition begins, but only inside a table
-          // cell (the only place the WebKit caret-jump reversal occurs).
-          tableCompositionAnchorRef.current = selectionInsideTableCell(view.state)
-            ? view.state.selection.from
+          // Primary WebKit reversal repair: before this syllable composes, if
+          // the caret was reset back to the cell start after the previous
+          // syllable, move it forward to where that syllable ended. No-op
+          // outside a cell and whenever the caret is already in place (Chrome).
+          const inCell = selectionInsideTableCell(view.state);
+          // Only carry forward across a rapid syllable burst (the reversal
+          // cascade fires within tens of ms). A deliberate click-then-type is
+          // far slower, so this guards against repositioning the caret when the
+          // user intentionally moved it backward in a cell.
+          const continuousBurst =
+            Date.now() - lastWysiwygCompositionEndAtRef.current < CARRY_FORWARD_WINDOW_MS;
+          if (inCell && continuousBurst) {
+            const carry = computeTableCaretCarryForward({
+              expectedEnd: tableCompositionExpectedEndRef.current,
+              currentCaret: view.state.selection.from,
+              docSize: view.state.doc.content.size,
+              insideTableCell: true,
+            });
+            if (carry !== null) {
+              const ed = editorInstanceRef.current;
+              ed?.chain().setTextSelection(carry).run();
+              imeLog('cell caret carry-forward', ed?.view ?? view, {
+                to: carry,
+              });
+            }
+          }
+          tableCompositionExpectedEndRef.current = null;
+          // Record where this composition begins (after any carry-forward),
+          // but only inside a table cell (the only place the reversal occurs).
+          tableCompositionAnchorRef.current = inCell
+            ? editorInstanceRef.current?.state.selection.from ?? view.state.selection.from
             : null;
           if (wysiwygCompositionFlushTimerRef.current !== null) {
             window.clearTimeout(wysiwygCompositionFlushTimerRef.current);
@@ -1681,6 +1721,10 @@ export default function App() {
           const committed = (event as CompositionEvent).data ?? '';
           tableCompositionAnchorRef.current = null;
           if (anchor !== null && committed.length > 0) {
+            // Hand the expected end position to the next syllable's
+            // compositionstart, which is where the reversal is actually
+            // repaired (view.composing lingers here, blocking the timer below).
+            tableCompositionExpectedEndRef.current = anchor + committed.length;
             window.setTimeout(() => {
               const ed = editorInstanceRef.current;
               if (!ed || currentModeRef.current !== 'Wysiwyg') return;
@@ -1706,6 +1750,7 @@ export default function App() {
           isWysiwygComposingRef.current = false;
           pendingEnterAfterCompositionRef.current = false;
           tableCompositionAnchorRef.current = null;
+          tableCompositionExpectedEndRef.current = null;
           lastWysiwygCompositionEndAtRef.current = Date.now();
           lastWysiwygCompositionDataRef.current = '';
           scheduleWysiwygCompositionFlush();

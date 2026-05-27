@@ -115,23 +115,64 @@ type TableCaretCorrectionInput = {
 };
 
 /**
- * Decide whether — and where — to repair the caret after a CJK composition in
- * a table cell. WebKit can reset the caret to the cell start after committing
- * the first syllable in a previously-empty cell, so the next syllable lands in
- * front of it and "안녕하세요" comes out "녕하세요안".
+ * Core primitive: if the caret has jumped BACKWARD to before `expected` while
+ * inside a table cell, return `expected` (clamped to the doc); otherwise null.
+ * This is a strict no-op in the healthy case — in Chrome / plain text the caret
+ * already sits at or past `expected`, so nothing moves and composition is never
+ * disturbed.
+ */
+function repairBackwardJump(
+  expected: number | null,
+  currentCaret: number,
+  docSize: number,
+  insideTableCell: boolean,
+): number | null {
+  if (expected === null || !insideTableCell) return null;
+  if (currentCaret < expected && expected <= docSize) return expected;
+  return null;
+}
+
+/**
+ * Decide whether — and where — to repair the caret AFTER a CJK composition in a
+ * table cell (`compositionend`). WebKit can reset the caret to the cell start
+ * after committing the first syllable in a previously-empty cell, so the next
+ * syllable lands in front of it and "안녕하세요" comes out "녕하세요안".
  *
- * Returns the position to move the caret to, or `null` for a no-op. It is a
- * strict no-op unless a genuine BACKWARD jump happened inside a table cell, so
- * it can never disturb correctly-behaving input (Chrome, plain paragraphs):
- * there the caret already sits at/after `anchor + committedLength`, so the
- * `currentCaret < expected` guard fails and nothing moves.
+ * Used as a fallback for the final syllable (which has no subsequent
+ * compositionstart). See computeTableCaretCarryForward for the primary repair.
  */
 export function computeTableCaretCorrection(input: TableCaretCorrectionInput): number | null {
   const { anchor, committedLength, currentCaret, docSize, insideTableCell } = input;
-  if (anchor === null || committedLength <= 0 || !insideTableCell) return null;
-  const expected = anchor + committedLength;
-  if (currentCaret < expected && expected <= docSize) return expected;
-  return null;
+  if (anchor === null || committedLength <= 0) return null;
+  return repairBackwardJump(anchor + committedLength, currentCaret, docSize, insideTableCell);
+}
+
+type TableCaretCarryForwardInput = {
+  /** Where the PREVIOUS composition in this cell left the caret (anchor + len). */
+  expectedEnd: number | null;
+  /** Where the caret sits now, at the start of the NEXT composition. */
+  currentCaret: number;
+  docSize: number;
+  insideTableCell: boolean;
+};
+
+/**
+ * Primary repair for the WebKit table-cell reversal. WebKit resets the caret to
+ * the cell start once, right after the first syllable commits, and the
+ * `view.composing` flag stays true between syllables — so a compositionend-time
+ * fix never runs during continuous typing. Instead we repair at the NEXT
+ * syllable's compositionstart: if the caret has jumped back to before where the
+ * previous syllable ended, move it forward to `expectedEnd` BEFORE the new
+ * syllable composes, so it lands in the right place and the cascade is broken.
+ *
+ * Strict no-op when the caret is already at/after `expectedEnd` (Chrome, and
+ * every syllable after the reset), so healthy composition is never touched.
+ */
+export function computeTableCaretCarryForward(
+  input: TableCaretCarryForwardInput,
+): number | null {
+  const { expectedEnd, currentCaret, docSize, insideTableCell } = input;
+  return repairBackwardJump(expectedEnd, currentCaret, docSize, insideTableCell);
 }
 
 export function focusCodeBlockLanguageSelectorOnArrowUp(
