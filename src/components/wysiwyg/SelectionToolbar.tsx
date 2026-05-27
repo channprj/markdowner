@@ -22,6 +22,16 @@ type Position = { top: number; left: number };
 
 const TOOLBAR_OFFSET_PX = 12;
 
+/** A prosemirror-tables CellSelection carries $anchorCell/$headCell. */
+function isCellSelection(selection: unknown): boolean {
+  return (
+    typeof selection === 'object' &&
+    selection !== null &&
+    '$anchorCell' in selection &&
+    '$headCell' in selection
+  );
+}
+
 /**
  * Notion-style floating selection toolbar.
  *
@@ -39,6 +49,13 @@ export function SelectionToolbar({ editor, enabled = true }: Props) {
     const { from, to, empty } = state.selection;
     if (empty || from === to) return null;
     if (!view.hasFocus() && !window.getSelection()?.toString()) return null;
+
+    // A multi-cell table selection (CellSelection) is structural, not a text
+    // run — inline marks across a cell span are meaningless and the table
+    // editing toolbar owns this case. Suppress so the two toolbars don't
+    // overlap (the formatting toolbar would otherwise sit on top and swallow
+    // clicks meant for the table controls).
+    if (isCellSelection(state.selection)) return null;
 
     // Inline marks (bold/italic/strike/inline-code/link) cannot apply inside a
     // code block — ProseMirror's schema forbids it. Showing the toolbar there

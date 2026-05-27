@@ -152,7 +152,10 @@ describe('TableToolbar', () => {
     ).not.toBeNull();
   });
 
-  it('does not show the row and column popup while a table cell drag selection is active', async () => {
+  it('keeps the row and column popup available during a multi-cell selection', async () => {
+    // prosemirror-tables resolves add/delete against the selection edge
+    // deterministically, so the controls stay usable while a span is selected
+    // (hiding them was a leftover guard from the old accidental-drag bug).
     const editor = createTableEditor();
 
     editor.state.selection = {
@@ -169,9 +172,8 @@ describe('TableToolbar', () => {
       editor.emit('selectionUpdate');
     });
 
-    await waitFor(() => {
-      expect(screen.queryByRole('toolbar', { name: /table editing/i })).not.toBeInTheDocument();
-    });
+    const toolbar = await screen.findByRole('toolbar', { name: /table editing/i });
+    expect(within(toolbar).getByRole('button', { name: /add column after/i })).toBeInTheDocument();
   });
 
   // Accidental-drag suppression + click-only cell-selection collapse moved

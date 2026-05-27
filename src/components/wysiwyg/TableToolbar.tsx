@@ -33,26 +33,6 @@ type TableCommand =
 
 const TOOLBAR_OFFSET_PX = 10;
 
-type RecordLike = Record<string, unknown>;
-
-interface TableCellSelection {
-  from?: unknown;
-  $anchorCell?: RecordLike;
-  $headCell?: RecordLike;
-}
-
-function isRecordLike(value: unknown): value is RecordLike {
-  return typeof value === 'object' && value !== null;
-}
-
-// While a multi-cell CellSelection is active we hide the formatting toolbar —
-// the add/delete buttons act on whatever single cell the caret is in, so a
-// spanning selection would make their target ambiguous.
-function isTableCellSelection(selection: unknown): selection is TableCellSelection {
-  if (!isRecordLike(selection)) return false;
-  return isRecordLike(selection.$anchorCell) && isRecordLike(selection.$headCell);
-}
-
 export function TableToolbar({ editor, enabled = true }: Props) {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<Position>({ top: 0, left: 0 });
@@ -62,8 +42,11 @@ export function TableToolbar({ editor, enabled = true }: Props) {
     if (!editor || !editor.isActive('table')) return null;
     const { state, view } = editor;
     if (!view.hasFocus()) return null;
-    if (isTableCellSelection(state.selection)) return null;
 
+    // The toolbar stays available for both a caret (TextSelection) and a
+    // multi-cell drag (CellSelection): prosemirror-tables resolves add/delete
+    // against the selection's edge deterministically, so there is no ambiguity
+    // and the user keeps access to the controls while a span is selected.
     const { from, to } = state.selection;
     let startCoords: { top: number; bottom: number; left: number };
     let endCoords: { top: number; bottom: number; right: number };
