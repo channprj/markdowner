@@ -26,6 +26,9 @@ pub struct Settings {
     pub code_block_highlight: bool,
     pub code_block_theme: String,
     pub code_block_theme_sync: bool,
+    pub update_check_enabled: bool,
+    pub last_update_check_at: Option<u64>,
+    pub dismissed_update_version: Option<String>,
 }
 
 impl Default for Settings {
@@ -51,6 +54,9 @@ impl Default for Settings {
             code_block_highlight: true,
             code_block_theme: "one-dark".to_string(),
             code_block_theme_sync: true,
+            update_check_enabled: true,
+            last_update_check_at: None,
+            dismissed_update_version: None,
         }
     }
 }
@@ -72,6 +78,27 @@ mod tests {
         );
         assert_eq!(parsed.outline_font_size, 12);
         assert_eq!(parsed.outline_row_spacing, 0);
+    }
+
+    #[test]
+    fn update_check_fields_default_when_absent_and_round_trip() {
+        // Legacy settings.json (pre-update-notifier) must load with update-check ON.
+        let legacy = r#"{"autoSave":true,"editorFontSize":16}"#;
+        let parsed: Settings = serde_json::from_str(legacy).expect("legacy settings parse");
+        assert!(parsed.update_check_enabled);
+        assert_eq!(parsed.last_update_check_at, None);
+        assert_eq!(parsed.dismissed_update_version, None);
+
+        // Explicit values survive round-trip via camelCase keys.
+        let json = serde_json::json!({
+            "updateCheckEnabled": false,
+            "lastUpdateCheckAt": 1234567890_u64,
+            "dismissedUpdateVersion": "0.260601.0"
+        });
+        let parsed: Settings = serde_json::from_value(json).expect("explicit settings parse");
+        assert!(!parsed.update_check_enabled);
+        assert_eq!(parsed.last_update_check_at, Some(1234567890));
+        assert_eq!(parsed.dismissed_update_version.as_deref(), Some("0.260601.0"));
     }
 
     #[test]
