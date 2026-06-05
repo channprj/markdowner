@@ -98,3 +98,11 @@ describe('settings numeric display helpers', () => {
     });
   });
 });
+
+describe('update-check settings defaults', () => {
+  it('defaults update checking on with no prior timestamp or dismissal', () => {
+    expect(DEFAULT_SETTINGS.updateCheckEnabled).toBe(true);
+    expect(DEFAULT_SETTINGS.lastUpdateCheckAt).toBeNull();
+    expect(DEFAULT_SETTINGS.dismissedUpdateVersion).toBeNull();
+  });
+});

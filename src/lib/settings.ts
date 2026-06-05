@@ -77,6 +77,9 @@ export interface Settings {
   codeBlockHighlight: boolean;
   codeBlockTheme: CodeBlockTheme;
   codeBlockThemeSync: boolean;
+  updateCheckEnabled: boolean;
+  lastUpdateCheckAt: number | null;
+  dismissedUpdateVersion: string | null;
 }
 
 export interface DiagnosticsLogStatus {
@@ -146,6 +149,9 @@ export const DEFAULT_SETTINGS: Settings = {
   codeBlockHighlight: true,
   codeBlockTheme: 'one-dark',
   codeBlockThemeSync: true,
+  updateCheckEnabled: true,
+  lastUpdateCheckAt: null,
+  dismissedUpdateVersion: null,
 };
 
 const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>;
@@ -307,6 +313,21 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): Setting
   merged.codeBlockTheme = normalizeCodeBlockTheme(merged.codeBlockTheme);
   if (typeof merged.codeBlockThemeSync !== 'boolean') {
     merged.codeBlockThemeSync = DEFAULT_SETTINGS.codeBlockThemeSync;
+  }
+  if (typeof merged.updateCheckEnabled !== 'boolean') {
+    merged.updateCheckEnabled = DEFAULT_SETTINGS.updateCheckEnabled;
+  }
+  if (
+    typeof merged.lastUpdateCheckAt !== 'number' ||
+    !Number.isFinite(merged.lastUpdateCheckAt)
+  ) {
+    merged.lastUpdateCheckAt = null;
+  }
+  if (
+    typeof merged.dismissedUpdateVersion !== 'string' ||
+    merged.dismissedUpdateVersion.length === 0
+  ) {
+    merged.dismissedUpdateVersion = null;
   }
   return merged;
 }
