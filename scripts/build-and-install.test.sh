@@ -5,7 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SOURCE_SCRIPT="${PROJECT_ROOT}/scripts/build-and-install.sh"
 SOURCE_BUILD_SCRIPT="${PROJECT_ROOT}/scripts/build.mjs"
+SOURCE_SYNC_VERSION_SCRIPT="${PROJECT_ROOT}/scripts/sync-version.mjs"
 SOURCE_PACKAGE_JSON="${PROJECT_ROOT}/package.json"
+SOURCE_RELEASE_WORKFLOW="${PROJECT_ROOT}/.github/workflows/release.yml"
+SOURCE_VERSION_FILE="${PROJECT_ROOT}/VERSION"
+SOURCE_TAURI_CONF="${PROJECT_ROOT}/src-tauri/tauri.conf.json"
+SOURCE_TAURI_CARGO="${PROJECT_ROOT}/src-tauri/Cargo.toml"
 REAL_PNPM="$(command -v pnpm || true)"
 
 fail() {
@@ -33,12 +38,24 @@ write_stub() {
   chmod +x "${path}"
 }
 
+copy_build_script_dependencies() {
+  local root="$1"
+
+  cp -f "${SOURCE_PACKAGE_JSON}" "${root}/project/package.json"
+  cp -f "${SOURCE_BUILD_SCRIPT}" "${root}/project/scripts/build.mjs"
+  cp -f "${SOURCE_SYNC_VERSION_SCRIPT}" "${root}/project/scripts/sync-version.mjs"
+  cp -f "${SOURCE_VERSION_FILE}" "${root}/project/VERSION"
+  mkdir -p "${root}/project/src-tauri"
+  cp -f "${SOURCE_TAURI_CONF}" "${root}/project/src-tauri/tauri.conf.json"
+  cp -f "${SOURCE_TAURI_CARGO}" "${root}/project/src-tauri/Cargo.toml"
+}
+
 make_test_project() {
   local root="$1"
 
   mkdir -p "${root}/project/scripts"
   cp -f "${SOURCE_SCRIPT}" "${root}/project/scripts/build-and-install.sh"
-  cp -f "${SOURCE_BUILD_SCRIPT}" "${root}/project/scripts/build.mjs"
+  copy_build_script_dependencies "${root}"
   chmod +x "${root}/project/scripts/build-and-install.sh"
   mkdir -p "${root}/project/target/release/bundle/macos/Markdowner.app"
 }
@@ -47,8 +64,7 @@ make_pnpm_test_project() {
   local root="$1"
 
   mkdir -p "${root}/project/scripts"
-  cp -f "${SOURCE_PACKAGE_JSON}" "${root}/project/package.json"
-  cp -f "${SOURCE_BUILD_SCRIPT}" "${root}/project/scripts/build.mjs"
+  copy_build_script_dependencies "${root}"
   mkdir -p "${root}/project/node_modules"
 }
 
@@ -367,6 +383,12 @@ test_pnpm_build_universal_dmg_invokes_tauri_universal_dmg_build() {
   assert_file_contains "${stdout}" "target/tauri-build-and-install/universal-apple-darwin/release/bundle/dmg/Markdowner_0.1.0_universal-apple-darwin.dmg"
 }
 
+test_release_workflow_uploads_stable_universal_dmg_asset() {
+  assert_file_contains "${SOURCE_RELEASE_WORKFLOW}" 'STABLE_DMG="Markdowner_universal.dmg"'
+  assert_file_contains "${SOURCE_RELEASE_WORKFLOW}" 'cp "$DMG" "$STABLE_DMG"'
+  assert_file_contains "${SOURCE_RELEASE_WORKFLOW}" '"$STABLE_DMG"'
+}
+
 test_package_exposes_build_aliases
 test_pnpm_build_without_args_runs_frontend_build
 test_pnpm_build_accepts_double_dash_before_flags
@@ -374,6 +396,7 @@ test_pnpm_build_debug_invokes_tauri_debug_build
 test_pnpm_build_install_open_launches_installed_bundle
 test_pnpm_build_dmg_invokes_tauri_dmg_build_and_prints_hash
 test_pnpm_build_universal_dmg_invokes_tauri_universal_dmg_build
+test_release_workflow_uploads_stable_universal_dmg_asset
 test_help_lists_open_flag
 test_build_uses_isolated_cargo_target_dir
 test_open_flag_launches_installed_bundle

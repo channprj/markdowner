@@ -89,11 +89,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.v.outputs.version }}"
-          DMG=$(find target -path '*/bundle/dmg/*.dmg' -type f | head -1)
+          DMG=$(find target -path '*/bundle/dmg/*.dmg' -type f | sort | head -1)
           [ -n "$DMG" ] || { echo "No DMG found under target/"; exit 1; }
           echo "Found DMG: $DMG"
+          STABLE_DMG="Markdowner_universal.dmg"
+          cp "$DMG" "$STABLE_DMG"
+          echo "Prepared stable DMG: $STABLE_DMG"
           gh release create "v$VERSION" \
             --repo "${{ github.repository }}" \
             --title "v$VERSION" \
             --notes-file RELEASE_NOTES.md \
-            "$DMG"
+            "$DMG" \
+            "$STABLE_DMG"
