@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Copy, CopyCheck, Terminal, Trash2 } from 'lucide-react';
+import { Copy, CopyCheck, RefreshCw, Terminal, Trash2 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -32,6 +32,7 @@ import {
   type CtrlGLauncherStatus,
   type Settings,
 } from '@/lib/settings';
+import type { UpdateInfo } from '@/lib/updateCheck';
 
 export type { Settings } from '@/lib/settings';
 
@@ -44,6 +45,12 @@ export interface SettingsPanelProps {
   currentTheme: ThemeChoice;
   /** Switches between system tracking and an explicit light/dark theme. */
   onThemeChange: (theme: ThemeChoice) => void;
+  updateInfo?: UpdateInfo | null;
+  updateActionLabel?: string;
+  updateBusy?: boolean;
+  updateChecking?: boolean;
+  onUpdateAction?: () => void;
+  onCheckForUpdate?: () => void;
 }
 
 const switchFieldClass = 'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4';
@@ -62,6 +69,12 @@ export function SettingsPanel({
   onSettingsChange,
   currentTheme,
   onThemeChange,
+  updateInfo = null,
+  updateActionLabel = 'View release',
+  updateBusy = false,
+  updateChecking = false,
+  onUpdateAction,
+  onCheckForUpdate,
 }: SettingsPanelProps) {
   const [cliBinary, setCliBinary] = useState<CliBinaryStatus>({
     installPath: CLI_BINARY_INSTALL_PATH,
@@ -291,13 +304,63 @@ export function SettingsPanel({
             <span className="font-mono text-xs text-muted-foreground">
               v{__APP_VERSION__}
             </span>
+            {updateInfo?.available ? (
+              <span
+                data-testid="settings-update-available"
+                className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-300"
+              >
+                Update available → v{updateInfo.latestVersion}
+              </span>
+            ) : null}
           </div>
-          <span
-            data-testid="settings-app-version-channel"
-            className="rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300"
-          >
-            Beta
-          </span>
+          <div className="flex items-center gap-2">
+            {updateInfo?.available ? (
+              <Button
+                type="button"
+                size="sm"
+                data-testid="settings-update-action"
+                onClick={onUpdateAction}
+                disabled={updateBusy}
+              >
+                {updateBusy ? 'Working…' : updateActionLabel}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                data-testid="settings-update-check"
+                onClick={onCheckForUpdate}
+                disabled={updateChecking}
+              >
+                <RefreshCw />
+                {updateChecking ? 'Checking…' : 'Check now'}
+              </Button>
+            )}
+            <span
+              data-testid="settings-app-version-channel"
+              className="rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300"
+            >
+              Beta
+            </span>
+          </div>
+        </div>
+        <Separator />
+        <div className="flex items-center justify-between gap-3">
+          <Label htmlFor="update-check-toggle" className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium leading-none">Check for updates on launch</span>
+            <span className="text-xs text-muted-foreground">
+              Looks for a newer release at most once per day.
+            </span>
+          </Label>
+          <Switch
+            id="update-check-toggle"
+            data-testid="settings-update-toggle"
+            checked={settings.updateCheckEnabled}
+            onCheckedChange={(checked) =>
+              onSettingsChange({ ...settings, updateCheckEnabled: checked })
+            }
+          />
         </div>
         <Separator />
         <div data-testid="settings-cli-binary" className="flex min-w-0 flex-col gap-2">
