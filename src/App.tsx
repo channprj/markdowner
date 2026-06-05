@@ -4136,9 +4136,9 @@ export default function App() {
       {updateCheck.bannerVisible && updateCheck.info ? (
         <UpdateBanner
           latestVersion={updateCheck.info.latestVersion}
-          actionLabel="View release"
+          actionLabel="Download & Install"
           busy={updateCheck.installing}
-          onAction={updateCheck.viewRelease}
+          onAction={updateCheck.install}
           onDismiss={updateCheck.dismissBanner}
         />
       ) : null}
@@ -4231,10 +4231,10 @@ export default function App() {
           onSetTheme={(theme) => void handleSetTheme(theme)}
           onFollowSystemTheme={() => void handleFollowSystemTheme()}
           updateInfo={updateCheck.info}
-          updateActionLabel="View release"
+          updateActionLabel="Download & Install"
           updateBusy={updateCheck.installing}
           updateChecking={updateCheck.checking}
-          onUpdateAction={updateCheck.viewRelease}
+          onUpdateAction={updateCheck.install}
           onCheckForUpdate={updateCheck.checkNow}
         />
       ) : null}
