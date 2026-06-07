@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
@@ -3930,26 +3931,16 @@ export default function App() {
   };
 
   // Cmd+W / File → Close:
-  // - 0 tabs (nothing open): hide the window rather than destroy it. macOS
-  //   convention is that ⌘W closes the *window* but leaves the app running
-  //   in the dock — destroying the only window made Tauri tear the whole
-  //   process down. Hiding keeps the app alive; the Rust `Reopen` handler
-  //   re-shows the window when the user clicks the dock icon. We fall back to
-  //   destroy() only when hide() is unavailable (older Tauri / test mocks
-  //   that don't stub it) so the close still happens.
+  // - 0 tabs (nothing open): hide the whole *application* like ⌘H, via the Rust
+  //   `hide_app_or_window` command. This returns focus to the previously active
+  //   app on macOS instead of leaving Markdowner frontmost with no window. The
+  //   app stays in the dock; the Rust `Reopen` handler re-shows the window when
+  //   the user clicks the dock icon. Non-macOS platforms hide the window.
   // - 1+ tabs: close the active tab. The final tab leaves the window open on
   //   the empty document surface after any required dirty confirmation.
   const handleCloseTabOrWindow = useEffectEvent(async () => {
     if (tabs.length === 0) {
-      const win = getCurrentWindow() as {
-        hide?: () => Promise<void>;
-        destroy: () => Promise<void>;
-      };
-      if (typeof win.hide === 'function') {
-        await win.hide();
-      } else {
-        await win.destroy();
-      }
+      await invoke('hide_app_or_window');
       return;
     }
 

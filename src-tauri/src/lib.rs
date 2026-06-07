@@ -1631,6 +1631,23 @@ fn quit_app(app_handle: AppHandle) {
     app_handle.exit(0);
 }
 
+/// Hide the app the way ⌘H does. With no tabs open, ⌘W should hide the whole
+/// application — returning focus to the previously active app on macOS — rather
+/// than only hiding the window (which leaves Markdowner frontmost). Non-macOS
+/// platforms fall back to hiding the window.
+#[tauri::command]
+fn hide_app_or_window(window: tauri::WebviewWindow) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        window.app_handle().hide()?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        window.hide()?;
+    }
+    Ok(())
+}
+
 pub fn run() {
     // Capture the shell's working directory before Tauri initializes so
     // relative paths like `markdowner README.md` resolve against where the
@@ -1733,6 +1750,7 @@ pub fn run() {
             save_open_tabs,
             open_dropped_path,
             quit_app,
+            hide_app_or_window,
             link_actions::resolve_markdown_link,
             link_actions::open_external_url,
             link_actions::open_path_in_default_app,

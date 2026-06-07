@@ -7444,11 +7444,11 @@ describe('App recent documents', () => {
     expect(messageMock).not.toHaveBeenCalled();
   });
 
-  it('hides the window (keeps the app in the dock) with Cmd+W when no tabs are open', async () => {
+  it('hides the app (keeps it in the dock) with Cmd+W when no tabs are open', async () => {
     // Empty-state bootstrap (no active document, no persisted tabs) means the
-    // tab list is empty. Cmd+W must close the *window* without quitting the
-    // app — macOS convention keeps the app alive in the dock. We hide() the
-    // window rather than destroy() it (which tore the whole process down).
+    // tab list is empty. Cmd+W must hide the *application* like ⌘H — returning
+    // focus to the previously active app on macOS — without quitting. This goes
+    // through the Rust `hide_app_or_window` command; the app stays in the dock.
     // There is nothing dirty to prompt about. Regression for FR-TABS-003.
     bootstrapMock.mockResolvedValue(baseSnapshot());
 
@@ -7461,7 +7461,7 @@ describe('App recent documents', () => {
     fireEvent.keyDown(window, { key: 'w', metaKey: true });
 
     await waitFor(() => {
-      expect(hideWindowMock).toHaveBeenCalled();
+      expect(invokeMock).toHaveBeenCalledWith('hide_app_or_window');
     });
     expect(destroyWindowMock).not.toHaveBeenCalled();
     expect(messageMock).not.toHaveBeenCalled();
