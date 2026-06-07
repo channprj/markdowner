@@ -132,6 +132,91 @@
   }
 }
 
+/* ProseMirror / TipTap engine base styles.
+   TipTap injects these at runtime via a <style> tag (createStyleTag). In a
+   release `tauri build` the production CSP carries a per-load nonce, and once a
+   nonce is present the browser ignores `'unsafe-inline'` — so TipTap's
+   un-nonced injected <style> is refused (style-src-elem). That strips
+   `white-space: pre-wrap` and `position: relative` from `.ProseMirror`, which
+   breaks caret geometry, posAtCoords hit-testing and the absolutely-positioned
+   table overlays (resize handle, selectedCell) — i.e. WYSIWYG table editing
+   "works in dev/Chrome but is broken in the built app". `tauri dev` has
+   `devCsp: null`, so the injection is allowed there and the bug never shows.
+   Bundling the same rules into our stylesheet (which Tauri DOES nonce on its
+   <link>) makes the editor CSP-safe regardless of the runtime injection.
+   Keep this identical to @tiptap/core's `src/style.ts`. */
+.ProseMirror {
+  position: relative;
+}
+
+.ProseMirror {
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  -webkit-font-variant-ligatures: none;
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0;
+}
+
+.ProseMirror [contenteditable='false'] {
+  white-space: normal;
+}
+
+.ProseMirror [contenteditable='false'] [contenteditable='true'] {
+  white-space: pre-wrap;
+}
+
+.ProseMirror pre {
+  white-space: pre-wrap;
+}
+
+img.ProseMirror-separator {
+  display: inline !important;
+  border: none !important;
+  margin: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.ProseMirror-gapcursor {
+  display: none;
+  pointer-events: none;
+  position: absolute;
+  margin: 0;
+}
+
+.ProseMirror-gapcursor:after {
+  content: '';
+  display: block;
+  position: absolute;
+  top: -2px;
+  width: 20px;
+  border-top: 1px solid black;
+  animation: ProseMirror-cursor-blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes ProseMirror-cursor-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+
+.ProseMirror-hideselection *::-moz-selection {
+  background: transparent;
+}
+
+.ProseMirror-hideselection * {
+  caret-color: transparent;
+}
+
+.ProseMirror-focused .ProseMirror-gapcursor {
+  display: block;
+}
+
 /* Markdown surfaces (TipTap WYSIWYG / preview) */
 @layer components {
   .explorer-sidebar {
