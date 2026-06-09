@@ -3241,6 +3241,28 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMode, activeDocumentOpen]);
 
+  // CodeMirror caches its viewport geometry and only re-measures when its
+  // ResizeObserver fires. The source pane stays mounted but is hidden with
+  // `display:none` in Wysiwyg mode, and WKWebView does NOT fire that observer
+  // on a `display:none → block` transition — so returning to Editor/SplitView
+  // (or launching straight into Wysiwyg, then switching) can leave CodeMirror
+  // painting a stale, collapsed height until a keystroke or scroll forces a
+  // measure. That's the intermittent "editor height looks broken" glitch.
+  // Force a re-measure once the source pane is visible again; the rAF lets the
+  // freshly-shown flex layout settle first (same reason the cursor-handoff
+  // effect above defers). Editor↔SplitView is covered too — the source pane's
+  // width flips there, so its line wrapping needs a re-measure as well.
+  useEffect(() => {
+    if (!activeDocumentOpen) return;
+    if (currentMode !== 'Editor' && currentMode !== 'SplitView') return;
+    const view = sourceEditorViewRef.current;
+    if (!view) return;
+    const frame = window.requestAnimationFrame(() => {
+      view.requestMeasure();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentMode, activeDocumentOpen, sourceEditorViewToken]);
+
   const handleSetMode = useEffectEvent(async (nextMode: EditorMode) => {
     // Always read snapshot/localDraft from the latest state via useEffectEvent
     // so concurrent menu, palette, and keyboard chord paths agree on the truth.
