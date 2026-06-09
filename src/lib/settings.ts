@@ -62,7 +62,10 @@ export interface Settings {
   editorLineHeight: number;
   editorFontFamily: string;
   editorLineWrap: boolean;
+  /** Wrap column; 0 = wrap to window width (VS Code `wordWrap: "on"`). */
   editorWrapColumn: number;
+  /** Show a vertical guide line at the wrap column (column mode only). */
+  editorShowWrapLine: boolean;
   outlineFontSize: number;
   outlineRowSpacing: number;
   defaultMode: 'Editor' | 'Wysiwyg' | 'SplitView';
@@ -136,6 +139,7 @@ export const DEFAULT_SETTINGS: Settings = {
   editorFontFamily: '',
   editorLineWrap: true,
   editorWrapColumn: 120,
+  editorShowWrapLine: true,
   outlineFontSize: 12,
   outlineRowSpacing: 0,
   defaultMode: 'Wysiwyg',
@@ -201,6 +205,19 @@ function normalizeBoundedInteger(
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.round(parsed)));
+}
+
+/**
+ * Wrap column accepts 0 as a special "wrap to window width" value (VS Code's
+ * `wordWrap: "on"`). Any positive value is clamped to [MIN, MAX]; a non-finite
+ * value falls back to the default.
+ */
+export function normalizeWrapColumn(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_SETTINGS.editorWrapColumn;
+  const rounded = Math.round(parsed);
+  if (rounded <= 0) return 0;
+  return Math.min(EDITOR_WRAP_COLUMN_MAX, Math.max(EDITOR_WRAP_COLUMN_MIN, rounded));
 }
 
 export function normalizeEditorFontSize(value: unknown): number {
@@ -292,12 +309,10 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): Setting
   if (typeof merged.editorLineWrap !== 'boolean') {
     merged.editorLineWrap = DEFAULT_SETTINGS.editorLineWrap;
   }
-  merged.editorWrapColumn = normalizeBoundedInteger(
-    merged.editorWrapColumn,
-    DEFAULT_SETTINGS.editorWrapColumn,
-    EDITOR_WRAP_COLUMN_MIN,
-    EDITOR_WRAP_COLUMN_MAX,
-  );
+  merged.editorWrapColumn = normalizeWrapColumn(merged.editorWrapColumn);
+  if (typeof merged.editorShowWrapLine !== 'boolean') {
+    merged.editorShowWrapLine = DEFAULT_SETTINGS.editorShowWrapLine;
+  }
   if (typeof merged.assetFolder !== 'string' || merged.assetFolder.trim().length === 0) {
     merged.assetFolder = DEFAULT_SETTINGS.assetFolder;
   } else {

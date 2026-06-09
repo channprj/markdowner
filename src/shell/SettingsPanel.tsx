@@ -679,14 +679,17 @@ export function SettingsPanel({
           </div>
 
           <div className={inputFieldClass}>
-            <Label htmlFor="wrap-column" className="text-sm">
-              Wrap Column
+            <Label htmlFor="wrap-column" className="flex flex-col gap-0.5 text-sm">
+              <span>Wrap Column</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                0 = wrap to window width
+              </span>
             </Label>
             <Input
               id="wrap-column"
               type="number"
               inputMode="numeric"
-              min={EDITOR_WRAP_COLUMN_MIN}
+              min={0}
               max={EDITOR_WRAP_COLUMN_MAX}
               step={1}
               disabled={!settings.editorLineWrap}
@@ -694,13 +697,30 @@ export function SettingsPanel({
               onChange={(event) => {
                 const raw = Number.parseInt(event.target.value, 10);
                 if (!Number.isFinite(raw)) return;
-                const clamped = Math.min(
-                  EDITOR_WRAP_COLUMN_MAX,
-                  Math.max(EDITOR_WRAP_COLUMN_MIN, raw),
-                );
+                // 0 is a valid "wrap to window" value; any other value is
+                // clamped to [MIN, MAX].
+                const clamped =
+                  raw <= 0
+                    ? 0
+                    : Math.min(EDITOR_WRAP_COLUMN_MAX, Math.max(EDITOR_WRAP_COLUMN_MIN, raw));
                 handleSettingChange('editorWrapColumn', clamped);
               }}
               className={inputControlClass}
+            />
+          </div>
+
+          <div className={switchFieldClass}>
+            <Label htmlFor="show-wrap-line" className="flex flex-col gap-0.5 text-sm">
+              <span>Show Wrap Line</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                Vertical guide at the wrap column (column &gt; 0 only).
+              </span>
+            </Label>
+            <Switch
+              id="show-wrap-line"
+              checked={settings.editorShowWrapLine}
+              disabled={!settings.editorLineWrap}
+              onCheckedChange={(checked) => handleSettingChange('editorShowWrapLine', checked)}
             />
           </div>
 

@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest';
 import {
   CODE_BLOCK_THEMES,
   DEFAULT_SETTINGS,
+  EDITOR_WRAP_COLUMN_MAX,
+  EDITOR_WRAP_COLUMN_MIN,
   codeBlockThemeForThemeKind,
   getChangedSettingsKeys,
   normalizeEditorFontSize,
+  normalizeWrapColumn,
   resolveEditorFontSizeAdjustment,
   resolveOutlinePanelSizing,
 } from './settings';
@@ -119,5 +122,41 @@ describe('table view defaults', () => {
         tableViewMode: 'inline',
       }),
     ).toEqual(['tableViewMode']);
+  });
+});
+
+describe('word wrap column + wrap line', () => {
+  it('defaults to a 120-column cap with the wrap line on', () => {
+    expect(DEFAULT_SETTINGS.editorWrapColumn).toBe(120);
+    expect(DEFAULT_SETTINGS.editorShowWrapLine).toBe(true);
+  });
+
+  it('treats 0 as the special "wrap to window" value', () => {
+    expect(normalizeWrapColumn(0)).toBe(0);
+  });
+
+  it('coerces negative or non-finite columns to 0 / the default', () => {
+    expect(normalizeWrapColumn(-10)).toBe(0);
+    expect(normalizeWrapColumn(Number.NaN)).toBe(DEFAULT_SETTINGS.editorWrapColumn);
+    expect(normalizeWrapColumn('nope')).toBe(DEFAULT_SETTINGS.editorWrapColumn);
+  });
+
+  it('clamps positive columns into [MIN, MAX]', () => {
+    expect(normalizeWrapColumn(10)).toBe(EDITOR_WRAP_COLUMN_MIN);
+    expect(normalizeWrapColumn(1000)).toBe(EDITOR_WRAP_COLUMN_MAX);
+    expect(normalizeWrapColumn(100)).toBe(100);
+  });
+
+  it('rounds fractional columns', () => {
+    expect(normalizeWrapColumn(99.6)).toBe(100);
+  });
+
+  it('tracks the wrap line toggle as a change', () => {
+    expect(
+      getChangedSettingsKeys(DEFAULT_SETTINGS, {
+        ...DEFAULT_SETTINGS,
+        editorShowWrapLine: false,
+      }),
+    ).toEqual(['editorShowWrapLine']);
   });
 });

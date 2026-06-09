@@ -4334,7 +4334,8 @@ export default function App() {
         focusModeEnabled={settings.focusModeEnabled}
         typewriterModeEnabled={settings.typewriterModeEnabled}
         lineWrap={settings.editorLineWrap}
-        wrapColumn={settings.editorWrapColumn || DEFAULT_SETTINGS.editorWrapColumn}
+        wrapColumn={settings.editorWrapColumn}
+        showWrapLine={settings.editorShowWrapLine}
         splitSourceRef={splitSourceScrollRef}
         splitPreviewRef={splitPreviewScrollRef}
         onSplitSourceScroll={handleSplitSourceScroll}

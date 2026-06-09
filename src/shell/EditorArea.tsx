@@ -59,6 +59,8 @@ export interface EditorAreaProps {
   typewriterModeEnabled?: boolean;
   lineWrap?: boolean;
   wrapColumn?: number;
+  /** Show a vertical guide line at the wrap column (fixed-column mode only). */
+  showWrapLine?: boolean;
   /** When true, an overlay minimap is rendered against the editor surface. */
   minimapEnabled?: boolean;
   /** The scrollable element the minimap mirrors. Typically the active editor pane. */
@@ -103,6 +105,7 @@ export function EditorArea({
   typewriterModeEnabled = false,
   lineWrap = true,
   wrapColumn,
+  showWrapLine = true,
   minimapEnabled = false,
   minimapScrollEl = null,
   tableDensity = 'compact',
@@ -125,10 +128,16 @@ export function EditorArea({
   if (fontFamily && fontFamily.trim().length > 0) {
     editorSurfaceStyle.fontFamily = fontFamily;
   }
-  if (wrapColumn && Number.isFinite(wrapColumn) && wrapColumn > 0) {
+  const columnMode = lineWrap && Boolean(wrapColumn) && Number.isFinite(wrapColumn) && wrapColumn! > 0;
+  if (columnMode) {
     editorSurfaceStyle['--editor-wrap-column'] = `${wrapColumn}ch`;
   }
   const lineWrapAttribute = lineWrap ? 'true' : 'false';
+  // Present only in fixed-column mode (wrap on + column > 0). This single
+  // attribute gates both the text-width cap and the wrap guide line in CSS;
+  // its absence means "wrap to window" (column 0) or "no wrap" (lineWrap off).
+  const wrapColumnAttribute = columnMode ? String(wrapColumn) : undefined;
+  const wrapLineAttribute = showWrapLine ? 'on' : 'off';
   const editorModeAttributes = {
     'data-focus-mode': String(focusModeEnabled),
     'data-typewriter-mode': String(typewriterModeEnabled),
@@ -284,6 +293,8 @@ export function EditorArea({
           data-testid="editor-surface-source"
           {...editorModeAttributes}
           data-line-wrap={lineWrapAttribute}
+          data-wrap-column={wrapColumnAttribute}
+          data-wrap-line={wrapLineAttribute}
           role="region"
           aria-label="Markdown source"
           className={cn(
@@ -328,6 +339,8 @@ export function EditorArea({
           data-testid="editor-surface-wysiwyg"
           {...editorModeAttributes}
           data-line-wrap={lineWrapAttribute}
+          data-wrap-column={wrapColumnAttribute}
+          data-wrap-line={wrapLineAttribute}
           className={cn(
             'editor-pane editor-pane-wysiwyg markdown-surface notion-wysiwyg-surface min-h-0 overflow-auto',
             editorModeClassName,

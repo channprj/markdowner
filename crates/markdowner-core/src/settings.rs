@@ -12,6 +12,7 @@ pub struct Settings {
     pub editor_font_family: String,
     pub editor_line_wrap: bool,
     pub editor_wrap_column: u32,
+    pub editor_show_wrap_line: bool,
     pub outline_font_size: u32,
     pub outline_row_spacing: u32,
     pub default_mode: EditorMode,
@@ -41,6 +42,7 @@ impl Default for Settings {
             editor_font_family: String::new(),
             editor_line_wrap: true,
             editor_wrap_column: 120,
+            editor_show_wrap_line: true,
             outline_font_size: 12,
             outline_row_spacing: 0,
             default_mode: EditorMode::Wysiwyg,
@@ -122,6 +124,28 @@ mod tests {
         assert!(!parsed.editor_line_wrap);
         assert_eq!(parsed.outline_font_size, 12);
         assert_eq!(parsed.outline_row_spacing, 1);
+    }
+
+    #[test]
+    fn show_wrap_line_defaults_to_enabled_and_round_trips() {
+        // Legacy settings.json (pre-wrap-line) loads with the guide line ON.
+        let legacy = r#"{"autoSave":true,"editorWrapColumn":100}"#;
+        let parsed: Settings = serde_json::from_str(legacy).expect("legacy settings parse");
+        assert!(
+            parsed.editor_show_wrap_line,
+            "missing editorShowWrapLine should default to true"
+        );
+        assert_eq!(parsed.editor_wrap_column, 100);
+
+        // Explicit false survives round-trip via the camelCase key.
+        let original = Settings {
+            editor_show_wrap_line: false,
+            ..Default::default()
+        };
+        let payload = serde_json::to_string(&original).expect("serialize");
+        assert!(payload.contains("\"editorShowWrapLine\":false"));
+        let parsed: Settings = serde_json::from_str(&payload).expect("parse");
+        assert!(!parsed.editor_show_wrap_line);
     }
 
     #[test]
