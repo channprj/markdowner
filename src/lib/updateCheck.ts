@@ -12,6 +12,14 @@ export interface UpdateInfo {
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Cadence of the in-app re-check timer. The app is a long-running editor —
+ * launch-only checks miss every release shipped while it stays open. The tick
+ * itself is cheap and local; `shouldCheckNow` still gates the actual network
+ * call to once per 24h via `lastUpdateCheckAt`.
+ */
+export const UPDATE_RECHECK_TICK_MS = 60 * 60 * 1000;
+
 /** Pure throttle gate: should the launch check hit the network now? */
 export function shouldCheckNow(
   enabled: boolean,

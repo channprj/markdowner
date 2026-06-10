@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { openExternalUrl } from './desktop';
 import type { Settings } from './settings';
 import {
+  UPDATE_RECHECK_TICK_MS,
   checkForUpdate,
   downloadAndInstallUpdate,
   isUpdateBannerVisible,
@@ -84,6 +85,24 @@ export function useUpdateCheck(
       void runCheck(false);
     }
   }, [ready, runCheck, settings.updateCheckEnabled, settings.lastUpdateCheckAt]);
+
+  // Periodic re-check while the app stays running. The editor commonly lives
+  // for days, so a launch-only check misses every release shipped meanwhile.
+  // Toggling the setting off tears the timer down immediately (effect
+  // cleanup); the hourly tick is local and shouldCheckNow still limits actual
+  // network checks to once per 24h.
+  useEffect(() => {
+    if (!ready || !inTauri() || !settings.updateCheckEnabled) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      const current = settingsRef.current;
+      if (shouldCheckNow(current.updateCheckEnabled, current.lastUpdateCheckAt, Date.now())) {
+        void runCheck(false);
+      }
+    }, UPDATE_RECHECK_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [ready, runCheck, settings.updateCheckEnabled]);
 
   const bannerVisible = isUpdateBannerVisible(
     info,

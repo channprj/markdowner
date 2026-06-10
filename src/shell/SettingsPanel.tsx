@@ -349,9 +349,10 @@ export function SettingsPanel({
         <Separator />
         <div className="flex items-center justify-between gap-3">
           <Label htmlFor="update-check-toggle" className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium leading-none">Check for updates on launch</span>
+            <span className="text-sm font-medium leading-none">Check for updates automatically</span>
             <span className="text-xs text-muted-foreground">
-              Looks for a newer release at most once per day.
+              Looks for a newer release at most once per day — at launch and while
+              the app stays running.
             </span>
           </Label>
           <Switch
