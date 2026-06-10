@@ -34,6 +34,23 @@ describe('createMarkdownImageExtension', () => {
     expect(editor.getMarkdown()).toContain('![OG](./assets/images/og.png)');
   });
 
+  it('renders local relative raw HTML images as Tauri asset URLs', () => {
+    editor = new Editor({
+      extensions: [
+        StarterKit,
+        createMarkdownImageExtension(() => '/tmp/markdowner/README.md'),
+        Markdown.configure({ markedOptions: { gfm: true, breaks: false } }),
+      ],
+      content:
+        '<p align="center">\n  <img src="./assets/images/og.png" alt="OG" width="100%">\n</p>',
+      contentType: 'markdown',
+    });
+
+    expect(editor.view.dom.querySelector('img')?.getAttribute('src')).toBe(
+      'asset:///tmp/markdowner/assets/images/og.png',
+    );
+  });
+
   it('renders remote badge image URLs unchanged', () => {
     editor = new Editor({
       extensions: [
