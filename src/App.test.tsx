@@ -5711,8 +5711,8 @@ describe('App recent documents', () => {
           assetFolder: 'assets',
           themeFollowSystem: true,
           pdfPaperSize: 'A4',
-          diagnosticsEnabled: false,
-          showMinimap: false,
+          diagnosticsEnabled: true,
+          showMinimap: true,
           tableDensity: 'compact',
           tableViewMode: 'normal',
           codeBlockHighlight: true,
@@ -6766,7 +6766,7 @@ describe('App recent documents', () => {
           editorFontSize: 14,
           editorFontFamily: '',
           editorLineWrap: true,
-          diagnosticsEnabled: false,
+          diagnosticsEnabled: true,
         };
       }
       return undefined;
@@ -6776,16 +6776,23 @@ describe('App recent documents', () => {
 
     render(<App />);
 
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('load_settings');
+    });
+
     fireEvent.keyDown(window, { key: ',', metaKey: true });
 
     const dialog = await screen.findByTestId('settings-panel');
     const diagnosticsToggle = within(dialog).getByLabelText(/diagnostics logging/i);
+    await waitFor(() => {
+      expect(diagnosticsToggle).toHaveAttribute('data-state', 'checked');
+    });
 
     fireEvent.click(diagnosticsToggle);
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('save_settings', {
-        settings: expect.objectContaining({ diagnosticsEnabled: true }),
+        settings: expect.objectContaining({ diagnosticsEnabled: false }),
       });
     });
   });
@@ -6808,10 +6815,17 @@ describe('App recent documents', () => {
 
     render(<App />);
 
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('load_settings');
+    });
+
     fireEvent.keyDown(window, { key: ',', metaKey: true });
 
     const dialog = await screen.findByTestId('settings-panel');
     const diagnosticsToggle = within(dialog).getByLabelText(/diagnostics logging/i);
+    await waitFor(() => {
+      expect(diagnosticsToggle).toHaveAttribute('data-state', 'unchecked');
+    });
     fireEvent.click(diagnosticsToggle);
 
     await waitFor(() => {
@@ -6843,9 +6857,17 @@ describe('App recent documents', () => {
 
     render(<App />);
 
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('load_settings');
+    });
+
     fireEvent.keyDown(window, { key: ',', metaKey: true });
 
     const dialog = await screen.findByTestId('settings-panel');
+    const diagnosticsToggle = within(dialog).getByLabelText(/diagnostics logging/i);
+    await waitFor(() => {
+      expect(diagnosticsToggle).toHaveAttribute('data-state', 'unchecked');
+    });
     const wordWrapToggle = within(dialog).getByLabelText(/word wrap/i);
     fireEvent.click(wordWrapToggle);
 
@@ -6934,8 +6956,8 @@ describe('App recent documents', () => {
           assetFolder: 'assets',
           themeFollowSystem: true,
           pdfPaperSize: 'A4',
-          diagnosticsEnabled: false,
-          showMinimap: false,
+          diagnosticsEnabled: true,
+          showMinimap: true,
           tableDensity: 'compact',
           tableViewMode: 'normal',
           codeBlockHighlight: true,

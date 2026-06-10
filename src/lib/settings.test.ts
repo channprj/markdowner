@@ -125,6 +125,18 @@ describe('table view defaults', () => {
   });
 });
 
+describe('minimap defaults', () => {
+  it('shows the minimap by default', () => {
+    expect(DEFAULT_SETTINGS.showMinimap).toBe(true);
+  });
+});
+
+describe('diagnostics logging defaults', () => {
+  it('enables diagnostics logging by default', () => {
+    expect(DEFAULT_SETTINGS.diagnosticsEnabled).toBe(true);
+  });
+});
+
 describe('word wrap column + wrap line', () => {
   it('defaults to a 120-column cap with the wrap line on', () => {
     expect(DEFAULT_SETTINGS.editorWrapColumn).toBe(120);

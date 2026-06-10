@@ -51,8 +51,8 @@ impl Default for Settings {
             asset_folder: "assets".to_string(),
             theme_follow_system: true,
             pdf_paper_size: "A4".to_string(),
-            diagnostics_enabled: false,
-            show_minimap: false,
+            diagnostics_enabled: true,
+            show_minimap: true,
             table_density: "compact".to_string(),
             table_view_mode: "normal".to_string(),
             code_block_highlight: true,
@@ -161,6 +161,48 @@ mod tests {
         assert_eq!(parsed.table_view_mode, "inline");
         let value = serde_json::to_value(parsed).expect("serialize settings");
         assert_eq!(value["tableViewMode"], "inline");
+    }
+
+    #[test]
+    fn show_minimap_defaults_to_enabled_and_round_trips() {
+        // Legacy settings.json (pre-minimap) loads with the minimap ON.
+        let legacy = r#"{"autoSave":true,"editorFontSize":16}"#;
+        let parsed: Settings = serde_json::from_str(legacy).expect("legacy settings parse");
+        assert!(
+            parsed.show_minimap,
+            "missing showMinimap should default to true"
+        );
+
+        // Explicit false survives round-trip via the camelCase key.
+        let original = Settings {
+            show_minimap: false,
+            ..Default::default()
+        };
+        let payload = serde_json::to_string(&original).expect("serialize");
+        assert!(payload.contains("\"showMinimap\":false"));
+        let parsed: Settings = serde_json::from_str(&payload).expect("parse");
+        assert!(!parsed.show_minimap);
+    }
+
+    #[test]
+    fn diagnostics_logging_defaults_to_enabled_and_round_trips() {
+        // Legacy settings.json (pre-diagnostics) loads with diagnostics logging ON.
+        let legacy = r#"{"autoSave":true,"editorFontSize":16}"#;
+        let parsed: Settings = serde_json::from_str(legacy).expect("legacy settings parse");
+        assert!(
+            parsed.diagnostics_enabled,
+            "missing diagnosticsEnabled should default to true"
+        );
+
+        // Explicit false survives round-trip via the camelCase key.
+        let original = Settings {
+            diagnostics_enabled: false,
+            ..Default::default()
+        };
+        let payload = serde_json::to_string(&original).expect("serialize");
+        assert!(payload.contains("\"diagnosticsEnabled\":false"));
+        let parsed: Settings = serde_json::from_str(&payload).expect("parse");
+        assert!(!parsed.diagnostics_enabled);
     }
 
     #[test]

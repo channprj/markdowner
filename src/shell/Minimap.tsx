@@ -32,6 +32,17 @@ interface ViewportRect {
 const MAX_VISIBLE_WIDTH_CHARS = 80;
 const MIN_LINE_HEIGHT_PX = 1;
 
+function observeResize(target: Element, onResize: () => void): () => void {
+  onResize();
+  if (typeof ResizeObserver === 'undefined') {
+    return () => undefined;
+  }
+
+  const observer = new ResizeObserver(onResize);
+  observer.observe(target);
+  return () => observer.disconnect();
+}
+
 function classifyLine(line: string): LineKind {
   const trimmed = line.trim();
   if (!trimmed) return 'blank';
@@ -81,12 +92,9 @@ function MinimapImpl({ text, scrollEl, className }: MinimapProps) {
   useEffect(() => {
     if (!rootRef.current) return;
     const target = rootRef.current;
-    const ro = new ResizeObserver(() => {
+    return observeResize(target, () => {
       setRootHeight(target.clientHeight);
     });
-    ro.observe(target);
-    setRootHeight(target.clientHeight);
-    return () => ro.disconnect();
   }, []);
 
   const recalcViewport = useCallback(() => {
@@ -120,12 +128,10 @@ function MinimapImpl({ text, scrollEl, className }: MinimapProps) {
     if (!scroller) return;
     const onScroll = () => recalcViewport();
     scroller.addEventListener('scroll', onScroll, { passive: true });
-    const ro = new ResizeObserver(() => recalcViewport());
-    ro.observe(scroller);
-    recalcViewport();
+    const disconnectResize = observeResize(scroller, recalcViewport);
     return () => {
       scroller.removeEventListener('scroll', onScroll);
-      ro.disconnect();
+      disconnectResize();
     };
   }, [recalcViewport, scrollEl]);
 
