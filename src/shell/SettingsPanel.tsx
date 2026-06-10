@@ -940,20 +940,10 @@ export function SettingsPanel({
           </div>
 
           <div className={switchFieldClass}>
-            <Label htmlFor="code-block-highlight" className="text-sm">Code Block Highlighting</Label>
-            <Switch
-              id="code-block-highlight"
-              checked={settings.codeBlockHighlight}
-              onCheckedChange={(checked) => handleSettingChange('codeBlockHighlight', checked)}
-            />
-          </div>
-
-          <div className={switchFieldClass}>
             <Label htmlFor="code-block-theme-sync" className="text-sm">Sync Code Block Theme</Label>
             <Switch
               id="code-block-theme-sync"
               checked={settings.codeBlockThemeSync}
-              disabled={!settings.codeBlockHighlight}
               onCheckedChange={(checked) => handleSettingChange('codeBlockThemeSync', checked)}
             />
           </div>
@@ -964,7 +954,6 @@ export function SettingsPanel({
               id="code-block-theme"
               data-testid="settings-code-block-theme"
               value={settings.codeBlockTheme}
-              disabled={!settings.codeBlockHighlight}
               onChange={(event) => {
                 handleSettingChange(
                   'codeBlockTheme',

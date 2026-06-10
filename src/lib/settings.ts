@@ -327,9 +327,11 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): Setting
   if (merged.tableViewMode !== 'normal' && merged.tableViewMode !== 'inline') {
     merged.tableViewMode = DEFAULT_SETTINGS.tableViewMode;
   }
-  if (typeof merged.codeBlockHighlight !== 'boolean') {
-    merged.codeBlockHighlight = DEFAULT_SETTINGS.codeBlockHighlight;
-  }
+  // Code block highlighting is always on — the off state shipped briefly,
+  // added a confusing toggle for no real use case, and is no longer exposed
+  // in Settings. Force-normalize so a persisted `false` from an older build
+  // can't silently disable highlighting forever.
+  merged.codeBlockHighlight = true;
   merged.codeBlockTheme = normalizeCodeBlockTheme(merged.codeBlockTheme);
   if (typeof merged.codeBlockThemeSync !== 'boolean') {
     merged.codeBlockThemeSync = DEFAULT_SETTINGS.codeBlockThemeSync;
