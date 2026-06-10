@@ -6143,7 +6143,7 @@ describe('App recent documents', () => {
     expect(pdfPaperSizeToggle).toHaveClass('h-auto', 'w-full', 'flex-wrap');
   });
 
-  it('keeps the Settings reset action fixed at the bottom of the panel', async () => {
+  it('renders the Settings reset action inline at the bottom of the scrollable body', async () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {
         return {
@@ -6167,13 +6167,14 @@ describe('App recent documents', () => {
 
     const panel = await screen.findByTestId('settings-panel');
     const body = within(panel).getByTestId('settings-panel-body');
-    const resetFooter = within(panel).getByTestId('settings-reset-footer');
-    const resetButton = within(resetFooter).getByRole('button', {
+    // The reset action lives INSIDE the scrollable body (no sticky footer),
+    // as the last section of the page.
+    const resetSection = within(body).getByTestId('settings-reset-section');
+    const resetButton = within(resetSection).getByRole('button', {
       name: /reset to defaults/i,
     });
 
     expect(body).toHaveClass('flex-1', 'overflow-y-auto');
-    expect(resetFooter).toHaveClass('sticky', 'bottom-0', 'shrink-0');
     expect(resetButton).toBeInTheDocument();
   });
 

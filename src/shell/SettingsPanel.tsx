@@ -979,22 +979,19 @@ export function SettingsPanel({
             />
           </div>
         </div>
-        </div>
-      </div>
-      <footer
-        data-testid="settings-reset-footer"
-        className="sticky bottom-0 z-10 shrink-0 border-t border-border bg-muted/95 px-6 py-3 backdrop-blur"
-      >
-        <div className="mx-auto flex w-full max-w-2xl justify-end">
+
+        <Separator />
+        <div data-testid="settings-reset-section" className="flex justify-end">
           <Button
-            variant="outline"
+            variant="destructive"
             onClick={() => onSettingsChange({ ...DEFAULT_SETTINGS })}
             title="Reset all editor preferences to factory defaults"
           >
             Reset to Defaults
           </Button>
         </div>
-      </footer>
+        </div>
+      </div>
     </section>
   );
 }
