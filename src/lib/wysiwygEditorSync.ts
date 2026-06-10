@@ -1,3 +1,5 @@
+import { normalizeFinalNewline } from './sourceText';
+
 export type WysiwygContentSyncAction =
   | { kind: 'skip' }
   | {
@@ -55,6 +57,21 @@ export function resolveWysiwygContentSyncAction({
   const composing = isComposing || Boolean(viewComposing);
 
   if (!tabChanged && localDraft === lastEditorMarkdown) {
+    return { kind: 'skip' };
+  }
+
+  // Same-tab drafts that differ only by the trailing newline parse to an
+  // identical ProseMirror doc, so a resync would be a structural no-op — but
+  // setContent is destructive (full doc replacement, selection remap, docView
+  // teardown). getMarkdown() never emits a trailing newline while the save
+  // path normalizes one in, so without this guard any unpaired draft publish
+  // turns into a caret jump + erased in-flight keystrokes. Defense in depth:
+  // the publish sites pair lastEditorMarkdown with the draft, this guard
+  // protects future unpaired ones. Never applies across tab changes.
+  if (
+    !tabChanged &&
+    normalizeFinalNewline(localDraft) === normalizeFinalNewline(lastEditorMarkdown)
+  ) {
     return { kind: 'skip' };
   }
 

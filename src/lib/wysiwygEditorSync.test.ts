@@ -71,6 +71,42 @@ describe('resolveWysiwygContentSyncAction', () => {
       shouldFinalizeComposition: false,
     });
   });
+
+  it('skips same-tab drafts that differ only by the trailing newline', () => {
+    // The save path normalizes a trailing \n in while getMarkdown() never
+    // emits one; both parse to an identical doc, so a resync would only
+    // destroy the selection and any unflushed keystrokes.
+    expect(
+      resolveWysiwygContentSyncAction({
+        activeTabId: 'doc-1',
+        lastSyncedTabId: 'doc-1',
+        localDraft: '# Draft\n',
+        lastEditorMarkdown: '# Draft',
+        isComposing: false,
+        viewComposing: false,
+      }),
+    ).toEqual({
+      kind: 'skip',
+    });
+  });
+
+  it('still syncs across tab changes even for trailing-newline-only differences', () => {
+    expect(
+      resolveWysiwygContentSyncAction({
+        activeTabId: 'doc-2',
+        lastSyncedTabId: 'doc-1',
+        localDraft: '# Draft\n',
+        lastEditorMarkdown: '# Draft',
+        isComposing: false,
+        viewComposing: false,
+      }),
+    ).toEqual({
+      kind: 'sync',
+      tabChanged: true,
+      shouldClearDomSelection: true,
+      shouldFinalizeComposition: false,
+    });
+  });
 });
 
 describe('resolvePersistedWysiwygMarkdown', () => {

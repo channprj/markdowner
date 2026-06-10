@@ -1972,7 +1972,10 @@ export default function App() {
       if (editor && isWysiwygFindMatch(activeFindMatch)) {
         const didReplace = replaceWysiwygTextMatch(editor, activeFindMatch, findReplacement);
         if (didReplace && typeof editor.getMarkdown === 'function') {
-          setLocalDraft(editor.getMarkdown());
+          // Pair lastEditorMarkdownRef with the draft (see syncActiveDraft) —
+          // a bare setLocalDraft would trigger a redundant full-doc setContent
+          // that re-parses untouched content and jumps the caret.
+          publishWysiwygMarkdownDraft(editor.getMarkdown());
         }
         setActiveFindMatchIndex((current) =>
           nextFindMatchIndexAfterReplace(current, findMatchCount),
@@ -1997,7 +2000,8 @@ export default function App() {
         const wysiwygMatches = findMatches.filter(isWysiwygFindMatch);
         const didReplace = replaceWysiwygTextMatches(editor, wysiwygMatches, findReplacement);
         if (didReplace && typeof editor.getMarkdown === 'function') {
-          setLocalDraft(editor.getMarkdown());
+          // Same pairing rule as the single-replace path above.
+          publishWysiwygMarkdownDraft(editor.getMarkdown());
         }
         setActiveFindMatchIndex(0);
       }
@@ -2745,8 +2749,19 @@ export default function App() {
     // to exactly one `\n` before reaching Rust + disk. Non-save syncs
     // (tab switch, mode switch) keep the live draft verbatim so the
     // editor doesn't visibly mutate mid-navigation.
+    //
+    // Publish through publishWysiwygMarkdownDraft (NOT bare setLocalDraft) so
+    // lastEditorMarkdownRef stays paired with the normalized draft. A bare
+    // setLocalDraft here desyncs the pair — getMarkdown() never emits a
+    // trailing newline, so EVERY post-edit save (autosave tick, Cmd+S,
+    // save-on-close) would make the localDraft↔editor sync effect run a
+    // destructive whole-document setContent mid-typing: keystrokes inside the
+    // 120ms flush window get erased ("ooo" → "o") and the caret is yanked off
+    // the typing position. The trailing-newline-only delta parses to an
+    // identical ProseMirror doc, so skipping the resync is lossless in both
+    // Wysiwyg and source mode.
     if (plan.shouldUpdateLocalDraft) {
-      setLocalDraft(plan.outgoingDraft);
+      publishWysiwygMarkdownDraft(plan.outgoingDraft);
     }
 
     // Compare normalized to avoid spurious writes when the only diff is
