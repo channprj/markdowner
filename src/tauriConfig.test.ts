@@ -10,6 +10,7 @@ describe('tauri security config', () => {
       'img-src': expect.stringContaining('data:'),
       'style-src': expect.stringContaining("'unsafe-inline'"),
     });
+    expect(tauriConfig.app?.security?.csp?.['img-src']).toContain('https:');
   });
 
   it('keeps bundled app artifacts enabled for desktop builds', () => {

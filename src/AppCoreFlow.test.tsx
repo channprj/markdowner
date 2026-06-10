@@ -81,6 +81,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
+  convertFileSrc: (filePath: string) => `asset://${filePath}`,
   invoke: invokeMock,
 }));
 

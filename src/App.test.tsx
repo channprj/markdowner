@@ -96,6 +96,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 const invokeMock = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({
+  convertFileSrc: (filePath: string) => `asset://${filePath}`,
   invoke: invokeMock,
 }));
 
@@ -7101,6 +7102,14 @@ describe('App recent documents', () => {
   });
 
   it('opens a Markdown document from the native menu event', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'recent.md',
+        activeDocumentPath: '/tmp/project/recent.md',
+        activeDocumentSource: '# Recent',
+        mode: 'Editor',
+      }),
+    );
     openDialogMock.mockResolvedValue('/tmp/project/from-menu.md');
     openDocumentMock.mockResolvedValue(
       baseSnapshot({
@@ -7114,6 +7123,7 @@ describe('App recent documents', () => {
 
     render(<App />);
 
+    await screen.findByRole('textbox', { name: /source editor/i });
     await waitFor(() => {
       expect(menuCommandHandler).toBeTypeOf('function');
     });
@@ -7486,10 +7496,11 @@ describe('App recent documents', () => {
   });
 
   it('closes the only clean tab with Cmd+W without closing the window', async () => {
+    const documentPath = '/tmp/project/meeting-notes.md';
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'meeting-notes.md',
-        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentPath: documentPath,
         activeDocumentSource: '# Meeting notes',
         mode: 'Editor',
       }),
@@ -7509,6 +7520,51 @@ describe('App recent documents', () => {
     expect(screen.getByRole('button', { name: /^new file$/i })).toBeInTheDocument();
     expect(destroyWindowMock).not.toHaveBeenCalled();
     expect(messageMock).not.toHaveBeenCalled();
+  });
+
+  it('reopens the most recently closed tab with Cmd+Shift+T', async () => {
+    const documentPath = '/tmp/project/meeting-notes.md';
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: documentPath,
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
+    openDocumentMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: documentPath,
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByRole('textbox', { name: /source editor/i });
+
+    fireEvent.keyDown(window, { key: 'w', metaKey: true });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('tablist', { name: /open documents/i })).toBeNull();
+    });
+
+    fireEvent.keyDown(window, { key: 'T', metaKey: true, shiftKey: true });
+
+    await waitFor(() => {
+      expect(openDocumentMock).toHaveBeenCalledWith(documentPath);
+      expect(screen.getByRole('tab', { name: /meeting-notes\.md/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+    });
+    expect(screen.getByRole('textbox', { name: /source editor/i })).toHaveValue(
+      '# Meeting notes',
+    );
   });
 
   it('closes the only clean tab from the tab close button without closing the window', async () => {

@@ -152,6 +152,17 @@ type ResolveCloseTabTransitionInput = {
   preSettingsDocTabId: string | null;
 };
 
+type RememberClosedDocumentTabInput = {
+  closedTabs: readonly DocumentTab[];
+  closedTab: DocumentTab;
+  limit?: number;
+};
+
+type PopClosedDocumentTabResult = {
+  closedTab: DocumentTab | null;
+  remainingClosedTabs: DocumentTab[];
+};
+
 type ResolveSettingsTabToggleInput = {
   tabs: readonly DocumentTab[];
   activeTabId: string | null;
@@ -277,6 +288,32 @@ export function createMissingDocumentTab(input: CreateMissingDocumentTabInput): 
     name: input.name,
     missing: true,
   });
+}
+
+export function rememberClosedDocumentTab({
+  closedTabs,
+  closedTab,
+  limit = 20,
+}: RememberClosedDocumentTabInput): DocumentTab[] {
+  if (closedTab.kind !== 'document') {
+    return [...closedTabs];
+  }
+
+  return [
+    closedTab,
+    ...closedTabs.filter((tab) => tab.id !== closedTab.id),
+  ].slice(0, Math.max(1, limit));
+}
+
+export function popClosedDocumentTab(
+  closedTabs: readonly DocumentTab[],
+): PopClosedDocumentTabResult {
+  const [closedTab, ...remainingClosedTabs] = closedTabs;
+
+  return {
+    closedTab: closedTab ?? null,
+    remainingClosedTabs,
+  };
 }
 
 export function createSettingsTab(): DocumentTab {

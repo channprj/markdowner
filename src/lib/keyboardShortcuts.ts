@@ -65,6 +65,7 @@ export type ShellShortcutAction =
   | { kind: 'openOutlinePanel' }
   | { kind: 'openWorkspace' }
   | { kind: 'quit' }
+  | { kind: 'reopenClosedTab' }
   | { kind: 'save' }
   | { kind: 'saveAs' }
   | { kind: 'showExplorerPanel' }
@@ -253,9 +254,10 @@ export function resolveShellShortcutAction(
   if (matchesShortcut(event, 'w')) {
     return { kind: 'closeTabOrWindow' };
   }
-  // Cmd+Shift+Y (t-Y-pewriter). Deliberately NOT Cmd+Shift+T — that is the
-  // near-universal "reopen recently closed tab" shortcut and must stay free
-  // of surprises.
+  if (matchesShortcut(event, 't', { shift: true })) {
+    return { kind: 'reopenClosedTab' };
+  }
+  // Cmd+Shift+Y (t-Y-pewriter), leaving Cmd+Shift+T for closed-tab restore.
   if (matchesShortcut(event, 'y', { shift: true })) {
     return { kind: 'toggleTypewriterMode' };
   }

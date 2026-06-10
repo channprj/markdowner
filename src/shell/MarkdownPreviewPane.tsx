@@ -1,15 +1,25 @@
+import { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import { sourceLineMarkdownComponents } from '@/lib/sourceLineComponents';
+import { createSourceLineMarkdownComponents } from '@/lib/sourceLineComponents';
 import { MARKDOWN_CONTENT_SCOPE_CLASS } from '@/lib/themeScope';
 import { cn } from '@/lib/utils';
 
 interface MarkdownPreviewPaneProps {
   source: string;
+  activeDocumentPath?: string | null;
 }
 
-export function MarkdownPreviewPane({ source }: MarkdownPreviewPaneProps) {
+export function MarkdownPreviewPane({
+  source,
+  activeDocumentPath = null,
+}: MarkdownPreviewPaneProps) {
+  const markdownComponents = useMemo(
+    () => createSourceLineMarkdownComponents({ activeDocumentPath }),
+    [activeDocumentPath],
+  );
+
   return (
     <div
       data-testid="markdown-preview-pane"
@@ -20,7 +30,7 @@ export function MarkdownPreviewPane({ source }: MarkdownPreviewPaneProps) {
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        components={sourceLineMarkdownComponents}
+        components={markdownComponents}
       >
         {source}
       </ReactMarkdown>

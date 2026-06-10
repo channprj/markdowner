@@ -14,10 +14,12 @@ import {
   isDocumentTabDirty,
   markDocumentTabMissing,
   mergeRestoredDocumentTabs,
+  popClosedDocumentTab,
   refreshActiveDocumentTab,
   refreshActiveDocumentTabFromSnapshot,
   refreshSwitchedDocumentTab,
   refreshSwitchedDocumentTabFromSnapshot,
+  rememberClosedDocumentTab,
   resolveCloseTabTransition,
   resolveDocumentTabViewState,
   resolveSettingsTabToggle,
@@ -178,6 +180,30 @@ describe('createSettingsTab', () => {
       source: '',
       draft: '',
       missing: false,
+    });
+  });
+});
+
+describe('closed document tab stack', () => {
+  it('keeps the most recently closed document tab at the front', () => {
+    const first = documentTab({ id: 'first', path: '/tmp/first.md' });
+    const second = documentTab({ id: 'second', path: '/tmp/second.md' });
+
+    expect(
+      rememberClosedDocumentTab({
+        closedTabs: [first],
+        closedTab: second,
+      }),
+    ).toEqual([second, first]);
+  });
+
+  it('pops the most recently closed document tab with the remaining stack', () => {
+    const first = documentTab({ id: 'first', path: '/tmp/first.md' });
+    const second = documentTab({ id: 'second', path: '/tmp/second.md' });
+
+    expect(popClosedDocumentTab([second, first])).toEqual({
+      closedTab: second,
+      remainingClosedTabs: [first],
     });
   });
 });

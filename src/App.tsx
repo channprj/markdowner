@@ -6,7 +6,6 @@ import {
   open as openDialog,
   save as saveDialog,
 } from '@tauri-apps/plugin-dialog';
-import Image from '@tiptap/extension-image';
 import {
   MarkdownTable,
   sanitizeMarkdownControlChars,
@@ -130,6 +129,7 @@ import {
   normalizeOpenDialogPaths,
 } from './lib/fileDialogOptions';
 import { getErrorMessage } from './lib/errors';
+import { createMarkdownImageExtension } from './lib/wysiwygImageExtension';
 import {
   CLEARED_EXTERNAL_CHANGE_STATE,
   externalChangeDetectedState,
@@ -145,13 +145,17 @@ import {
   setSnapshotMode,
 } from './lib/snapshotState';
 import {
+  createDocumentTab,
+  createMissingDocumentTab,
   findDocumentTabByPath,
   generateDocumentTabId,
   hydrateRestoredActiveDocumentTab,
   markDocumentTabMissing,
   mergeRestoredDocumentTabs,
+  popClosedDocumentTab,
   refreshActiveDocumentTabFromSnapshot,
   refreshSwitchedDocumentTabFromSnapshot,
+  rememberClosedDocumentTab,
   resolveCloseTabTransition,
   resolveDocumentTabViewState,
   resolveSettingsTabToggle,
@@ -603,6 +607,7 @@ export default function App() {
   // is mirrored through Rust's single-active-document model on switch.
   const [tabs, setTabs] = useState<DocumentTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [closedDocumentTabs, setClosedDocumentTabs] = useState<DocumentTab[]>([]);
   const [startupTabsReady, setStartupTabsReady] = useState(false);
   // Mirror tabs/activeTabId in refs so async callbacks (bootstrap.then,
   // openDocument.then) can read the *current* values instead of stale
@@ -610,6 +615,7 @@ export default function App() {
   // finishes loses the settings tab when upsertActiveTabFromSnapshot fires.
   const tabsRef = useRef<DocumentTab[]>(tabs);
   const activeTabIdRef = useRef<string | null>(activeTabId);
+  const closedDocumentTabsRef = useRef<DocumentTab[]>(closedDocumentTabs);
   const startupTabsReadyRef = useRef<boolean>(startupTabsReady);
   useEffect(() => {
     tabsRef.current = tabs;
@@ -617,6 +623,9 @@ export default function App() {
   useEffect(() => {
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
+  useEffect(() => {
+    closedDocumentTabsRef.current = closedDocumentTabs;
+  }, [closedDocumentTabs]);
   useEffect(() => {
     startupTabsReadyRef.current = startupTabsReady;
   }, [startupTabsReady]);
@@ -648,6 +657,40 @@ export default function App() {
     const fresh = flushWysiwygDraftNow();
     const draft = fresh ?? localDraft;
     setTabs((prev) => stashDocumentTabDraft(prev, id, draft));
+  };
+
+  const setClosedDocumentTabStack = (nextClosedTabs: DocumentTab[]) => {
+    closedDocumentTabsRef.current = nextClosedTabs;
+    setClosedDocumentTabs(nextClosedTabs);
+  };
+
+  const snapshotClosedDocumentTab = (
+    targetId: string | null,
+    activeDraftOverride?: string | null,
+  ): DocumentTab | null => {
+    if (!targetId) return null;
+    const target = tabsRef.current.find((tab) => tab.id === targetId);
+    if (!target || target.kind !== 'document') return null;
+
+    const activeDraft =
+      target.id === activeTabIdRef.current
+        ? activeDraftOverride ?? flushWysiwygDraftNow() ?? localDraft
+        : target.draft;
+
+    return {
+      ...target,
+      draft: activeDraft,
+    };
+  };
+
+  const rememberClosedTab = (closedTab: DocumentTab | null) => {
+    if (!closedTab) return;
+    setClosedDocumentTabStack(
+      rememberClosedDocumentTab({
+        closedTabs: closedDocumentTabsRef.current,
+        closedTab,
+      }),
+    );
   };
 
   // Replace (or append) a tab matching the snapshot's active document and
@@ -1429,7 +1472,7 @@ export default function App() {
         codeBlock: false,
       }),
       createCodeBlockExtension(),
-      Image,
+      createMarkdownImageExtension(() => activeDocumentPathRef.current),
       // MarkdownTable = stock Table + non-corrupting markdown round-trip
       // ('|' escaped in cells, multi-block cells joined with <br> instead of
       // a literal U+001F byte, no phantom header row on headerless tables).
@@ -2683,12 +2726,14 @@ export default function App() {
       const docSize = editorInstance.state.doc.content.size;
       if (pending.location && docSize <= 2 && (localDraft?.length ?? 0) > 0) return;
       const pos = wysiwygPositionAtSourceLocation(editorInstance, location);
-      const shouldFocus = shouldFocusStartupEditor({
-        activeElement: document.activeElement,
-        documentBody: document.body,
-        documentElement: document.documentElement,
-        editorDom: editorInstance.view.dom,
-      });
+      const shouldFocus =
+        !isFindReplaceOpenRef.current &&
+        shouldFocusStartupEditor({
+          activeElement: document.activeElement,
+          documentBody: document.body,
+          documentElement: document.documentElement,
+          editorDom: editorInstance.view.dom,
+        });
       try {
         if (pos !== null) {
           if (shouldFocus) {
@@ -2716,6 +2761,7 @@ export default function App() {
       scrollIntoView: true,
     });
     if (
+      !isFindReplaceOpenRef.current &&
       shouldFocusStartupEditor({
         activeElement: document.activeElement,
         documentBody: document.body,
@@ -3089,12 +3135,14 @@ export default function App() {
     // dirty check below reflects the user's actual most-recent state.
     const fresh = flushWysiwygDraftNow();
     const currentDraft = fresh ?? localDraft;
+    const closedTab = snapshotClosedDocumentTab(activeTabId, currentDraft);
     const closePromptState = resolveActiveClosePromptState({
       tabs,
       activeTabId,
       activeDraft: currentDraft,
     });
     if (!closePromptState.requiresPrompt) {
+      rememberClosedTab(closedTab);
       clearActiveDocumentSurface();
       return;
     }
@@ -3110,6 +3158,7 @@ export default function App() {
         await withBusy(async () => {
           const saved = await saveActiveDocumentForClose();
           if (saved) {
+            rememberClosedTab(closedTab);
             clearActiveDocumentSurface();
           }
         });
@@ -3117,6 +3166,7 @@ export default function App() {
       }
 
       if (closeDecisionAction.kind === 'discard') {
+        rememberClosedTab(closedTab);
         clearActiveDocumentSurface();
         return;
       }
@@ -3579,6 +3629,7 @@ export default function App() {
   });
 
   const handleCloseTab = useEffectEvent(async (targetId: string) => {
+    const closedTab = snapshotClosedDocumentTab(targetId);
     const transition = resolveCloseTabTransition({
       tabs,
       activeTabId,
@@ -3596,6 +3647,7 @@ export default function App() {
         await closeOnlyRemainingTab();
         return;
       case 'setTabs':
+        rememberClosedTab(closedTab);
         if (transition.clearPreSettingsDocTabId) {
           preSettingsDocTabIdRef.current = null;
         }
@@ -3605,8 +3657,81 @@ export default function App() {
       case 'switchThenRemove':
         // Pick a neighbor to activate first, then drop the closed tab.
         await switchToTab(transition.switchToTabId);
+        rememberClosedTab(closedTab);
         setTabs((prev) => prev.filter((tab) => tab.id !== transition.targetId));
     }
+  });
+
+  const handleReopenClosedTab = useEffectEvent(async () => {
+    const { closedTab, remainingClosedTabs } = popClosedDocumentTab(
+      closedDocumentTabsRef.current,
+    );
+    if (!closedTab) {
+      return;
+    }
+
+    const existingTab = findDocumentTabByPath(tabsRef.current, closedTab.path);
+    if (existingTab) {
+      setClosedDocumentTabStack(remainingClosedTabs);
+      await switchToTab(existingTab.id);
+      focusActiveEditor();
+      return;
+    }
+
+    const token = nextEditorOpRequest();
+    await withBusy(async () => {
+      stashActiveTabDraft();
+      await syncActiveDraftBestEffort(undefined, editorOpAbortOptions(token));
+      if (isEditorOpStale(token)) return;
+
+      let restoredTab: DocumentTab;
+      if (closedTab.path) {
+        try {
+          const next = await openDocument(closedTab.path);
+          if (isEditorOpStale(token)) return;
+          applySnapshot(next, true);
+          restoredTab = createDocumentTab({
+            id: closedTab.id,
+            path: next.activeDocumentPath ?? closedTab.path,
+            name: next.activeDocumentName ?? closedTab.name,
+            source: next.activeDocumentSource ?? closedTab.source,
+            draft: closedTab.draft,
+          });
+        } catch {
+          if (isEditorOpStale(token)) return;
+          restoredTab = createMissingDocumentTab({
+            id: closedTab.id,
+            path: closedTab.path,
+            name: closedTab.name,
+          });
+        }
+      } else {
+        const next = await newDocument();
+        if (isEditorOpStale(token)) return;
+        applySnapshot(next, true);
+        restoredTab = createDocumentTab({
+          id: closedTab.id,
+          path: next.activeDocumentPath,
+          name: next.activeDocumentName ?? closedTab.name,
+          source: next.activeDocumentSource ?? closedTab.source,
+          draft: closedTab.draft,
+        });
+      }
+
+      const nextTabs = [...tabsRef.current, restoredTab];
+      tabsRef.current = nextTabs;
+      activeTabIdRef.current = restoredTab.id;
+      closedDocumentTabsRef.current = remainingClosedTabs;
+      startTransition(() => {
+        setTabs(nextTabs);
+        setActiveTabId(restoredTab.id);
+        setClosedDocumentTabs(remainingClosedTabs);
+        setLocalDraft(restoredTab.draft);
+      });
+    });
+
+    if (isEditorOpStale(token)) return;
+    focusActiveEditor();
   });
 
   // Open (or focus, or close) the Settings tab. Cmd+, and the gear icon both
@@ -3749,6 +3874,9 @@ export default function App() {
             return;
           case 'quit':
             void handleQuitCommand();
+            return;
+          case 'reopenClosedTab':
+            void handleReopenClosedTab();
             return;
           case 'save':
             void handleSave();
@@ -4496,7 +4624,10 @@ export default function App() {
           />
         }
         splitViewPreview={
-          <MarkdownPreviewPane source={previewSource} />
+          <MarkdownPreviewPane
+            source={previewSource}
+            activeDocumentPath={snapshot.activeDocumentPath}
+          />
         }
       />
       </div>
