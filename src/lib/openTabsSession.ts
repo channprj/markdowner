@@ -76,7 +76,10 @@ export function buildOpenTabsPayload(
 export function cursorPositionsMapFromOpenTabsPayload(
   payload: OpenTabsPayload,
 ): Map<string, SourceCursorLocation> {
-  return new Map(Object.entries(payload.cursorPositions));
+  // Tolerate payloads without the map (older session files, partial mocks) —
+  // the startup restore path treats "no cursor data" as non-fatal everywhere
+  // else, so a missing field must not throw mid-bootstrap.
+  return new Map(Object.entries(payload.cursorPositions ?? {}));
 }
 
 export async function loadStartupCursorRestoreState(
@@ -100,7 +103,7 @@ export async function loadStartupCursorRestoreState(
     restoreTarget: input.activePath
       ? {
           path: input.activePath,
-          location: payload.cursorPositions[input.activePath] ?? null,
+          location: payload.cursorPositions?.[input.activePath] ?? null,
         }
       : null,
   };

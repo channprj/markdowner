@@ -851,17 +851,20 @@ export default function App() {
 
   /**
    * Move keyboard focus into the active editor surface (CodeMirror or TipTap)
-   * based on the current mode. Used by Cmd+0 (toggle back to editor) and
-   * Cmd+1..9 (jump-to-tab from Explorer) so the caret lands on the document
-   * the user just selected.
+   * based on the current mode. Used by Cmd+0 (toggle back to editor),
+   * Cmd+1..9 (jump-to-tab from Explorer) and every file-open path so the
+   * caret lands on the document the user just selected. useEffectEvent so
+   * mount-time closures (drag-and-drop listener, second-instance handler)
+   * read the CURRENT mode instead of the one captured at mount — a stale
+   * 'Wysiwyg' read would focus a display:none surface and silently no-op.
    */
-  const focusActiveEditor = () => {
+  const focusActiveEditor = useEffectEvent(() => {
     focusActiveEditorTarget({
       currentMode,
       sourceEditorView: sourceEditorViewRef.current,
       sourceEditorContainer: sourceEditorContainerRef.current,
     });
-  };
+  });
 
   // Record the latest caret location for the given file path. Called from the
   // source-mode statistics callback and the WYSIWYG selection-update callback;
@@ -2170,6 +2173,10 @@ export default function App() {
     applySnapshot(next);
     if (next.activeDocumentSource !== null) {
       upsertActiveTabFromSnapshot(next);
+      // `markdowner file.md` on a running instance is an explicit "open this
+      // and let me type" — land the keyboard focus in the editor, matching
+      // every other open path.
+      focusActiveEditor();
     }
   });
 
@@ -2221,15 +2228,15 @@ export default function App() {
           }
         }
 
-        applySnapshot(next);
         if (next.activeDocumentSource !== null) {
-          upsertActiveTabFromSnapshot(next, {
-            markStartupTabsReady: true,
-            preserveSettingsActive: true,
-          });
-          // Best-effort: also hydrate the persisted caret map so a CLI-opened
-          // file (which short-circuits the persisted-tabs branch below) still
-          // restores the remembered caret. Failure is non-fatal.
+          // Hydrate the persisted caret map and arm the startup focus + caret
+          // directive BEFORE the snapshot commit. Arming after applySnapshot
+          // (as this path used to) meant the startup-restore effect had
+          // already run for the rendered snapshot and never consumed the
+          // directive — a CLI-opened file (which short-circuits the
+          // persisted-tabs branch below) ended up with focus outside the
+          // editor. The extra load_open_tabs round-trip before first paint is
+          // milliseconds; failure is non-fatal.
           const startupCursorState = await loadStartupCursorRestoreState({
             load: loadOpenTabs,
             activePath: next.activeDocumentPath,
@@ -2242,8 +2249,18 @@ export default function App() {
               startupRestoreRef.current = startupCursorState.restoreTarget;
             }
           }
+          // No remembered caret still deserves startup focus at the doc start.
+          if (!startupRestoreRef.current && next.activeDocumentPath) {
+            startupRestoreRef.current = { path: next.activeDocumentPath, location: null };
+          }
+          applySnapshot(next);
+          upsertActiveTabFromSnapshot(next, {
+            markStartupTabsReady: true,
+            preserveSettingsActive: true,
+          });
           return;
         }
+        applySnapshot(next);
 
         try {
           const persistedTabsResult = await loadOpenTabsWithEmptyRetry({
@@ -2363,78 +2380,6 @@ export default function App() {
     // This effect is keyed by the active document identity, not cursor motion.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDocumentOpen, activeTabId, currentMode, snapshot.activeDocumentPath, sourceEditorViewToken]);
-
-  // One-shot startup focus + caret restore. The bootstrap path stashes the
-  // target tab's path (and optionally its remembered SourceCursorLocation)
-  // into startupRestoreRef once it picks an active tab. This effect waits
-  // for the editor surface for that path to be ready, dispatches the saved
-  // selection (or focuses the doc start), and then clears the directive so
-  // subsequent tab switches don't re-trigger startup focus.
-  useEffect(() => {
-    const pending = startupRestoreRef.current;
-    if (!pending) return;
-    if (snapshot.activeDocumentPath !== pending.path) return;
-    const location = pending.location ?? { line: 1, column: 1 };
-    if (currentMode === 'Wysiwyg') {
-      const editorInstance = editor;
-      if (!editorInstance) return;
-      // ProseMirror's empty placeholder doc has nodeSize 2 (one empty
-      // paragraph). Anything larger means the localDraft -> editor sync
-      // has already loaded the real content.
-      const docSize = editorInstance.state.doc.content.size;
-      if (pending.location && docSize <= 2 && (localDraft?.length ?? 0) > 0) return;
-      const pos = wysiwygPositionAtSourceLocation(editorInstance, location);
-      const shouldFocus = shouldFocusStartupEditor({
-        activeElement: document.activeElement,
-        documentBody: document.body,
-        documentElement: document.documentElement,
-        editorDom: editorInstance.view.dom,
-      });
-      try {
-        if (pos !== null) {
-          if (shouldFocus) {
-            editorInstance.chain().focus().setTextSelection(pos).scrollIntoView().run();
-          } else {
-            editorInstance.chain().setTextSelection(pos).scrollIntoView().run();
-          }
-        } else if (shouldFocus) {
-          editorInstance.chain().focus('start').run();
-        }
-      } catch {
-        if (shouldFocus) {
-          editorInstance.commands.focus?.();
-        }
-      }
-      startupRestoreRef.current = null;
-      return;
-    }
-    // Editor / SplitView: drive CodeMirror to the saved line+column.
-    const view = sourceEditorViewRef.current;
-    if (!view) return;
-    if (localDraft.length === 0 && pending.location) return;
-    view.dispatch({
-      selection: sourceEditorSelectionForLocation(view.state.doc, location),
-      scrollIntoView: true,
-    });
-    if (
-      shouldFocusStartupEditor({
-        activeElement: document.activeElement,
-        documentBody: document.body,
-        documentElement: document.documentElement,
-        editorDom: view.dom,
-      })
-    ) {
-      view.focus();
-    }
-    startupRestoreRef.current = null;
-  }, [
-    snapshot,
-    activeTabId,
-    currentMode,
-    editor,
-    localDraft,
-    sourceEditorViewToken,
-  ]);
 
   const nextThemeRequest = () => themeRequests.begin();
   const isThemeRequestStale = (requestId: number) => themeRequests.isStale(requestId);
@@ -2702,6 +2647,85 @@ export default function App() {
       lastLoadedCanonicalRef.current = null;
     }
   }, [editor, localDraft, activeTabId]);
+
+  // One-shot startup focus + caret restore. The bootstrap path stashes the
+  // target tab's path (and optionally its remembered SourceCursorLocation)
+  // into startupRestoreRef once it picks an active tab. This effect waits
+  // for the editor surface for that path to be ready, dispatches the saved
+  // selection (or focuses the doc start), and then clears the directive so
+  // subsequent tab switches don't re-trigger startup focus.
+  //
+  // ORDER MATTERS: this effect MUST be declared AFTER the localDraft→editor
+  // sync effect above. Effects in the same commit run in declaration order;
+  // declared earlier (as it once was) it observed the still-empty placeholder
+  // doc in Wysiwyg mode, bailed on the docSize guard, and never re-ran —
+  // the sync effect loads content via refs + emitUpdate:false, so none of
+  // this effect's deps change afterwards and startup focus stalled forever.
+  useEffect(() => {
+    const pending = startupRestoreRef.current;
+    if (!pending) return;
+    if (snapshot.activeDocumentPath !== pending.path) return;
+    const location = pending.location ?? { line: 1, column: 1 };
+    if (currentMode === 'Wysiwyg') {
+      const editorInstance = editor;
+      if (!editorInstance) return;
+      // ProseMirror's empty placeholder doc has nodeSize 2 (one empty
+      // paragraph). Anything larger means the localDraft -> editor sync
+      // has already loaded the real content.
+      const docSize = editorInstance.state.doc.content.size;
+      if (pending.location && docSize <= 2 && (localDraft?.length ?? 0) > 0) return;
+      const pos = wysiwygPositionAtSourceLocation(editorInstance, location);
+      const shouldFocus = shouldFocusStartupEditor({
+        activeElement: document.activeElement,
+        documentBody: document.body,
+        documentElement: document.documentElement,
+        editorDom: editorInstance.view.dom,
+      });
+      try {
+        if (pos !== null) {
+          if (shouldFocus) {
+            editorInstance.chain().focus().setTextSelection(pos).scrollIntoView().run();
+          } else {
+            editorInstance.chain().setTextSelection(pos).scrollIntoView().run();
+          }
+        } else if (shouldFocus) {
+          editorInstance.chain().focus('start').run();
+        }
+      } catch {
+        if (shouldFocus) {
+          editorInstance.commands.focus?.();
+        }
+      }
+      startupRestoreRef.current = null;
+      return;
+    }
+    // Editor / SplitView: drive CodeMirror to the saved line+column.
+    const view = sourceEditorViewRef.current;
+    if (!view) return;
+    if (localDraft.length === 0 && pending.location) return;
+    view.dispatch({
+      selection: sourceEditorSelectionForLocation(view.state.doc, location),
+      scrollIntoView: true,
+    });
+    if (
+      shouldFocusStartupEditor({
+        activeElement: document.activeElement,
+        documentBody: document.body,
+        documentElement: document.documentElement,
+        editorDom: view.dom,
+      })
+    ) {
+      view.focus();
+    }
+    startupRestoreRef.current = null;
+  }, [
+    snapshot,
+    activeTabId,
+    currentMode,
+    editor,
+    localDraft,
+    sourceEditorViewToken,
+  ]);
 
   const previewSource = resolveEditorPreviewSource({
     activeDocumentOpen,
@@ -4125,6 +4149,10 @@ export default function App() {
               applySnapshot(next, !openedDocument);
               if (openedDocument) {
                 upsertActiveTabFromSnapshot(next);
+                // Dropping a file is an explicit open — focus the editor like
+                // File>Open does. focusActiveEditor is a useEffectEvent, so
+                // this mount-time listener still reads the current mode.
+                focusActiveEditor();
               }
             });
           }

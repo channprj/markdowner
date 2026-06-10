@@ -122,35 +122,87 @@ export function focusExplorerFilter(options: FocusOptions = {}): void {
   });
 }
 
+// Retry budget for editors that mount or become visible a few frames after
+// the open commits (React startTransition + WKWebView time-sliced commits).
+const FOCUS_RETRY_FRAMES = 10;
+
 export function focusActiveEditor(input: FocusActiveEditorInput): boolean {
   const doc = getDocument(input.doc);
+  const requestFrame = getRequestFrame(input.requestFrame);
 
-  const tryFocus = () => {
+  // Elements that received focus through this helper. Lets the retry loop
+  // tell its own still-settling focus apart from focus the user or another
+  // component claimed mid-loop.
+  const focusedByUs = new Set<Element>();
+
+  const containsActive = (surface: HTMLElement | null): boolean => {
+    const active = doc.activeElement;
+    return Boolean(surface && active && surface.contains(active));
+  };
+
+  // Attempt to focus the editor surface for the current mode. Success means
+  // document.activeElement actually landed inside the target surface: real
+  // WebKit ignores focus() on a hidden (display:none) element, so calling
+  // focus() alone must not count. Never gate on offsetParent for visibility —
+  // it is always null in jsdom, where hidden elements do accept focus.
+  const tryFocus = (): boolean => {
     if (input.currentMode === 'Wysiwyg') {
+      // Re-query each attempt: the surface mounts mid-loop when the open
+      // commits inside a React transition.
       const proseMirror = doc.querySelector<HTMLElement>(
         '[data-testid="editor-surface-wysiwyg"] .ProseMirror',
       );
-      if (proseMirror) {
-        proseMirror.focus();
-        return true;
-      }
-      return false;
+      if (!proseMirror) return false;
+      if (containsActive(proseMirror)) return true;
+      focusedByUs.add(proseMirror);
+      proseMirror.focus();
+      return containsActive(proseMirror);
     }
+
+    const container = input.sourceEditorContainer;
+    if (containsActive(container)) return true;
+
     if (input.sourceEditorView) {
       input.sourceEditorView.focus();
-      return true;
+      const active = doc.activeElement;
+      if (active) focusedByUs.add(active);
+      // Without a container we cannot verify placement; trust the view.
+      if (!container) return true;
+      return containsActive(container);
     }
-    const sourceTextarea = input.sourceEditorContainer?.querySelector('textarea');
+
+    const sourceTextarea = container?.querySelector('textarea');
     if (sourceTextarea instanceof HTMLTextAreaElement) {
+      focusedByUs.add(sourceTextarea);
       sourceTextarea.focus();
-      return true;
+      return containsActive(container);
     }
     return false;
   };
 
   if (tryFocus()) return true;
-  getRequestFrame(input.requestFrame)(() => {
-    tryFocus();
-  });
+
+  // Focus that existed before/at the first attempt (e.g. the Explorer row the
+  // user just clicked) must not abort the loop — only focus gained afterwards.
+  const baselineActive = doc.activeElement;
+
+  const isNeutral = (element: Element | null) =>
+    !element || element === doc.body || element === doc.documentElement;
+
+  const retry = (framesLeft: number) => {
+    requestFrame(() => {
+      const active = doc.activeElement;
+      const stolen =
+        !isNeutral(active) &&
+        active !== baselineActive &&
+        !(active && focusedByUs.has(active));
+      // The user (or another component) focused something else mid-loop;
+      // stop retrying instead of fighting them.
+      if (stolen) return;
+      if (tryFocus()) return;
+      if (framesLeft > 1) retry(framesLeft - 1);
+    });
+  };
+  retry(FOCUS_RETRY_FRAMES);
   return false;
 }
