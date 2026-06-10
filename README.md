@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/channprj/markdowner/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/channprj/markdowner?label=release"></a>
   <a href="https://github.com/channprj/markdowner/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/channprj/markdowner/total?label=downloads"></a>
-  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/channprj/markdowner"></a>
+  <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-macOS-111111">
 </p>
 

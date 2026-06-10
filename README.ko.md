@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/channprj/markdowner/releases/latest"><img alt="최신 버전" src="https://img.shields.io/github/v/release/channprj/markdowner?label=%EC%B5%9C%EC%8B%A0%20%EB%B2%84%EC%A0%84"></a>
   <a href="https://github.com/channprj/markdowner/releases"><img alt="누적 다운로드" src="https://img.shields.io/github/downloads/channprj/markdowner/total?label=%EB%88%84%EC%A0%81%20%EB%8B%A4%EC%9A%B4%EB%A1%9C%EB%93%9C"></a>
-  <a href="./LICENSE"><img alt="라이선스" src="https://img.shields.io/github/license/channprj/markdowner"></a>
+  <a href="./LICENSE"><img alt="라이선스: MIT" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
   <img alt="플랫폼" src="https://img.shields.io/badge/platform-macOS-111111">
 </p>
 
