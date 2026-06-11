@@ -153,6 +153,22 @@ pub(crate) fn read_document_source(path: &Path) -> Result<String, RuntimeError> 
     })
 }
 
+/// Like `read_document_source`, but a missing file is `Ok(None)` instead of an
+/// error — callers that treat "deleted on disk" as a normal state (external
+/// change verification) use this to avoid surfacing spurious failures.
+pub(crate) fn read_document_source_if_exists(
+    path: &Path,
+) -> Result<Option<String>, RuntimeError> {
+    match fs::read_to_string(path) {
+        Ok(source) => Ok(Some(source)),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(RuntimeError::new(format!(
+            "Could not read markdown file '{}': {error}",
+            path.display()
+        ))),
+    }
+}
+
 pub(crate) fn read_stylesheet_source(path: &Path) -> Result<String, RuntimeError> {
     fs::read_to_string(path).map_err(|error| {
         RuntimeError::new(format!(

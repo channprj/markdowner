@@ -8,7 +8,8 @@ use crate::{
     Document, Inline, InlineRevealSelection, WorkspaceState,
     storage::{
         list_markdown_files, load_workspace_session, persist_workspace_session,
-        read_document_source, read_stylesheet_source, write_document_source,
+        read_document_source, read_document_source_if_exists, read_stylesheet_source,
+        write_document_source,
     },
     theme::validate_stylesheet,
 };
@@ -556,8 +557,17 @@ impl EditorRuntime {
             return Ok(false);
         };
 
-        let current_source = match read_document_source(&path) {
-            Ok(current_source) => current_source,
+        let current_source = match read_document_source_if_exists(&path) {
+            // File deleted (or not yet created) on disk: nothing there to
+            // clobber, so saving simply recreates it — VS Code semantics.
+            // Treating this as an error made every autosave tick surface a
+            // "Could not verify external changes" banner for files removed
+            // externally (e.g. tooling that deletes its own /tmp documents).
+            Ok(None) => {
+                self.workspace.clear_error();
+                return Ok(false);
+            }
+            Ok(Some(current_source)) => current_source,
             Err(error) => {
                 self.workspace.set_last_error(error.to_string());
                 return Err(error);

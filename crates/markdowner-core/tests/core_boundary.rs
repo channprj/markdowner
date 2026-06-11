@@ -427,6 +427,33 @@ fn runtime_detects_external_modifications_before_save() {
 }
 
 #[test]
+fn runtime_treats_externally_deleted_file_as_unmodified_and_recreates_it_on_save() {
+    let temp = tempdir().unwrap();
+    let document_path = temp.path().join("ephemeral.md");
+    let session_path = temp.path().join("session.json");
+    fs::write(&document_path, "# Original").unwrap();
+
+    let mut runtime = EditorRuntime::default().with_session_store(session_path);
+    runtime.open_document(&document_path).unwrap();
+    runtime
+        .replace_active_document_source("# Original\n\nEdited")
+        .unwrap();
+    fs::remove_file(&document_path).unwrap();
+
+    assert!(
+        !runtime
+            .active_document_has_external_modifications()
+            .unwrap()
+    );
+
+    runtime.save_active_document().unwrap();
+    assert_eq!(
+        fs::read_to_string(&document_path).unwrap(),
+        "# Original\n\nEdited"
+    );
+}
+
+#[test]
 fn runtime_save_as_writes_to_a_new_path_and_retargets_the_active_document() {
     let temp = tempdir().unwrap();
     let original_path = temp.path().join("draft.md");
