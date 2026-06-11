@@ -2098,7 +2098,7 @@ dependencies = [
 
 [[package]]
 name = "markdowner-desktop"
-version = "0.260611.3"
+version = "0.260612.0"
 dependencies = [
  "markdowner-core",
  "regex",
