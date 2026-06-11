@@ -150,82 +150,6 @@ export function EditorArea({
     <main className="relative flex h-full min-h-0 min-w-0 flex-col">
       {findReplaceBar}
 
-      {errorMessage ? (
-        <Alert variant="destructive">
-          <AlertTitle>Something went wrong</AlertTitle>
-          <AlertDescription>{errorMessage}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {externalChangeMessage ? (
-        <Alert>
-          <AlertTitle>External change detected</AlertTitle>
-          <AlertDescription>{externalChangeMessage}</AlertDescription>
-          {showExternalChangeActions ? (
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={onReloadActiveDocument}
-              >
-                Reload from disk
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={onKeepLocalChanges}
-              >
-                Keep local
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={onCompareExternalChanges}
-              >
-                Compare
-              </Button>
-            </div>
-          ) : null}
-        </Alert>
-      ) : null}
-
-      {externalCompareSource !== null ? (
-        <Alert>
-          <div className="flex items-center justify-between gap-2">
-            <AlertTitle>Disk vs local</AlertTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={onHideComparison}
-            >
-              Hide comparison
-            </Button>
-          </div>
-          <div className="mt-2 grid grid-cols-2 gap-3">
-            <div>
-              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Disk
-              </h4>
-              <pre className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">
-                {externalCompareSource}
-              </pre>
-            </div>
-            <div>
-              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Local
-              </h4>
-              <pre className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">
-                {syncLocalDraft ?? localDraft}
-              </pre>
-            </div>
-          </div>
-        </Alert>
-      ) : null}
-
       <section
         className="relative flex min-h-0 flex-1 flex-col bg-background"
         data-mode={currentMode}
@@ -233,6 +157,88 @@ export function EditorArea({
         data-table-density={tableDensity}
         data-table-view={tableViewMode}
       >
+        {/* Floating notification layer. Alerts overlay the editor surface
+            (below the find/replace bar) instead of participating in the flex
+            column, so showing/hiding one never shifts the editor content
+            (autosave-tick banners used to jolt the view). */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex flex-col gap-2 p-4">
+          {errorMessage ? (
+            <Alert variant="destructive" className="pointer-events-auto shadow-lg">
+              <AlertTitle>Something went wrong</AlertTitle>
+              <AlertDescription>{errorMessage}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          {externalChangeMessage ? (
+            <Alert className="pointer-events-auto shadow-lg">
+              <AlertTitle>External change detected</AlertTitle>
+              <AlertDescription>{externalChangeMessage}</AlertDescription>
+              {showExternalChangeActions ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={onReloadActiveDocument}
+                  >
+                    Reload from disk
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={onKeepLocalChanges}
+                  >
+                    Keep local
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={onCompareExternalChanges}
+                  >
+                    Compare
+                  </Button>
+                </div>
+              ) : null}
+            </Alert>
+          ) : null}
+
+          {externalCompareSource !== null ? (
+            <Alert className="pointer-events-auto shadow-lg">
+              <div className="flex items-center justify-between gap-2">
+                <AlertTitle>Disk vs local</AlertTitle>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={onHideComparison}
+                >
+                  Hide comparison
+                </Button>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                <div>
+                  <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Disk
+                  </h4>
+                  <pre className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">
+                    {externalCompareSource}
+                  </pre>
+                </div>
+                <div>
+                  <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Local
+                  </h4>
+                  <pre className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">
+                    {syncLocalDraft ?? localDraft}
+                  </pre>
+                </div>
+              </div>
+            </Alert>
+          ) : null}
+        </div>
+
         {!activeDocumentOpen ? (
           <Empty className="flex-1 border-dashed">
             <EmptyHeader>
