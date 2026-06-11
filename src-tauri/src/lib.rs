@@ -18,6 +18,7 @@ use tauri::{
 use tauri_plugin_cli::CliExt;
 
 mod diagnostics;
+mod default_handler;
 mod link_actions;
 mod updater;
 
@@ -1763,6 +1764,8 @@ pub fn run() {
             import_theme,
             load_settings,
             save_settings,
+            default_handler::default_md_handler_status,
+            default_handler::set_default_md_handler,
             install_cli_launcher,
             ctrl_g_launcher_status,
             install_ctrl_g_launcher,
@@ -1787,6 +1790,22 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running Markdowner desktop shell")
         .run(|app_handle, event| {
+            if let tauri::RunEvent::Opened { urls } = &event {
+                if let Some(url) = urls.first() {
+                    if let Ok(path) = url.to_file_path() {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let state = app_handle.state::<DesktopAppState>();
+                            if let Ok(mut backend) = state.0.lock() {
+                                let _ = open_startup_path(&mut backend, &path);
+                                let _ =
+                                    window.emit("markdowner://update-snapshot", backend.snapshot());
+                            }
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                }
+            }
             // macOS: clicking the dock icon while the only window is hidden
             // (the user pressed ⌘W on an empty workspace) must bring the
             // window back. Tauri surfaces that as a Reopen event; re-show and

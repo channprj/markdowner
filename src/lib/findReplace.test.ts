@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   findTextMatches,
+  matchScrollStrategy,
   nextFindMatchIndex,
   nextFindMatchIndexAfterReplace,
   replaceAllMatches,
@@ -137,5 +138,51 @@ describe('findReplace', () => {
     expect(nextFindMatchIndexAfterReplace(2, 3)).toBe(1);
     expect(nextFindMatchIndexAfterReplace(0, 1)).toBe(0);
     expect(nextFindMatchIndexAfterReplace(5, 0)).toBe(0);
+  });
+});
+
+describe('matchScrollStrategy', () => {
+  it('does not scroll when the match is fully inside the viewport', () => {
+    expect(
+      matchScrollStrategy({
+        blockTop: 500,
+        blockBottom: 520,
+        scrollTop: 400,
+        clientHeight: 600,
+      }),
+    ).toBe('none');
+  });
+
+  it('centers when the match is above the viewport', () => {
+    expect(
+      matchScrollStrategy({
+        blockTop: 100,
+        blockBottom: 120,
+        scrollTop: 400,
+        clientHeight: 600,
+      }),
+    ).toBe('center');
+  });
+
+  it('centers when the match is below the viewport', () => {
+    expect(
+      matchScrollStrategy({
+        blockTop: 2000,
+        blockBottom: 2020,
+        scrollTop: 400,
+        clientHeight: 600,
+      }),
+    ).toBe('center');
+  });
+
+  it('centers when the match straddles the viewport edge', () => {
+    expect(
+      matchScrollStrategy({
+        blockTop: 990,
+        blockBottom: 1010,
+        scrollTop: 400,
+        clientHeight: 600,
+      }),
+    ).toBe('center');
   });
 });

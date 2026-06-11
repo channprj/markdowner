@@ -1,4 +1,5 @@
 import type { ThemeKind } from '@/lib/desktop';
+import type { DefaultMdHandlerStatus } from '@/lib/defaultApp';
 import type { Settings } from '@/lib/settings';
 import type { UpdateInfo } from '@/lib/updateCheck';
 
@@ -16,6 +17,9 @@ interface SettingsTabContentProps {
   updateChecking?: boolean;
   onUpdateAction?: () => void;
   onCheckForUpdate?: () => void;
+  defaultMdHandler?: DefaultMdHandlerStatus | null;
+  defaultMdHandlerBusy?: boolean;
+  onDefaultMdHandlerChange?: (status: DefaultMdHandlerStatus | null) => void;
 }
 
 export function SettingsTabContent({
@@ -30,6 +34,9 @@ export function SettingsTabContent({
   updateChecking,
   onUpdateAction,
   onCheckForUpdate,
+  defaultMdHandler,
+  defaultMdHandlerBusy,
+  onDefaultMdHandlerChange,
 }: SettingsTabContentProps) {
   const currentTheme = resolveSettingsThemeChoice(settings, themeKind);
 
@@ -54,6 +61,9 @@ export function SettingsTabContent({
       updateChecking={updateChecking}
       onUpdateAction={onUpdateAction}
       onCheckForUpdate={onCheckForUpdate}
+      defaultMdHandler={defaultMdHandler}
+      defaultMdHandlerBusy={defaultMdHandlerBusy}
+      onDefaultMdHandlerChange={onDefaultMdHandlerChange}
     />
   );
 }

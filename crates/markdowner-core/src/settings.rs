@@ -31,6 +31,8 @@ pub struct Settings {
     pub update_check_enabled: bool,
     pub last_update_check_at: Option<u64>,
     pub dismissed_update_version: Option<String>,
+    /// One-time "make Markdowner the default .md app?" prompt was shown.
+    pub default_app_prompt_seen: bool,
 }
 
 impl Default for Settings {
@@ -61,6 +63,7 @@ impl Default for Settings {
             update_check_enabled: true,
             last_update_check_at: None,
             dismissed_update_version: None,
+            default_app_prompt_seen: false,
         }
     }
 }
@@ -203,6 +206,28 @@ mod tests {
         assert!(payload.contains("\"diagnosticsEnabled\":false"));
         let parsed: Settings = serde_json::from_str(&payload).expect("parse");
         assert!(!parsed.diagnostics_enabled);
+    }
+
+    #[test]
+    fn default_app_prompt_seen_defaults_to_false_and_round_trips() {
+        // Legacy settings.json (pre-default-app prompt) must load as unseen so
+        // the one-time prompt shows on the next launch.
+        let legacy = r#"{"autoSave":true,"editorFontSize":16}"#;
+        let parsed: Settings = serde_json::from_str(legacy).expect("legacy settings parse");
+        assert!(
+            !parsed.default_app_prompt_seen,
+            "missing defaultAppPromptSeen should default to false"
+        );
+
+        // Explicit true survives round-trip via the camelCase key.
+        let original = Settings {
+            default_app_prompt_seen: true,
+            ..Default::default()
+        };
+        let payload = serde_json::to_string(&original).expect("serialize");
+        assert!(payload.contains("\"defaultAppPromptSeen\":true"));
+        let parsed: Settings = serde_json::from_str(&payload).expect("parse");
+        assert!(parsed.default_app_prompt_seen);
     }
 
     #[test]

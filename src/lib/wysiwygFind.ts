@@ -41,9 +41,12 @@ type WysiwygEditorLike = {
   view?: {
     dispatch?: (transaction: any) => void;
     focus?: () => void;
+    dom?: Element;
+    coordsAtPos?: (pos: number) => { top: number; bottom: number };
   };
   commands?: {
     setTextSelection?: (selection: { from: number; to: number }) => boolean;
+    scrollIntoView?: () => boolean;
   };
 };
 
@@ -126,6 +129,71 @@ export function findWysiwygTextMatches(
   };
 }
 
+/**
+ * VS Code/Zed reveal math in viewport coordinates: returns the scrollTop
+ * that centers the match, or null when the match is already visible and no
+ * scroll is needed.
+ */
+export function centeredScrollTop(input: {
+  /** Viewport-space top of the match (ProseMirror coordsAtPos().top). */
+  matchTop: number;
+  containerTop: number;
+  containerHeight: number;
+  scrollTop: number;
+}): number | null {
+  const offsetInView = input.matchTop - input.containerTop;
+  if (offsetInView >= 0 && offsetInView <= input.containerHeight) {
+    return null;
+  }
+  return Math.max(
+    0,
+    input.scrollTop + offsetInView - input.containerHeight / 2,
+  );
+}
+
+function nearestScrollContainer(start: Element | null | undefined): Element | null {
+  let element = start?.parentElement ?? null;
+  while (element) {
+    if (element.scrollHeight > element.clientHeight + 1) {
+      return element;
+    }
+    element = element.parentElement;
+  }
+  return null;
+}
+
+/**
+ * Reveals the match like VS Code/Zed: center it when offscreen, stay put
+ * when visible. Falls back to the editor's nearest-edge scrollIntoView when
+ * geometry is unavailable (jsdom, detached views).
+ */
+function scrollWysiwygMatchIntoView(
+  editor: WysiwygEditorLike,
+  position: number,
+) {
+  let coords: { top: number } | null = null;
+  try {
+    coords = editor.view?.coordsAtPos?.(position) ?? null;
+  } catch {
+    coords = null;
+  }
+  const container = nearestScrollContainer(editor.view?.dom);
+  if (!coords || !container) {
+    editor.commands?.scrollIntoView?.();
+    return;
+  }
+  const rect = container.getBoundingClientRect();
+  const next = centeredScrollTop({
+    matchTop: coords.top,
+    containerTop: rect.top,
+    containerHeight: container.clientHeight,
+    scrollTop: container.scrollTop,
+  });
+  if (next !== null) {
+    container.scrollTop = next;
+  }
+}
+
 export function selectWysiwygFindMatch(
   editor: WysiwygEditorLike | null | undefined,
   match: WysiwygFindMatch,
@@ -135,8 +203,12 @@ export function selectWysiwygFindMatch(
     from: match.wysiwygFrom,
     to: match.wysiwygTo,
   });
-  if (didSelect !== false && options.focusEditor !== false) {
-    editor?.view?.focus?.();
+  if (didSelect === false || !editor) {
+    return;
+  }
+  scrollWysiwygMatchIntoView(editor, match.wysiwygFrom);
+  if (options.focusEditor !== false) {
+    editor.view?.focus?.();
   }
 }
 

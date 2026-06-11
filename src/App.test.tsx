@@ -5781,6 +5781,7 @@ describe('App recent documents', () => {
           updateCheckEnabled: true,
           lastUpdateCheckAt: null,
           dismissedUpdateVersion: null,
+          defaultAppPromptSeen: false,
         },
       });
     });
@@ -7026,6 +7027,7 @@ describe('App recent documents', () => {
           updateCheckEnabled: true,
           lastUpdateCheckAt: null,
           dismissedUpdateVersion: null,
+          defaultAppPromptSeen: false,
         },
       });
     });

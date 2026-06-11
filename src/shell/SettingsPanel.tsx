@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Copy, CopyCheck, RefreshCw, Terminal, Trash2 } from 'lucide-react';
+import { Copy, CopyCheck, FileCheck2, RefreshCw, Terminal, Trash2 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import {
+  defaultMdHandlerStatus,
+  setDefaultMdHandler,
+  type DefaultMdHandlerStatus,
+} from '@/lib/defaultApp';
 import {
   CLI_BINARY_INSTALL_PATH,
   CODE_BLOCK_THEMES,
@@ -51,6 +56,9 @@ export interface SettingsPanelProps {
   updateChecking?: boolean;
   onUpdateAction?: () => void;
   onCheckForUpdate?: () => void;
+  defaultMdHandler?: DefaultMdHandlerStatus | null;
+  defaultMdHandlerBusy?: boolean;
+  onDefaultMdHandlerChange?: (status: DefaultMdHandlerStatus | null) => void;
 }
 
 const switchFieldClass = 'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4';
@@ -75,6 +83,9 @@ export function SettingsPanel({
   updateChecking = false,
   onUpdateAction,
   onCheckForUpdate,
+  defaultMdHandler = null,
+  defaultMdHandlerBusy = false,
+  onDefaultMdHandlerChange,
 }: SettingsPanelProps) {
   const [cliBinary, setCliBinary] = useState<CliBinaryStatus>({
     installPath: CLI_BINARY_INSTALL_PATH,
@@ -97,6 +108,9 @@ export function SettingsPanel({
   const [ctrlGLauncherMessage, setCtrlGLauncherMessage] = useState('');
   const [ctrlGLauncherError, setCtrlGLauncherError] = useState(false);
   const [ctrlGSnippetCopied, setCtrlGSnippetCopied] = useState(false);
+  const [defaultAppBusy, setDefaultAppBusy] = useState(false);
+  const [defaultAppMessage, setDefaultAppMessage] = useState('');
+  const [defaultAppError, setDefaultAppError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -252,6 +266,49 @@ export function SettingsPanel({
     }
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    defaultMdHandlerStatus()
+      .then((status) => {
+        if (cancelled) return;
+        onDefaultMdHandlerChange?.(status);
+      })
+      .catch((error) => {
+        console.error('Failed to read default Markdown app status:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onDefaultMdHandlerChange]);
+
+  const refreshDefaultMdHandlerStatus = async () => {
+    const status = await defaultMdHandlerStatus();
+    onDefaultMdHandlerChange?.(status);
+    return status;
+  };
+
+  const handleSetDefaultMdHandler = async () => {
+    setDefaultAppBusy(true);
+    setDefaultAppError(false);
+    setDefaultAppMessage('');
+    try {
+      await setDefaultMdHandler();
+      const status = await refreshDefaultMdHandlerStatus();
+      setDefaultAppMessage(
+        status?.isDefault
+          ? 'Markdowner is now the default app for Markdown files.'
+          : 'Default app request was sent. macOS may take a moment to refresh Finder.',
+      );
+    } catch (error) {
+      const text = typeof error === 'string' ? error : (error as Error)?.message ?? '';
+      console.error('Failed to set Markdowner as default Markdown app:', error);
+      setDefaultAppError(true);
+      setDefaultAppMessage(`Could not update the default app: ${text || 'unknown error'}`);
+    } finally {
+      setDefaultAppBusy(false);
+    }
+  };
+
   const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
     onSettingsChange({ ...settings, [key]: value });
   };
@@ -364,6 +421,81 @@ export function SettingsPanel({
             }
           />
         </div>
+        <Separator />
+        <div data-testid="settings-default-md-handler" className="flex min-w-0 flex-col gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <h4 className="text-sm font-medium leading-none">Default Markdown App</h4>
+            <span
+              data-testid="settings-default-md-handler-state"
+              className={`rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${
+                defaultMdHandler?.isDefault
+                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-muted text-muted-foreground'
+              }`}
+            >
+              {defaultMdHandler?.isDefault ? 'Default' : 'Not default'}
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Make Markdowner the app Finder opens when you double-click{' '}
+            <code className="font-mono text-xs">.md</code> and{' '}
+            <code className="font-mono text-xs">.markdown</code> files.
+          </p>
+          {defaultMdHandler?.currentHandlerPath ? (
+            <div className="min-w-0 overflow-hidden rounded bg-muted px-2 py-1.5">
+              <code className="block min-w-0 truncate font-mono text-xs leading-5">
+                {defaultMdHandler.currentHandlerPath}
+              </code>
+            </div>
+          ) : null}
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSetDefaultMdHandler}
+              disabled={
+                defaultAppBusy ||
+                defaultMdHandlerBusy ||
+                defaultMdHandler?.supported === false ||
+                defaultMdHandler?.isDefault === true
+              }
+              aria-label="Set Markdowner as the default Markdown app"
+              className="flex-1 sm:flex-none"
+            >
+              <FileCheck2 />
+              {defaultAppBusy || defaultMdHandlerBusy
+                ? 'Working...'
+                : defaultMdHandler?.isDefault
+                  ? 'Already Default'
+                  : 'Make Default'}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void refreshDefaultMdHandlerStatus()}
+              disabled={defaultAppBusy || defaultMdHandlerBusy}
+              aria-label="Refresh default Markdown app status"
+              className="flex-1 sm:flex-none"
+            >
+              <RefreshCw />
+              Refresh
+            </Button>
+          </div>
+          {defaultMdHandler?.supported === false ? (
+            <p className="text-xs text-muted-foreground">
+              Default app registration is available in the installed macOS app.
+            </p>
+          ) : null}
+          <p
+            data-testid="settings-default-md-handler-status"
+            aria-live="polite"
+            className={`min-h-5 text-xs ${defaultAppError ? 'text-destructive' : 'text-muted-foreground'}`}
+          >
+            {defaultAppMessage}
+          </p>
+        </div>
+
         <Separator />
         <div data-testid="settings-cli-binary" className="flex min-w-0 flex-col gap-2">
           <div className="flex items-center justify-between gap-3">

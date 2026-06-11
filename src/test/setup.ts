@@ -26,6 +26,34 @@ function createEmptyDomRectList(): DOMRectList {
   } as DOMRectList;
 }
 
+// jsdom ships getContext as a loud "Not implemented" stub unless the optional
+// `canvas` package is installed. The minimap draws through a 2D context, so
+// give it an inert one — drawing output is verified in the real build, tests
+// only need the code path to run without jsdom error spam.
+if (typeof HTMLCanvasElement !== 'undefined') {
+  const noop = () => undefined;
+  const stubContext = {
+    canvas: null,
+    setTransform: noop,
+    clearRect: noop,
+    fillRect: noop,
+    fillText: noop,
+    save: noop,
+    restore: noop,
+    beginPath: noop,
+    rect: noop,
+    clip: noop,
+    measureText: () => ({ width: 0 }),
+    font: '',
+    fillStyle: '',
+    textBaseline: 'top',
+    globalAlpha: 1,
+  };
+  HTMLCanvasElement.prototype.getContext = function getContext(id: string) {
+    return id === '2d' ? (stubContext as unknown as CanvasRenderingContext2D) : null;
+  } as typeof HTMLCanvasElement.prototype.getContext;
+}
+
 // jsdom in vitest 4 ships without a writable localStorage by default; install
 // a minimal in-memory polyfill so app code that persists state through
 // localStorage (sidebar width, theme mode, etc.) can be exercised in tests.

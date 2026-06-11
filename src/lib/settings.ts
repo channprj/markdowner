@@ -84,6 +84,8 @@ export interface Settings {
   updateCheckEnabled: boolean;
   lastUpdateCheckAt: number | null;
   dismissedUpdateVersion: string | null;
+  /** One-time "make Markdowner the default .md app?" prompt was shown. */
+  defaultAppPromptSeen: boolean;
 }
 
 export interface DiagnosticsLogStatus {
@@ -158,6 +160,7 @@ export const DEFAULT_SETTINGS: Settings = {
   updateCheckEnabled: true,
   lastUpdateCheckAt: null,
   dismissedUpdateVersion: null,
+  defaultAppPromptSeen: false,
 };
 
 const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>;
@@ -350,6 +353,9 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): Setting
     merged.dismissedUpdateVersion.length === 0
   ) {
     merged.dismissedUpdateVersion = null;
+  }
+  if (typeof merged.defaultAppPromptSeen !== 'boolean') {
+    merged.defaultAppPromptSeen = DEFAULT_SETTINGS.defaultAppPromptSeen;
   }
   return merged;
 }

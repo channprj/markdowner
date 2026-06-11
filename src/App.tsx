@@ -114,12 +114,14 @@ import {
 } from './lib/draftSync';
 import {
   findTextMatches,
+  matchScrollStrategy,
   nextFindMatchIndex,
   nextFindMatchIndexAfterReplace,
   replaceAllMatches,
   replaceSingleMatch,
   resolveFindReplaceViewState,
   type FindReplaceOptions,
+  type MatchScrollStrategy,
 } from './lib/findReplace';
 import {
   MARKDOWN_FILE_EXTENSIONS,
@@ -257,6 +259,12 @@ import {
   clampSourceOffset,
   sourceOffsetForLine,
 } from './lib/sourceText';
+import {
+  defaultMdHandlerStatus,
+  setDefaultMdHandler,
+  shouldShowDefaultAppPrompt,
+  type DefaultMdHandlerStatus,
+} from './lib/defaultApp';
 import {
   findWysiwygTextMatches,
   isWysiwygFindMatch,
@@ -420,6 +428,10 @@ export default function App() {
   const [manualUpdateCheckInfo, setManualUpdateCheckInfo] = useState<UpdateInfo | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [defaultMdHandler, setDefaultMdHandlerStatus] =
+    useState<DefaultMdHandlerStatus | null>(null);
+  const [defaultAppPromptOpen, setDefaultAppPromptOpen] = useState(false);
+  const [defaultAppPromptBusy, setDefaultAppPromptBusy] = useState(false);
   const [debouncedLocalDraft, setDebouncedLocalDraft] = useState(localDraft);
   const [cursorPosition, setCursorPosition] = useState<{ line: number; column: number }>({
     line: 1,
@@ -778,7 +790,7 @@ export default function App() {
   const focusSourceSelection = (
     selectionStart: number,
     selectionEnd = selectionStart,
-    options: { focusEditor?: boolean; alignTop?: boolean } = {},
+    options: { focusEditor?: boolean; alignTop?: boolean; centerIfOffscreen?: boolean } = {},
   ) => {
     const nextSelectionStart = clampSourceOffset(selectionStart, localDraft.length);
     const nextSelectionEnd = clampSourceOffset(selectionEnd, localDraft.length);
@@ -795,6 +807,29 @@ export default function App() {
           selection,
           effects: EditorView.scrollIntoView(nextSelectionStart, { y: 'start', yMargin: 0 }),
         });
+      } else if (options.centerIfOffscreen) {
+        // VS Code/Zed find reveal: center the match when it is offscreen,
+        // keep the viewport still when it is already visible.
+        let strategy: MatchScrollStrategy = 'center';
+        try {
+          const block = view.lineBlockAt(nextSelectionStart);
+          strategy = matchScrollStrategy({
+            blockTop: block.top,
+            blockBottom: block.bottom,
+            scrollTop: view.scrollDOM.scrollTop,
+            clientHeight: view.scrollDOM.clientHeight,
+          });
+        } catch {
+          strategy = 'center';
+        }
+        view.dispatch(
+          strategy === 'center'
+            ? {
+                selection,
+                effects: EditorView.scrollIntoView(nextSelectionStart, { y: 'center' }),
+              }
+            : { selection },
+        );
       } else {
         view.dispatch({ selection, scrollIntoView: true });
       }
@@ -2031,7 +2066,10 @@ export default function App() {
       return;
     }
 
-    focusSourceSelection(activeFindMatch.start, activeFindMatch.end, { focusEditor: false });
+    focusSourceSelection(activeFindMatch.start, activeFindMatch.end, {
+      focusEditor: false,
+      centerIfOffscreen: true,
+    });
   }, [
     activeDocumentOpen,
     activeFindMatch,
@@ -2475,11 +2513,72 @@ export default function App() {
     }
   };
 
+  const markDefaultAppPromptSeen = () => {
+    if (settings.defaultAppPromptSeen) return;
+    handleSettingsChange({ ...settings, defaultAppPromptSeen: true });
+  };
+
+  const refreshDefaultMdHandlerStatus = async () => {
+    const status = await defaultMdHandlerStatus();
+    setDefaultMdHandlerStatus(status);
+    return status;
+  };
+
+  const handleDefaultAppPromptOpenChange = (open: boolean) => {
+    setDefaultAppPromptOpen(open);
+    if (!open) {
+      markDefaultAppPromptSeen();
+    }
+  };
+
+  const handleSkipDefaultAppPrompt = () => {
+    setDefaultAppPromptOpen(false);
+    markDefaultAppPromptSeen();
+  };
+
+  const handleMakeDefaultApp = async () => {
+    setDefaultAppPromptBusy(true);
+    try {
+      await setDefaultMdHandler();
+      await refreshDefaultMdHandlerStatus();
+    } catch (error) {
+      reportOperationError(error, 'Could not make Markdowner the default Markdown app');
+    } finally {
+      setDefaultAppPromptBusy(false);
+      setDefaultAppPromptOpen(false);
+      markDefaultAppPromptSeen();
+    }
+  };
+
   const updateCheck = useUpdateCheck(settings, handleSettingsChange, settingsLoaded, {
     onManualCheckComplete: (result) => {
       setManualUpdateCheckInfo(result.available ? null : result);
     },
   });
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    let cancelled = false;
+    defaultMdHandlerStatus()
+      .then((status) => {
+        if (cancelled) return;
+        setDefaultMdHandlerStatus(status);
+        if (
+          shouldShowDefaultAppPrompt({
+            promptSeen: settings.defaultAppPromptSeen,
+            status,
+          })
+        ) {
+          setDefaultAppPromptOpen(true);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to query default Markdown app status:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsLoaded, settings.defaultAppPromptSeen]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -4548,6 +4647,9 @@ export default function App() {
           updateChecking={updateCheck.checking}
           onUpdateAction={updateCheck.install}
           onCheckForUpdate={updateCheck.checkNow}
+          defaultMdHandler={defaultMdHandler}
+          defaultMdHandlerBusy={defaultAppPromptBusy}
+          onDefaultMdHandlerChange={setDefaultMdHandlerStatus}
         />
       ) : null}
       <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', isSettingsTabActive && 'hidden')}>
@@ -4653,6 +4755,11 @@ export default function App() {
         stats={documentStats}
         shortcutsOpen={isShortcutsOpen}
         onShortcutsOpenChange={setIsShortcutsOpen}
+        defaultAppPromptOpen={defaultAppPromptOpen}
+        defaultAppPromptBusy={defaultAppPromptBusy}
+        onDefaultAppPromptOpenChange={handleDefaultAppPromptOpenChange}
+        onMakeDefaultApp={() => void handleMakeDefaultApp()}
+        onSkipDefaultAppPrompt={handleSkipDefaultAppPrompt}
       />
 
       <StatusBar

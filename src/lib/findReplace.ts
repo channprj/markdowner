@@ -255,3 +255,23 @@ export function nextFindMatchIndexAfterReplace(
 ): number {
   return Math.max(0, Math.min(currentIndex, matchCountBeforeReplace - 2));
 }
+
+export type MatchScrollStrategy = 'center' | 'none';
+
+/**
+ * VS Code/Zed find behavior: reveal the active match centered, but only when
+ * it is not already fully visible. Coordinates are document-space pixels
+ * (CodeMirror lineBlockAt top/bottom vs the scroller's visible window).
+ */
+export function matchScrollStrategy(input: {
+  blockTop: number;
+  blockBottom: number;
+  scrollTop: number;
+  clientHeight: number;
+}): MatchScrollStrategy {
+  const visibleTop = input.scrollTop;
+  const visibleBottom = input.scrollTop + input.clientHeight;
+  const fullyVisible =
+    input.blockTop >= visibleTop && input.blockBottom <= visibleBottom;
+  return fullyVisible ? 'none' : 'center';
+}

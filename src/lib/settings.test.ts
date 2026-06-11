@@ -137,6 +137,12 @@ describe('diagnostics logging defaults', () => {
   });
 });
 
+describe('default app prompt defaults', () => {
+  it('starts unseen so the first launch asks once', () => {
+    expect(DEFAULT_SETTINGS.defaultAppPromptSeen).toBe(false);
+  });
+});
+
 describe('word wrap column + wrap line', () => {
   it('defaults to a 120-column cap with the wrap line on', () => {
     expect(DEFAULT_SETTINGS.editorWrapColumn).toBe(120);

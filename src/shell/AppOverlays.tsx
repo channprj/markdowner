@@ -1,6 +1,7 @@
 import type { DocumentStats } from '@/lib/documentStats';
 
 import { CommandPalette, type CommandPaletteCommand } from './CommandPalette';
+import { DefaultAppPromptDialog } from './DefaultAppPromptDialog';
 import { DocumentStatsDialog } from './DocumentStatsDialog';
 import { QuickOpen, type QuickOpenItem } from './QuickOpen';
 import { ShortcutsDialog } from './ShortcutsDialog';
@@ -20,6 +21,11 @@ export interface AppOverlaysProps {
   stats: DocumentStats;
   shortcutsOpen: boolean;
   onShortcutsOpenChange: (open: boolean) => void;
+  defaultAppPromptOpen: boolean;
+  defaultAppPromptBusy?: boolean;
+  onDefaultAppPromptOpenChange: (open: boolean) => void;
+  onMakeDefaultApp: () => void;
+  onSkipDefaultAppPrompt: () => void;
 }
 
 export function AppOverlays({
@@ -37,9 +43,21 @@ export function AppOverlays({
   stats,
   shortcutsOpen,
   onShortcutsOpenChange,
+  defaultAppPromptOpen,
+  defaultAppPromptBusy,
+  onDefaultAppPromptOpenChange,
+  onMakeDefaultApp,
+  onSkipDefaultAppPrompt,
 }: AppOverlaysProps) {
   return (
     <>
+      <DefaultAppPromptDialog
+        open={defaultAppPromptOpen}
+        busy={defaultAppPromptBusy}
+        onOpenChange={onDefaultAppPromptOpenChange}
+        onMakeDefault={onMakeDefaultApp}
+        onSkip={onSkipDefaultAppPrompt}
+      />
       <QuickOpen
         open={quickOpenOpen}
         onOpenChange={onQuickOpenOpenChange}

@@ -136,6 +136,10 @@ describe('AppOverlays', () => {
         stats={stats}
         shortcutsOpen={false}
         onShortcutsOpenChange={() => {}}
+        defaultAppPromptOpen={false}
+        onDefaultAppPromptOpenChange={() => {}}
+        onMakeDefaultApp={() => {}}
+        onSkipDefaultAppPrompt={() => {}}
       />,
     );
 
@@ -161,6 +165,9 @@ describe('AppOverlays', () => {
     const onCommandPaletteChange = vi.fn();
     const onDocumentStatsChange = vi.fn();
     const onShortcutsChange = vi.fn();
+    const onDefaultAppPromptChange = vi.fn();
+    const onMakeDefaultApp = vi.fn();
+    const onSkipDefaultAppPrompt = vi.fn();
 
     render(
       <AppOverlays
@@ -178,6 +185,10 @@ describe('AppOverlays', () => {
         stats={stats}
         shortcutsOpen
         onShortcutsOpenChange={onShortcutsChange}
+        defaultAppPromptOpen={false}
+        onDefaultAppPromptOpenChange={onDefaultAppPromptChange}
+        onMakeDefaultApp={onMakeDefaultApp}
+        onSkipDefaultAppPrompt={onSkipDefaultAppPrompt}
       />,
     );
 

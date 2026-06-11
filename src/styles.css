@@ -990,79 +990,58 @@ section[data-mode='Wysiwyg'] {
   color: var(--destructive);
 }
 
-/* VS Code-style minimap. A vertical strip on the right edge of the editor
-   surface. Each markdown line is rendered as a tiny horizontal bar; the
-   whole document is scaled to fit so users see the full structure at a
-   glance and the viewport indicator gives precise spatial alignment. */
+/* Zed-style minimap. A vertical strip on the right edge of the editor
+   surface: the markdown source is drawn on a canvas as miniature text at a
+   fixed scale (no squashing), sliding proportionally when the document
+   overflows. The component sets its own width (15% of the pane capped at 80
+   columns, Zed's rule) and publishes it via --minimap-width on the parent. */
 .minimap {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 84px;
+  width: 96px;
   background: color-mix(in srgb, var(--background) 86%, var(--foreground) 4%);
   border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  box-shadow: -2px 0 6px color-mix(in srgb, var(--foreground) 5%, transparent);
   overflow: hidden;
-  cursor: pointer;
+  cursor: default;
   user-select: none;
   z-index: 5;
 }
-.minimap-track {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  padding: 6px 6px;
+.minimap-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
   pointer-events: none;
 }
-.minimap-row {
-  display: flex;
-  align-items: center;
-  min-height: 0;
-}
-.minimap-bar {
-  display: block;
-  height: 60%;
-  min-height: 1px;
-  border-radius: 1px;
-  background: color-mix(in srgb, var(--foreground) 30%, transparent);
-}
-.minimap-row-blank .minimap-bar,
-.minimap-row-blank {
-  background: transparent;
-}
-.minimap-row-heading .minimap-bar {
-  background: color-mix(in srgb, var(--foreground) 65%, transparent);
-  height: 80%;
-}
-.minimap-row-list .minimap-bar {
-  background: color-mix(in srgb, var(--foreground) 38%, transparent);
-}
-.minimap-row-code .minimap-bar {
-  background: color-mix(in srgb, var(--foreground) 22%, transparent);
-}
-.minimap-row-quote .minimap-bar {
-  background: color-mix(in srgb, var(--foreground) 32%, transparent);
-}
+/* Viewport thumb, Zed "left_open" border style: top/right/bottom only.
+   Idle → hover → dragging mirror Zed's three thumb states. */
 .minimap-viewport {
   position: absolute;
   left: 0;
   right: 0;
-  background: color-mix(in srgb, var(--foreground) 8%, transparent);
-  border-top: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+  background: color-mix(in srgb, var(--foreground) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--foreground) 16%, transparent);
+  border-left: none;
   pointer-events: none;
   transition: none;
 }
 .minimap:hover .minimap-viewport {
   background: color-mix(in srgb, var(--foreground) 14%, transparent);
 }
+.minimap[data-dragging='true'] .minimap-viewport {
+  background: color-mix(in srgb, var(--foreground) 20%, transparent);
+}
 /* Reserve right-padding on editor panes so long text doesn't slide under
-   the overlay. Slightly narrower padding than the minimap so the viewport
-   indicator still visually catches the text edge. */
+   the overlay. Follows the minimap's measured width so narrow split panes
+   give the space back. */
 section[data-minimap='on'] .editor-pane-source .cm-content,
 section[data-minimap='on'] .editor-pane-wysiwyg .notion-editor-content,
 section[data-minimap='on'] .editor-pane-preview {
-  padding-right: 96px;
+  padding-right: calc(var(--minimap-width, 96px) + 12px);
 }
 
 /* Code block node-view shell: keeps the language picker visually attached to

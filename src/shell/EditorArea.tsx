@@ -370,7 +370,7 @@ export function EditorArea({
         </div>
 
         {minimapEnabled && activeDocumentOpen ? (
-          <Minimap text={localDraft} scrollEl={minimapScrollEl} />
+          <Minimap text={localDraft} scrollEl={minimapScrollEl} lineHeight={lineHeight} />
         ) : null}
       </section>
     </main>
