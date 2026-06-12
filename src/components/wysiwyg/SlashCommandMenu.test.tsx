@@ -362,6 +362,41 @@ describe('SlashCommandMenu', () => {
     expect(chain.deleteRange).not.toHaveBeenCalled();
   });
 
+  it('filters the Turn-into list from its own input without touching the document', async () => {
+    const chain: any = {
+      focus: vi.fn().mockReturnThis(),
+      deleteRange: vi.fn().mockReturnThis(),
+      setNode: vi.fn().mockReturnThis(),
+      run: vi.fn().mockReturnValue(true),
+    };
+    const editor = createSlashEditor();
+    editor.chain = vi.fn().mockReturnValue(chain);
+    editor.commands = { focus: vi.fn() };
+    editor.state.selection = { from: 2, to: 10, empty: false, $from: { depth: 1, start: () => 1 } };
+    editor.state.doc.nodesBetween = vi.fn();
+
+    render(<SlashCommandMenu editor={editor} />);
+    await act(async () => {});
+
+    act(() => {
+      publishEditorEvent('slash:open-at-cursor', { mode: 'convert' });
+    });
+
+    const input = await screen.findByTestId('slash-command-filter-input');
+    expect(document.activeElement).toBe(input);
+
+    fireEvent.change(input, { target: { value: 'h4' } });
+
+    // Only Heading 4 survives the fuzzy filter as the top hit.
+    const items = screen.getAllByRole('menuitem');
+    expect(items[0]).toHaveTextContent(/heading 4/i);
+
+    // Enter runs the top item against the untouched selection.
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(chain.setNode).toHaveBeenCalledWith('heading', { level: 4 });
+    expect(chain.deleteRange).not.toHaveBeenCalled();
+  });
+
   it('refuses to open the Turn-into menu when the selection touches a table', async () => {
     const editor = createSlashEditor();
     editor.state.selection = { from: 2, to: 10, empty: false, $from: { depth: 1, start: () => 1 } };

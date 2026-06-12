@@ -28,7 +28,8 @@ import { cn } from '@/lib/utils';
 import { importImageAsset } from '@/lib/desktop';
 import { publishEditorEvent, subscribeEditorEvent } from '@/lib/editorEvents';
 import { IMAGE_FILE_EXTENSIONS } from '@/lib/fileDialogOptions';
-import { hangulToQwerty } from '@/lib/hangulQwerty';
+
+import { filterSlashItems } from './slashItemFilter';
 
 type SlashItemKind = 'block' | 'prompt-image' | 'pick-image';
 
@@ -301,6 +302,7 @@ export function SlashCommandMenu({ editor, enabled = true }: Props) {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLLIElement | null>>([]);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const filterInputRef = useRef<HTMLInputElement | null>(null);
 
   const filteredItems = useMemo(() => {
     // The Turn-into menu only offers reformat targets — inserting a table or
@@ -310,22 +312,18 @@ export function SlashCommandMenu({ editor, enabled = true }: Props) {
         ? SLASH_ITEMS.filter((item) => item.convertible)
         : SLASH_ITEMS;
     if (!menu.open) return items;
-    const trimmed = menu.query.trim();
-    const query = trimmed.toLowerCase();
-    if (!query) return items;
-    // Also try the query as if the user had meant to type an English command
-    // but left the IME in Korean mode: "/ㅅ뮤ㅣㄷ" → "table" (두벌식 layout).
-    // Korean keywords (e.g. "표"/"테이블") are matched directly via `query`.
-    const layoutSwapped = hangulToQwerty(trimmed).toLowerCase();
-    const queries = layoutSwapped && layoutSwapped !== query ? [query, layoutSwapped] : [query];
-    return items.filter((item) =>
-      queries.some(
-        (q) =>
-          item.title.toLowerCase().includes(q) ||
-          item.keywords.some((keyword) => keyword.toLowerCase().startsWith(q)),
-      ),
-    );
+    // Combobox-style ranked fuzzy matching, language-agnostic in both
+    // directions (English ↔ Korean keywords, wrong-IME input) — the same
+    // behavior as the command palette.
+    return filterSlashItems(items, menu.query);
   }, [menu]);
+
+  // Re-ranking puts the best match first — follow the highlight along, like
+  // the command palette does on every query change.
+  const menuQuery = menu.open ? menu.query : '';
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [menuQuery]);
 
   // Keep activeIndex clamped to filteredItems length.
   useEffect(() => {
@@ -354,6 +352,14 @@ export function SlashCommandMenu({ editor, enabled = true }: Props) {
     imageInputRef.current?.focus();
     imageInputRef.current?.select();
   }, [menu]);
+
+  // Focus the convert-mode filter input on open so the user can type a
+  // format name immediately (combobox behavior) without touching the doc.
+  const convertFilterMounted = menu.open && menu.stage === 'list' && menu.mode === 'convert';
+  useLayoutEffect(() => {
+    if (!convertFilterMounted) return;
+    filterInputRef.current?.focus();
+  }, [convertFilterMounted]);
 
   // Flip the menu above the caret when there isn't enough room below — keeps
   // the dropdown from being clipped near the bottom of the viewport. Item
@@ -503,7 +509,11 @@ export function SlashCommandMenu({ editor, enabled = true }: Props) {
 
     editor.on('selectionUpdate', update);
     editor.on('update', onDocUpdate);
-    const handleBlur = () => setMenu({ open: false });
+    // Convert mode moves focus into the menu's own filter input, which blurs
+    // the editor — that must not dismiss the menu. Outside clicks still
+    // close it via the document-level pointer handler.
+    const handleBlur = () =>
+      setMenu((prev) => (prev.open && prev.mode === 'convert' ? prev : { open: false }));
     editor.on('blur', handleBlur);
     window.addEventListener('resize', reposition);
     // Capture-phase scroll listens to inner scroll containers (the WYSIWYG
@@ -544,7 +554,7 @@ export function SlashCommandMenu({ editor, enabled = true }: Props) {
 
     return () => {
       editor.off('selectionUpdate', update);
-      editor.off('update', update);
+      editor.off('update', onDocUpdate);
       editor.off('blur', handleBlur);
       window.removeEventListener('resize', reposition);
       window.removeEventListener('scroll', reposition, true);
@@ -552,52 +562,66 @@ export function SlashCommandMenu({ editor, enabled = true }: Props) {
     };
   }, [editor, enabled]);
 
+  // Shared list-navigation keys: the insert path listens on the editor DOM
+  // (typing continues into the document), the convert path on the menu's own
+  // filter input. Returns true when the key was consumed.
+  const handleListNavigationKey = (event: {
+    key: string;
+    isComposing?: boolean;
+    preventDefault: () => void;
+  }): boolean => {
+    if (event.isComposing || event.key === 'Process') return false;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex((current) =>
+        filteredItems.length === 0 ? 0 : (current + 1) % filteredItems.length,
+      );
+      return true;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((current) =>
+        filteredItems.length === 0
+          ? 0
+          : (current - 1 + filteredItems.length) % filteredItems.length,
+      );
+      return true;
+    }
+    if (event.key === 'Enter') {
+      if (filteredItems.length === 0) {
+        setMenu({ open: false });
+        return true;
+      }
+      event.preventDefault();
+      runItem(filteredItems[Math.min(activeIndex, filteredItems.length - 1)]);
+      return true;
+    }
+    if (event.key === 'Tab') {
+      if (filteredItems.length === 0) return false;
+      event.preventDefault();
+      runItem(filteredItems[Math.min(activeIndex, filteredItems.length - 1)]);
+      return true;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setMenu({ open: false });
+      editor?.commands?.focus?.();
+      return true;
+    }
+    return false;
+  };
+
   // Keyboard navigation lives on the editor DOM so it runs ahead of Tiptap's
   // own keymap and we can swallow arrows/Enter/Escape while open. The image
-  // URL sub-stage owns its own keys via its onKeyDown handler, so the editor
-  // DOM listener only runs when we're still showing the command list.
+  // URL sub-stage and the convert-mode filter input own their keys via their
+  // onKeyDown handlers, so this listener only covers the insert-mode list.
   useEffect(() => {
     if (!editor || !enabled || !menu.open || menu.stage !== 'list') return;
+    if (menu.mode === 'convert') return;
     const dom = editor.view.dom as HTMLElement;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.isComposing || event.key === 'Process') return;
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        setActiveIndex((current) =>
-          filteredItems.length === 0 ? 0 : (current + 1) % filteredItems.length,
-        );
-        return;
-      }
-      if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        setActiveIndex((current) =>
-          filteredItems.length === 0
-            ? 0
-            : (current - 1 + filteredItems.length) % filteredItems.length,
-        );
-        return;
-      }
-      if (event.key === 'Enter') {
-        if (filteredItems.length === 0) {
-          setMenu({ open: false });
-          return;
-        }
-        event.preventDefault();
-        runItem(filteredItems[Math.min(activeIndex, filteredItems.length - 1)]);
-        return;
-      }
-      if (event.key === 'Tab') {
-        if (filteredItems.length === 0) return;
-        event.preventDefault();
-        runItem(filteredItems[Math.min(activeIndex, filteredItems.length - 1)]);
-        return;
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setMenu({ open: false });
-        return;
-      }
+      handleListNavigationKey(event);
     };
 
     dom.addEventListener('keydown', onKeyDown, true);
@@ -742,15 +766,35 @@ export function SlashCommandMenu({ editor, enabled = true }: Props) {
       className="slash-command-menu"
       style={positionStyle}
       onMouseDown={(event) => {
-        // Keep the editor selection while clicking menu items.
-        if (menu.stage === 'image-url') {
-          // The URL input lives inside the menu — let mousedown reach it so
-          // the user can click into the field.
-          if (event.target instanceof HTMLInputElement) return;
-        }
+        // Keep the editor selection while clicking menu items. The menu's own
+        // inputs (image URL, convert-mode filter) must still receive clicks.
+        if (event.target instanceof HTMLInputElement) return;
         event.preventDefault();
       }}
     >
+      {menu.stage === 'list' && menu.mode === 'convert' ? (
+        <input
+          ref={filterInputRef}
+          type="text"
+          className="slash-command-filter-input"
+          role="combobox"
+          aria-expanded="true"
+          aria-autocomplete="list"
+          aria-label="Filter block formats"
+          data-testid="slash-command-filter-input"
+          placeholder="Turn into…"
+          value={menu.query}
+          onChange={(event) => {
+            const value = event.target.value;
+            setMenu((prev) => (prev.open ? { ...prev, query: value } : prev));
+          }}
+          onKeyDown={(event) => {
+            handleListNavigationKey(event);
+          }}
+          spellCheck={false}
+          autoComplete="off"
+        />
+      ) : null}
       {menu.stage === 'image-url' ? (
         <form
           className="slash-command-image-form"
