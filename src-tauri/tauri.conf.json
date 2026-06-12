@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Markdowner",
-  "version": "0.260612.0",
+  "version": "0.260612.2",
   "identifier": "dev.chann.markdowner",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -65,12 +65,17 @@
     ],
     "fileAssociations": [
       {
-        "ext": ["md", "markdown"],
+        "ext": [
+          "md",
+          "markdown"
+        ],
         "name": "Markdown",
         "role": "Editor",
         "rank": "Default",
         "mimeType": "text/markdown",
-        "contentTypes": ["net.daringfireball.markdown"]
+        "contentTypes": [
+          "net.daringfireball.markdown"
+        ]
       }
     ],
     "macOS": {
