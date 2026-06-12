@@ -340,14 +340,93 @@ img.ProseMirror-separator {
     padding-top: 35vh;
     padding-bottom: 35vh;
   }
-  .markdown-surface ul[data-type="taskList"] {
+  /* Task lists in both renderers: TipTap emits ul[data-type="taskList"],
+     remark-gfm (split-view preview) emits ul.contains-task-list — style the
+     pair identically so the preview matches the WYSIWYG surface instead of
+     showing a disc bullet next to a tiny checkbox. */
+  .markdown-surface ul[data-type="taskList"],
+  .markdown-surface ul.contains-task-list {
     @apply list-none pl-0;
   }
-  .markdown-surface ul[data-type="taskList"] li {
+  .markdown-surface ul[data-type="taskList"] li,
+  .markdown-surface ul.contains-task-list li.task-list-item {
     @apply flex items-start gap-2;
   }
   .markdown-surface ul[data-type="taskList"] li > label {
-    @apply mt-1;
+    @apply mt-[0.2em];
+  }
+  .markdown-surface ul.contains-task-list li.task-list-item > input[type="checkbox"] {
+    margin-top: 0.3em;
+  }
+  /* The native WKWebView checkbox renders ~13px regardless of font size —
+     too small next to 14-16px text. Scale it with the editor font and theme
+     the check mark. */
+  .markdown-surface ul[data-type="taskList"] input[type="checkbox"],
+  .markdown-surface ul.contains-task-list input[type="checkbox"] {
+    width: 1.15em;
+    height: 1.15em;
+    accent-color: var(--primary);
+    cursor: pointer;
+  }
+
+  /* Split-view preview parity: the WYSIWYG surface overrides most of the
+     `.markdown-surface` base rules through `.notion-editor-content
+     .ProseMirror …` selectors, which never match the preview pane. Mirror
+     the user-visible ones here so split view's right pane reads exactly
+     like the WYSIWYG editor (rhythm, heading scale, blockquote, code-block
+     chrome, tables, hr). */
+  .editor-pane-preview .markdown-surface p {
+    @apply my-1;
+  }
+  .editor-pane-preview .markdown-surface ul,
+  .editor-pane-preview .markdown-surface ol {
+    @apply my-1 pl-7;
+  }
+  .editor-pane-preview .markdown-surface h1 {
+    font-size: 1.875em;
+    @apply mt-6 mb-2 font-bold leading-tight;
+  }
+  .editor-pane-preview .markdown-surface h2 {
+    font-size: 1.5em;
+    @apply mt-6 mb-2 font-semibold leading-snug;
+  }
+  .editor-pane-preview .markdown-surface h3 {
+    font-size: 1.25em;
+    @apply mt-6 mb-2 font-semibold;
+  }
+  .editor-pane-preview .markdown-surface > *:first-child {
+    @apply mt-0;
+  }
+  .editor-pane-preview .markdown-surface blockquote {
+    @apply my-3 border-l-[3px] border-muted-foreground/40 pl-4;
+  }
+  .editor-pane-preview .markdown-surface hr {
+    margin-top: 20px;
+    margin-bottom: 20px;
+  }
+  /* Code blocks arrive pre-wrapped in `.code-block-view` (same DOM as the
+     WYSIWYG node view) so the data-cb-theme palettes color them; align the
+     box chrome with the editor's. */
+  .editor-pane-preview .markdown-surface .code-block-view {
+    @apply my-3 overflow-hidden rounded-md border border-border;
+  }
+  .editor-pane-preview .markdown-surface .code-block-view pre {
+    @apply m-0 rounded-none border-0 bg-transparent;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .editor-pane-preview .markdown-surface table {
+    @apply my-3 rounded-md border border-border;
+  }
+  .editor-pane-preview .markdown-surface th,
+  .editor-pane-preview .markdown-surface td {
+    padding: 6px 10px;
+    font-size: inherit;
+    line-height: inherit;
+    vertical-align: top;
+  }
+  .editor-pane-preview .markdown-surface th {
+    background: color-mix(in srgb, var(--muted) 60%, transparent);
   }
 
   .notion-wysiwyg-surface {
@@ -614,6 +693,24 @@ section[data-mode='Wysiwyg'] {
   scroll-padding-block: 4ex;
 }
 
+/* In-document find (Cmd+F): every match gets a translucent yellow wash and
+   the active match a stronger amber one, in BOTH editor surfaces. The find
+   bar keeps keyboard focus while cycling, so these decorations are the only
+   visible cursor — CodeMirror hides its caret while unfocused and WebKit
+   doesn't paint an unfocused contenteditable selection. The translucent
+   colors read correctly on light and dark themes alike (VS Code-style). */
+.cm-findMatch,
+.wysiwyg-find-match {
+  background-color: rgb(250 204 21 / 0.3);
+  border-radius: 2px;
+}
+.cm-findMatch-active,
+.wysiwyg-find-match-active {
+  background-color: rgb(245 158 11 / 0.55);
+  outline: 1.5px solid rgb(245 158 11 / 0.9);
+  outline-offset: 0;
+}
+
 /* Pipe the Settings line-height into CodeMirror. The library ships `.cm-content`
    with its own line-height, so the inline `line-height` on the editor surface
    doesn't reach it — we forward the value via a CSS custom property instead. */
@@ -780,6 +877,24 @@ section[data-mode='Wysiwyg'] {
   outline: none;
 }
 .slash-command-image-input:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 18%, transparent);
+}
+
+/* Convert-mode (Cmd+/) filter box — combobox-style typing without touching
+   the document. Visually a lighter sibling of the image URL input. */
+.slash-command-filter-input {
+  width: calc(100% - 12px);
+  margin: 6px 6px 4px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 13px;
+  outline: none;
+}
+.slash-command-filter-input:focus {
   border-color: var(--ring);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 18%, transparent);
 }

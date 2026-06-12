@@ -18,6 +18,12 @@ lowlight.registerAlias({ xml: ['html'] });
 // (sections + key=value pairs) so we alias it.
 lowlight.registerAlias({ ini: ['toml'] });
 
+/**
+ * The split-view preview pane highlights through the same registry so both
+ * surfaces color identical token sets (including the aliases above).
+ */
+export const sharedLowlight = lowlight;
+
 // Move keyboard focus to the language picker rendered by the NodeView at the
 // given document position. Returns true when the focus actually moved so the
 // caller can `preventDefault` the originating arrow keypress. The picker is

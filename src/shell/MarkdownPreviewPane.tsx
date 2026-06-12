@@ -24,7 +24,9 @@ export function MarkdownPreviewPane({
     <div
       data-testid="markdown-preview-pane"
       className={cn(
-        'markdown-surface flex-1 px-8 py-6',
+        // Same gutter as `.notion-wysiwyg-surface` so split view's right pane
+        // shares the WYSIWYG geometry.
+        'markdown-surface flex-1 px-5 pb-6 pt-2',
         MARKDOWN_CONTENT_SCOPE_CLASS,
       )}
     >

@@ -65,6 +65,7 @@ describe('sourceLineMarkdownComponents', () => {
   it('covers the preview elements that receive source location metadata', () => {
     expect(Object.keys(sourceLineMarkdownComponents).sort()).toEqual([
       'blockquote',
+      'code',
       'h1',
       'h2',
       'h3',
