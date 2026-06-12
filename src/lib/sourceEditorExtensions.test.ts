@@ -26,6 +26,23 @@ vi.mock('@uiw/react-codemirror', () => ({
     updateListener: {
       of: mocks.updateListenerOf,
     },
+    decorations: {
+      from: vi.fn(() => 'decorations-from'),
+    },
+  },
+  // Minimal stand-ins for the find-highlight field defined at module load.
+  // Real decoration behavior is covered by sourceFindHighlight.test.ts,
+  // which uses the unmocked library.
+  StateEffect: {
+    define: vi.fn(() => ({ of: vi.fn(), is: vi.fn() })),
+  },
+  StateField: {
+    define: vi.fn(() => 'find-highlight-field'),
+  },
+  Decoration: {
+    mark: vi.fn(() => ({ range: vi.fn() })),
+    none: 'decoration-none',
+    set: vi.fn(),
   },
 }));
 
@@ -58,6 +75,7 @@ describe('buildSourceEditorExtensions', () => {
     expect(mocks.createSourceLinkClickExtension).toHaveBeenCalledWith(activeDocumentPath);
     expect(extensions).toEqual([
       'markdown-extension',
+      'find-highlight-field',
       'source-link-click-extension',
       mocks.lineWrapping,
       sourceFocusModeExtension,
@@ -92,6 +110,7 @@ describe('buildSourceEditorExtensions', () => {
 
     expect(extensions).toEqual([
       'markdown-extension',
+      'find-highlight-field',
       'source-link-click-extension',
       expect.objectContaining({ kind: 'update-listener' }),
     ]);
