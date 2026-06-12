@@ -91,6 +91,7 @@ import {
   setMode,
   setTheme,
   openDroppedPath,
+  completeCliWait,
   quitApp,
   loadOpenTabs,
   saveOpenTabs,
@@ -133,6 +134,10 @@ import {
 import { getErrorMessage } from './lib/errors';
 import { createMarkdownImageExtension } from './lib/wysiwygImageExtension';
 import { WYSIWYG_LINK_OPTIONS } from './lib/wysiwygLinkOptions';
+import {
+  WysiwygFindHighlight,
+  setWysiwygFindHighlight,
+} from './lib/wysiwygFindHighlight';
 import {
   CLEARED_EXTERNAL_CHANGE_STATE,
   externalChangeDetectedState,
@@ -248,7 +253,11 @@ import {
   readSourceNumber,
   resolveSourcePreviewSelectionOffset,
 } from './lib/sourcePreviewClick';
-import { buildSourceEditorExtensions } from './lib/sourceEditorExtensions';
+import {
+  buildSourceEditorExtensions,
+  setSourceFindHighlight,
+  sourceFindHighlightField,
+} from './lib/sourceEditorExtensions';
 import { resolveSourceSurfaceMouseDown } from './lib/sourceEditorInteractions';
 import { shouldFocusStartupEditor } from './lib/startupEditorFocus';
 import { parseNativeMenuCommand } from './lib/nativeMenuCommand';
@@ -310,6 +319,7 @@ import {
   loadOpenTabsWithEmptyRetry,
 } from './lib/openTabsSession';
 import { buildWorkspaceSearchPaths } from './lib/workspaceSearchScope';
+import { refreshSearchResultsForDocument } from './lib/workspaceSearchResults';
 import {
   openSelectedDocumentTabs,
   resolveOpenDocumentPathTransition,
@@ -708,6 +718,15 @@ export default function App() {
     );
   };
 
+  // Closing a tab releases any `mdner --wait` CLI process blocked on that
+  // file (the Ctrl+G $EDITOR flow) — fire-and-forget, never blocks the UI.
+  const notifyCliWaitClosed = (path: string | null | undefined) => {
+    if (!path) return;
+    void Promise.resolve(completeCliWait(path)).catch(() => {
+      // Best-effort: a missing wait registration is the common case.
+    });
+  };
+
   // Replace (or append) a tab matching the snapshot's active document and
   // mark it active. Used after open/new/save flows. The state updates run
   // inside startTransition so they batch with applySnapshot — otherwise the
@@ -1086,6 +1105,24 @@ export default function App() {
       window.clearTimeout(handle);
     };
   }, [searchQuery, searchOptions]);
+
+  // Keep the results fresh while the user edits the active document: matches
+  // edited away drop out of the list immediately (and new ones appear)
+  // instead of lingering until the next full search.
+  useEffect(() => {
+    if (!isSidebarOpen || sidebarPanel !== 'search' || !searchHasRun) return;
+    const path = snapshot.activeDocumentPath;
+    if (!path) return;
+    setSearchResults((prev) =>
+      refreshSearchResultsForDocument(
+        prev,
+        path,
+        debouncedLocalDraft,
+        searchQuery,
+        searchOptions,
+      ) ?? prev,
+    );
+  }, [debouncedLocalDraft]);
 
   const handleSelectSearchMatch = useEffectEvent(
     async (file: SearchResultFile, match: SearchResultMatch | undefined) => {
@@ -1558,6 +1595,7 @@ export default function App() {
       // link extension only autolinks bare URLs and handles paste rules, not
       // the markdown bracket-paren syntax.
       MarkdownLinkInputRule,
+      WysiwygFindHighlight,
       Markdown.configure({
         markedOptions: {
           gfm: true,
@@ -2076,6 +2114,66 @@ export default function App() {
       setActiveFindMatchIndex(0);
     }
   }, [activeFindMatchIndex, findMatchCount]);
+
+  // Paint every find match (translucent yellow, active match emphasized) in
+  // whichever editor surface is live. The find bar keeps keyboard focus, so
+  // without these decorations there is no visible cursor or highlight at all
+  // — CodeMirror hides its caret while unfocused and WebKit doesn't paint an
+  // unfocused contenteditable selection.
+  useEffect(() => {
+    const view = sourceEditorViewRef.current;
+    if (!view) return;
+    const open = isFindReplaceOpen && activeDocumentOpen && currentMode !== 'Wysiwyg';
+    // Skip the keystroke-rate "clear" dispatches while find is closed — the
+    // field is already empty.
+    if (!open && view.state.field(sourceFindHighlightField, false)?.size === 0) {
+      return;
+    }
+    view.dispatch({
+      effects: setSourceFindHighlight.of(
+        open
+          ? {
+              matches: sourceFindResult.matches.map((match) => ({
+                start: match.start,
+                end: match.end,
+              })),
+              activeIndex: activeFindMatchIndex,
+            }
+          : null,
+      ),
+    });
+  }, [
+    activeDocumentOpen,
+    activeFindMatchIndex,
+    currentMode,
+    isFindReplaceOpen,
+    sourceFindResult,
+  ]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const open = isFindReplaceOpen && activeDocumentOpen && currentMode === 'Wysiwyg';
+    const matches = (wysiwygFindResult?.matches ?? []).filter(isWysiwygFindMatch);
+    setWysiwygFindHighlight(
+      editor,
+      open && matches.length > 0
+        ? {
+            matches: matches.map((match) => ({
+              from: match.wysiwygFrom,
+              to: match.wysiwygTo,
+            })),
+            activeIndex: activeFindMatchIndex,
+          }
+        : null,
+    );
+  }, [
+    activeDocumentOpen,
+    activeFindMatchIndex,
+    currentMode,
+    editor,
+    isFindReplaceOpen,
+    wysiwygFindResult,
+  ]);
 
   useEffect(() => {
     if (!isFindReplaceOpen || !activeDocumentOpen) {
@@ -3270,6 +3368,7 @@ export default function App() {
     });
     if (!closePromptState.requiresPrompt) {
       rememberClosedTab(closedTab);
+      notifyCliWaitClosed(closedTab?.path);
       clearActiveDocumentSurface();
       return;
     }
@@ -3286,6 +3385,7 @@ export default function App() {
           const saved = await saveActiveDocumentForClose();
           if (saved) {
             rememberClosedTab(closedTab);
+            notifyCliWaitClosed(closedTab?.path);
             clearActiveDocumentSurface();
           }
         });
@@ -3294,6 +3394,7 @@ export default function App() {
 
       if (closeDecisionAction.kind === 'discard') {
         rememberClosedTab(closedTab);
+        notifyCliWaitClosed(closedTab?.path);
         clearActiveDocumentSurface();
         return;
       }
@@ -3775,6 +3876,7 @@ export default function App() {
         return;
       case 'setTabs':
         rememberClosedTab(closedTab);
+        notifyCliWaitClosed(closedTab?.path);
         if (transition.clearPreSettingsDocTabId) {
           preSettingsDocTabIdRef.current = null;
         }
@@ -3785,6 +3887,7 @@ export default function App() {
         // Pick a neighbor to activate first, then drop the closed tab.
         await switchToTab(transition.switchToTabId);
         rememberClosedTab(closedTab);
+        notifyCliWaitClosed(closedTab?.path);
         setTabs((prev) => prev.filter((tab) => tab.id !== transition.targetId));
     }
   });

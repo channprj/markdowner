@@ -27,6 +27,7 @@ const setModeMock = vi.fn();
 const setThemeMock = vi.fn();
 const openDroppedPathMock = vi.fn();
 const importImageAssetMock = vi.fn();
+const completeCliWaitMock = vi.fn();
 const quitAppMock = vi.fn();
 const loadOpenTabsMock = vi.fn();
 const saveOpenTabsMock = vi.fn();
@@ -70,6 +71,7 @@ vi.mock('./lib/desktop', () => ({
   setTheme: setThemeMock,
   openDroppedPath: openDroppedPathMock,
   importImageAsset: importImageAssetMock,
+  completeCliWait: completeCliWaitMock,
   quitApp: quitAppMock,
   loadOpenTabs: loadOpenTabsMock,
   saveOpenTabs: saveOpenTabsMock,
@@ -151,6 +153,16 @@ vi.mock('@uiw/react-codemirror', () => ({
       of: (listener: unknown) => ({ listener }),
     },
     domEventHandlers: (handlers: unknown) => ({ domEventHandlers: handlers }),
+    decorations: { from: () => 'decorations-from' },
+  },
+  // Stubs for the find-highlight field defined at sourceEditorExtensions
+  // module load; behavior is covered by sourceFindHighlight.test.ts.
+  StateEffect: { define: () => ({ of: (value: unknown) => ({ value }), is: () => false }) },
+  StateField: { define: () => 'find-highlight-field' },
+  Decoration: {
+    mark: () => ({ range: () => null }),
+    none: 'decoration-none',
+    set: () => 'decoration-set',
   },
 }));
 
