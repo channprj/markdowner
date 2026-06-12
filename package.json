@@ -16,6 +16,7 @@
     "build:install:debug:open": "pnpm build debug install open",
     "build:mac:dmg": "pnpm build dmg",
     "build:mac:universal:dmg": "pnpm build universal dmg",
+    "dmg:downloads": "node scripts/build-dmg-to-downloads.mjs",
     "test": "vitest run && bash scripts/build-and-install.test.sh",
     "preview": "vite preview",
     "tauri": "tauri"

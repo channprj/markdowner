@@ -251,6 +251,7 @@ const expected = {
   'build:install:open': 'pnpm build install open',
   'build:mac:dmg': 'pnpm build dmg',
   'build:mac:universal:dmg': 'pnpm build universal dmg',
+  'dmg:downloads': 'node scripts/build-dmg-to-downloads.mjs',
 };
 
 for (const [name, command] of Object.entries(expected)) {
