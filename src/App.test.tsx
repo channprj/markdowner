@@ -2685,6 +2685,48 @@ describe('App recent documents', () => {
     });
   });
 
+  it('stacks a new Untitled tab on every Cmd+N instead of reusing one', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
+    newDocumentMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'Untitled.md',
+        activeDocumentPath: null,
+        activeDocumentSource: '',
+        activeDocumentDirty: true,
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByRole('tab', { name: /meeting-notes\.md/i });
+
+    fireEvent.keyDown(window, { key: 'n', metaKey: true });
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('tab', { name: /untitled\.md/i })).toHaveLength(1);
+    });
+
+    fireEvent.keyDown(window, { key: 'n', metaKey: true });
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('tab', { name: /untitled\.md/i })).toHaveLength(2);
+    });
+    expect(newDocumentMock).toHaveBeenCalledTimes(2);
+
+    // The freshly created (second) untitled tab becomes the active one.
+    const untitledTabs = screen.getAllByRole('tab', { name: /untitled\.md/i });
+    expect(untitledTabs[1]).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('closes the only tab on Cmd+W without prompting when the active tab has no local edits', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({

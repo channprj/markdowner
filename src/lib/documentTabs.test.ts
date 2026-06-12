@@ -731,6 +731,36 @@ describe('upsertDocumentTab', () => {
     expect(result.activeTabId).toBe('existing');
   });
 
+  it('appends a new untitled tab even when another untitled tab exists', () => {
+    const untitled = documentTab({
+      id: 'untitled-1',
+      path: null,
+      name: 'Untitled.md',
+      source: '',
+      draft: 'unsaved first draft',
+    });
+
+    const result = upsertDocumentTab({
+      currentTabs: [untitled],
+      currentActiveId: 'untitled-1',
+      path: null,
+      name: 'Untitled.md',
+      source: '',
+      generateId: () => 'untitled-2',
+    });
+
+    expect(result.tabs).toEqual([
+      untitled,
+      createDocumentTab({
+        id: 'untitled-2',
+        path: null,
+        name: 'Untitled.md',
+        source: '',
+      }),
+    ]);
+    expect(result.activeTabId).toBe('untitled-2');
+  });
+
   it('appends a generated document tab when no existing tab matches', () => {
     const settings = createSettingsTab();
 

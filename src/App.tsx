@@ -3043,15 +3043,9 @@ export default function App() {
   };
 
   const handleNewDocument = async () => {
-    // If an Untitled tab already exists, just switch to it instead of stacking
-    // multiple Untitled drafts (Rust only models a single untitled document).
-    const existingUntitled = findDocumentTabByPath(tabs, null);
-    if (existingUntitled) {
-      await switchToTab(existingUntitled.id);
-      focusActiveEditor();
-      return;
-    }
-
+    // Every invocation appends a fresh Untitled tab (Zed-style): untitled
+    // buffers are independent per-tab drafts, and Rust models each one as its
+    // own internal untitled document.
     const token = nextEditorOpRequest();
     await withBusy(async () => {
       stashActiveTabDraft();
@@ -3774,7 +3768,12 @@ export default function App() {
       return;
     }
 
-    const existingTab = findDocumentTabByPath(tabsRef.current, closedTab.path);
+    // Only dedupe by path for saved files. A closed untitled tab must come
+    // back as its own tab — a null-path lookup would steal whichever untitled
+    // tab happens to be open instead of restoring the closed draft.
+    const existingTab = closedTab.path
+      ? findDocumentTabByPath(tabsRef.current, closedTab.path)
+      : undefined;
     if (existingTab) {
       setClosedDocumentTabStack(remainingClosedTabs);
       await switchToTab(existingTab.id);

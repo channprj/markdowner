@@ -542,18 +542,14 @@ export function upsertDocumentTab(input: UpsertDocumentTabInput): UpsertDocument
     if (reusedAt >= 0) replaceAt(reusedAt);
   }
 
+  // Untitled tabs (path === null) are never merged by path: each one is an
+  // independent buffer keyed by id, so a new untitled document always appends
+  // (Zed-style) instead of replacing another untitled tab's draft.
   if (documentTabId === null && input.path !== null) {
     const matchAt = current.findIndex(
       (tab) => tab.kind === 'document' && tab.path === input.path,
     );
     if (matchAt >= 0) replaceAt(matchAt);
-  }
-
-  if (documentTabId === null && input.path === null) {
-    const untitledAt = current.findIndex(
-      (tab) => tab.kind === 'document' && tab.path === null,
-    );
-    if (untitledAt >= 0) replaceAt(untitledAt);
   }
 
   if (documentTabId === null) {
