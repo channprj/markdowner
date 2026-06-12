@@ -1,4 +1,4 @@
-import { MouseEvent } from 'react';
+import { DragEvent, MouseEvent, useState } from 'react';
 import { Settings as SettingsIcon, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -18,10 +18,28 @@ interface TabsProps {
   activeTabId: string | null;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
+  onReorderTab?: (sourceId: string, targetId: string, placeAfter: boolean) => void;
 }
 
-export function Tabs({ items, activeTabId, onSelectTab, onCloseTab }: TabsProps) {
+type DropIndicator = { id: string; after: boolean };
+
+export function Tabs({ items, activeTabId, onSelectTab, onCloseTab, onReorderTab }: TabsProps) {
+  // Id of the tab being dragged; null while no drag is in flight. The drop
+  // indicator tracks which edge of the hovered tab the drag would insert at.
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
+
   if (items.length === 0) return null;
+
+  const clearDragState = () => {
+    setDraggingId(null);
+    setDropIndicator(null);
+  };
+
+  const isAfterDrop = (event: DragEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return event.clientX > rect.left + rect.width / 2;
+  };
 
   return (
     <div
@@ -34,6 +52,7 @@ export function Tabs({ items, activeTabId, onSelectTab, onCloseTab }: TabsProps)
         const tooltip = item.shortcutLabel
           ? `${item.name} (${item.shortcutLabel})`
           : item.name;
+        const indicator = dropIndicator?.id === item.id ? dropIndicator : null;
         return (
           <div
             key={item.id}
@@ -41,6 +60,30 @@ export function Tabs({ items, activeTabId, onSelectTab, onCloseTab }: TabsProps)
             aria-selected={isActive}
             tabIndex={isActive ? 0 : -1}
             title={tooltip}
+            draggable={onReorderTab !== undefined}
+            onDragStart={(event) => {
+              if (!onReorderTab) return;
+              event.dataTransfer.effectAllowed = 'move';
+              // Some engines (WebKit) need data set for the drag to start.
+              event.dataTransfer.setData('text/plain', item.id);
+              setDraggingId(item.id);
+            }}
+            onDragOver={(event) => {
+              if (!onReorderTab || !draggingId || draggingId === item.id) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'move';
+              const after = isAfterDrop(event);
+              setDropIndicator((prev) =>
+                prev?.id === item.id && prev.after === after ? prev : { id: item.id, after },
+              );
+            }}
+            onDrop={(event) => {
+              if (!onReorderTab || !draggingId || draggingId === item.id) return;
+              event.preventDefault();
+              onReorderTab(draggingId, item.id, isAfterDrop(event));
+              clearDragState();
+            }}
+            onDragEnd={clearDragState}
             onClick={() => onSelectTab(item.id)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
@@ -51,6 +94,11 @@ export function Tabs({ items, activeTabId, onSelectTab, onCloseTab }: TabsProps)
             className={cn(
               'group relative flex max-w-[220px] shrink-0 cursor-pointer items-center gap-1.5 border-r border-border px-3 text-sm transition-colors hover:bg-accent/40',
               isActive && 'bg-accent text-accent-foreground',
+              draggingId === item.id && 'opacity-50',
+              indicator &&
+                (indicator.after
+                  ? 'shadow-[inset_-2px_0_0_var(--ring)]'
+                  : 'shadow-[inset_2px_0_0_var(--ring)]'),
             )}
           >
             {item.kind === 'settings' ? (
