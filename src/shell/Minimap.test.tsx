@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Minimap } from './Minimap';
 
@@ -20,6 +20,7 @@ function createScrollEl(scrollHeight: number, clientHeight: number): HTMLElement
 /** Gives the minimap root real geometry for event-time measurements. */
 function sizeMinimapRoot(root: HTMLElement, height: number) {
   Object.defineProperty(root, 'clientHeight', { configurable: true, value: height });
+  Object.defineProperty(root, 'clientWidth', { configurable: true, value: 96 });
   root.getBoundingClientRect = () =>
     ({
       x: 0,
@@ -47,6 +48,9 @@ function renderMinimap(scrollEl: HTMLElement) {
 
 describe('Minimap (Zed-style canvas renderer)', () => {
   afterEach(() => {
+    vi.restoreAllMocks();
+    delete document.documentElement.dataset.cbTheme;
+    delete document.documentElement.dataset.cbHighlight;
     cleanup();
     document.body.innerHTML = '';
   });
@@ -125,5 +129,46 @@ describe('Minimap (Zed-style canvas renderer)', () => {
     render(<Minimap text={DOC} scrollEl={null} lineHeight={2} />);
 
     expect(screen.getByTestId('editor-minimap')).toBeInTheDocument();
+  });
+
+  it('draws code lines with the active code block theme color', async () => {
+    document.documentElement.dataset.cbTheme = 'monokai-dark';
+    document.documentElement.dataset.cbHighlight = 'on';
+    const draws: Array<{ text: string; fillStyle: string | CanvasGradient | CanvasPattern }> = [];
+    const context = {
+      setTransform: vi.fn(),
+      clearRect: vi.fn(),
+      fillText: vi.fn((text: string) => {
+        draws.push({ text, fillStyle: context.fillStyle });
+      }),
+      font: '',
+      fillStyle: '',
+      textBaseline: 'top',
+      globalAlpha: 1,
+    } as unknown as CanvasRenderingContext2D & {
+      fillStyle: string | CanvasGradient | CanvasPattern;
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((id: string) =>
+      id === '2d' ? context : null,
+    );
+
+    const scrollEl = createScrollEl(120, 120);
+    render(
+      <Minimap
+        text={['plain text', '```ts', 'const value = 1;', '```'].join('\n')}
+        scrollEl={scrollEl}
+        lineHeight={2}
+      />,
+    );
+    const root = screen.getByTestId('editor-minimap');
+    await waitFor(() => {
+      expect(root.parentElement?.style.getPropertyValue('--minimap-width')).toBe('96px');
+    });
+    sizeMinimapRoot(root, 120);
+    fireEvent.scroll(scrollEl);
+
+    await waitFor(() => {
+      expect(draws.find((draw) => draw.text === 'const value = 1;')?.fillStyle).toBe('#f8f8f2');
+    });
   });
 });

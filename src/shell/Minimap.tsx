@@ -48,6 +48,19 @@ const KIND_ALPHA: Record<MinimapLineKind, number> = {
   quote: 0.45,
 };
 
+const CODE_BLOCK_THEME_MINIMAP_INK: Record<string, string> = {
+  'github-light': '#24292f',
+  'github-dark': '#c9d1d9',
+  'one-light': '#383a42',
+  'one-dark': '#abb2bf',
+  'ayu-light': '#5c6773',
+  'ayu-dark': '#b3b1ad',
+  'flexoki-light': '#100f0f',
+  'flexoki-dark': '#cecdc3',
+  'monokai-light': '#49483e',
+  'monokai-dark': '#f8f8f2',
+};
+
 interface MinimapView {
   widthPx: number;
   thumb: MinimapLayout | null;
@@ -72,6 +85,12 @@ function observeResize(target: Element, onResize: () => void): () => void {
   const observer = new ResizeObserver(onResize);
   observer.observe(target);
   return () => observer.disconnect();
+}
+
+function activeCodeBlockMinimapInk(): string | null {
+  const { cbHighlight, cbTheme } = document.documentElement.dataset;
+  if (cbHighlight === 'off' || !cbTheme) return null;
+  return CODE_BLOCK_THEME_MINIMAP_INK[cbTheme] ?? null;
 }
 
 /**
@@ -146,6 +165,7 @@ function MinimapImpl({ text, scrollEl, className, lineHeight }: MinimapProps) {
 
     const ink =
       getComputedStyle(root).getPropertyValue('--foreground').trim() || '#888';
+    const codeInk = activeCodeBlockMinimapInk();
     ctx.font = `${MINIMAP_FONT_WEIGHT} ${MINIMAP_FONT_SIZE_PX}px ${MINIMAP_FONT_FAMILY}`;
     ctx.textBaseline = 'top';
     ctx.fillStyle = ink;
@@ -154,7 +174,9 @@ function MinimapImpl({ text, scrollEl, className, lineHeight }: MinimapProps) {
     for (let i = layout.firstVisibleLine; i <= layout.lastVisibleLine; i++) {
       const spec = lines[i];
       if (!spec || spec.kind === 'blank') continue;
-      ctx.globalAlpha = KIND_ALPHA[spec.kind];
+      const useCodeThemeInk = spec.kind === 'code' && codeInk !== null;
+      ctx.fillStyle = useCodeThemeInk ? codeInk : ink;
+      ctx.globalAlpha = useCodeThemeInk ? 0.78 : KIND_ALPHA[spec.kind];
       ctx.fillText(
         spec.text,
         PADDING_X,
@@ -222,7 +244,7 @@ function MinimapImpl({ text, scrollEl, className, lineHeight }: MinimapProps) {
     const observer = new MutationObserver(scheduleDraw);
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['data-theme'],
+      attributeFilter: ['data-theme', 'data-cb-theme', 'data-cb-highlight'],
     });
     return () => observer.disconnect();
   }, [scheduleDraw]);
