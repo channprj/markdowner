@@ -1,8 +1,11 @@
 use std::{
     collections::{BTreeMap, HashMap},
     env,
+    io::{BufRead, BufReader, Read, Write},
+    os::unix::net::{UnixListener, UnixStream},
     path::{Path, PathBuf},
     sync::Mutex,
+    time::Duration,
 };
 
 use markdowner_core::{
@@ -58,7 +61,11 @@ const CTRL_G_LAUNCHER_END_MARKER: &str = "# <<< markdowner Ctrl+G launcher <<<";
 // of buffers, commit messages, prompts, and so on. `mdner` is the wrapper
 // installed by the "CLI Binary (mdner)" section above; it must be present
 // in PATH for the env-var hand-off to actually open the app.
-const CTRL_G_LAUNCHER_SNIPPET: &str = "export EDITOR=\"mdner\"\nexport VISUAL=\"mdner\"";
+// `--wait` keeps the spawning CLI (Claude Code / Codex Ctrl+G, git commit, …)
+// blocked until the user closes the file's tab — the `code --wait`
+// convention. Plain `mdner foo.md` stays fire-and-forget.
+const CTRL_G_LAUNCHER_SNIPPET: &str =
+    "export EDITOR=\"mdner --wait\"\nexport VISUAL=\"mdner --wait\"";
 
 const CLI_BINARY_INSTALL_PATH: &str = "/usr/local/bin/mdner";
 const CLI_BINARY_SCRIPT_TAG: &str = "# markdowner-cli-wrapper";
@@ -1417,6 +1424,150 @@ fn resolve_cli_path(raw: &str, cwd: Option<&Path>) -> PathBuf {
     }
 }
 
+// ---------------------------------------------------------------------------
+// `mdner --wait` support (the `code --wait` convention).
+//
+// A `--wait` invocation never becomes the GUI: it sends the file path over a
+// dedicated unix socket owned by the primary instance and then blocks until
+// the primary replies (tab closed) or the socket reaches EOF (app quit or
+// crashed). Cold starts spawn the GUI detached first, then connect.
+// ---------------------------------------------------------------------------
+
+const CLI_WAIT_SOCKET_FILE: &str = "dev.chann.markdowner.cli-wait.sock";
+
+/// Open streams blocked on `--wait`, keyed by the canonical document path.
+struct PendingCliWaits(Mutex<HashMap<String, Vec<UnixStream>>>);
+
+fn cli_wait_socket_path() -> PathBuf {
+    env::temp_dir().join(CLI_WAIT_SOCKET_FILE)
+}
+
+/// Canonical key for a waited-on path. macOS aliases like `/tmp` →
+/// `/private/tmp` must collapse so the key registered by the wait client
+/// matches the tab path the frontend reports on close.
+fn cli_wait_key(path: &Path) -> String {
+    std::fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Returns the path to wait on when the args contain `--wait`/`-w`.
+fn parse_cli_wait_invocation<I: Iterator<Item = String>>(args: I) -> Option<String> {
+    let mut wait = false;
+    let mut paths: Vec<String> = Vec::new();
+    for arg in args {
+        match arg.as_str() {
+            "--wait" | "-w" => wait = true,
+            _ => paths.push(arg),
+        }
+    }
+    if wait { paths.into_iter().next() } else { None }
+}
+
+fn connect_cli_wait_socket(socket_path: &Path) -> Option<UnixStream> {
+    if let Ok(stream) = UnixStream::connect(socket_path) {
+        return Some(stream);
+    }
+    // Cold start: spawn the GUI detached (no args — the path travels over
+    // the socket so the persisted session is not clobbered), then retry.
+    if let Ok(exe) = env::current_exe() {
+        let _ = std::process::Command::new(exe)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+    for _ in 0..50 {
+        std::thread::sleep(Duration::from_millis(200));
+        if let Ok(stream) = UnixStream::connect(socket_path) {
+            return Some(stream);
+        }
+    }
+    None
+}
+
+/// Blocks until the primary instance signals the file's tab was closed.
+fn run_cli_wait_client(raw_path: &str, cwd: Option<&Path>) -> i32 {
+    let resolved = resolve_cli_path(raw_path, cwd);
+    let Some(mut stream) = connect_cli_wait_socket(&cli_wait_socket_path()) else {
+        eprintln!("markdowner: could not reach the app for --wait; giving up");
+        return 1;
+    };
+    let message = format!("{}\n", resolved.to_string_lossy());
+    if stream.write_all(message.as_bytes()).is_err() {
+        return 1;
+    }
+    // Blocks until the primary writes "done" (tab closed) or drops the
+    // socket (quit/crash) — either way the caller's terminal flow resumes.
+    let mut buffer = [0u8; 8];
+    let _ = stream.read(&mut buffer);
+    0
+}
+
+fn spawn_cli_wait_listener(app_handle: AppHandle) {
+    let socket_path = cli_wait_socket_path();
+    let _ = std::fs::remove_file(&socket_path);
+    let listener = match UnixListener::bind(&socket_path) {
+        Ok(listener) => listener,
+        Err(error) => {
+            eprintln!("markdowner: could not bind the CLI wait socket: {error}");
+            return;
+        }
+    };
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { continue };
+            let handle = app_handle.clone();
+            std::thread::spawn(move || handle_cli_wait_connection(handle, stream));
+        }
+    });
+}
+
+fn handle_cli_wait_connection(app_handle: AppHandle, stream: UnixStream) {
+    let Ok(clone) = stream.try_clone() else { return };
+    let mut reader = BufReader::new(clone);
+    let mut line = String::new();
+    if reader.read_line(&mut line).is_err() {
+        return;
+    }
+    let raw = line.trim();
+    if raw.is_empty() {
+        return;
+    }
+    let path = PathBuf::from(raw);
+    let key = cli_wait_key(&path);
+
+    // Open the file as a normal tab in the running app and pull it forward.
+    let state = app_handle.state::<DesktopAppState>();
+    if let Ok(mut backend) = state.0.lock() {
+        let _ = backend.open_document(&path);
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.set_focus();
+            let _ = window.emit("markdowner://update-snapshot", backend.snapshot());
+        }
+    }
+
+    if let Ok(mut pending) = app_handle.state::<PendingCliWaits>().0.lock() {
+        pending.entry(key).or_default().push(stream);
+    }
+}
+
+/// Frontend hook: the tab for `path` was closed — release every CLI process
+/// blocked on it. Quit/crash releases the rest via socket EOF automatically.
+#[tauri::command]
+fn complete_cli_wait(path: String, pending: State<'_, PendingCliWaits>) {
+    let key = cli_wait_key(Path::new(&path));
+    if let Ok(mut map) = pending.0.lock() {
+        if let Some(streams) = map.remove(&key) {
+            for mut stream in streams {
+                let _ = stream.write_all(b"done\n");
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            }
+        }
+    }
+}
+
 fn with_backend<T>(
     state: State<'_, DesktopAppState>,
     operation: impl FnOnce(&mut DesktopBackend) -> Result<T, String>,
@@ -1768,6 +1919,14 @@ pub fn run() {
     // user launched the command, not the app bundle.
     let startup_cwd = env::current_dir().ok();
 
+    // `mdner --wait <file>` never becomes the GUI: it hands the path to the
+    // (possibly freshly spawned) primary instance and blocks until that
+    // file's tab is closed, so $EDITOR callers resume exactly like
+    // `code --wait`.
+    if let Some(wait_path) = parse_cli_wait_invocation(env::args().skip(1)) {
+        std::process::exit(run_cli_wait_client(&wait_path, startup_cwd.as_deref()));
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
@@ -1832,6 +1991,8 @@ pub fn run() {
             let menu = build_app_menu(app.handle(), &initial_recent_documents)?;
             app.set_menu(menu)?;
             app.manage(state);
+            app.manage(PendingCliWaits(Mutex::new(HashMap::new())));
+            spawn_cli_wait_listener(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1866,6 +2027,7 @@ pub fn run() {
             save_open_tabs,
             open_dropped_path,
             import_image_asset,
+            complete_cli_wait,
             quit_app,
             hide_app_or_window,
             link_actions::resolve_markdown_link,
@@ -2206,10 +2368,42 @@ mod tests {
     fn ctrl_g_launcher_snippet_exports_editor_and_visual_to_mdner() {
         // Two lines, both pointing at mdner — covers tools that respect VISUAL
         // (vipw, crontab -e) and tools that only check EDITOR (most CLIs).
+        // `--wait` blocks the caller until the file's tab closes, so the
+        // terminal flow (Ctrl+G in Claude Code / Codex) resumes on tab close.
         assert_eq!(
             CTRL_G_LAUNCHER_SNIPPET,
-            "export EDITOR=\"mdner\"\nexport VISUAL=\"mdner\""
+            "export EDITOR=\"mdner --wait\"\nexport VISUAL=\"mdner --wait\""
         );
+    }
+
+    #[test]
+    fn cli_wait_invocation_is_detected_regardless_of_arg_order() {
+        let parse = |args: &[&str]| {
+            super::parse_cli_wait_invocation(args.iter().map(|s| s.to_string()))
+        };
+        assert_eq!(parse(&["--wait", "/tmp/p.md"]), Some("/tmp/p.md".to_string()));
+        assert_eq!(parse(&["/tmp/p.md", "--wait"]), Some("/tmp/p.md".to_string()));
+        assert_eq!(parse(&["-w", "p.md"]), Some("p.md".to_string()));
+        // No --wait → normal launch path.
+        assert_eq!(parse(&["/tmp/p.md"]), None);
+        // --wait without a path falls back to a normal launch too.
+        assert_eq!(parse(&["--wait"]), None);
+        assert_eq!(parse(&[]), None);
+    }
+
+    #[test]
+    fn cli_wait_key_collapses_symlinked_temp_paths() {
+        let temp = tempdir().unwrap();
+        let file = temp.path().join("prompt.md");
+        fs::write(&file, "draft").unwrap();
+        let canonical = fs::canonicalize(&file).unwrap();
+        // The same file referenced through the un-canonicalized path must
+        // produce the same key the frontend's tab path resolves to.
+        assert_eq!(super::cli_wait_key(&file), canonical.to_string_lossy());
+        assert_eq!(super::cli_wait_key(&canonical), canonical.to_string_lossy());
+        // Missing files keep their literal path instead of erroring.
+        let missing = temp.path().join("missing.md");
+        assert_eq!(super::cli_wait_key(&missing), missing.to_string_lossy());
     }
 
     #[test]
@@ -2225,8 +2419,8 @@ mod tests {
         let contents = fs::read_to_string(&shell_config_path).unwrap();
         assert!(contents.contains(CTRL_G_LAUNCHER_BEGIN_MARKER));
         assert!(contents.contains(CTRL_G_LAUNCHER_END_MARKER));
-        assert!(contents.contains("export EDITOR=\"mdner\""));
-        assert!(contents.contains("export VISUAL=\"mdner\""));
+        assert!(contents.contains("export EDITOR=\"mdner --wait\""));
+        assert!(contents.contains("export VISUAL=\"mdner --wait\""));
         assert!(contents.starts_with("alias ll=\"ls -la\"\n"));
     }
 

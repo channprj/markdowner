@@ -87,6 +87,15 @@ export async function importImageAsset(sourcePath: string) {
   return invoke<string>('import_image_asset', { sourcePath });
 }
 
+/**
+ * Release every `mdner --wait` CLI process blocked on this document — the
+ * user closed its tab, so the spawning terminal flow (Ctrl+G editors, git
+ * commit, …) resumes.
+ */
+export async function completeCliWait(path: string) {
+  return invoke<void>('complete_cli_wait', { path });
+}
+
 export async function quitApp() {
   return invoke<void>('quit_app');
 }

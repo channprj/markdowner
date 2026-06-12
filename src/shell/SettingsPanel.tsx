@@ -101,7 +101,7 @@ export function SettingsPanel({
     shellConfigPath: '',
     // Mirror the backend's default so the snippet is visible even before the
     // first cliBinary status round-trip resolves (e.g. tests, web preview).
-    snippet: 'export EDITOR="mdner"\nexport VISUAL="mdner"',
+    snippet: 'export EDITOR="mdner --wait"\nexport VISUAL="mdner --wait"',
     installed: false,
   });
   const [ctrlGLauncherBusy, setCtrlGLauncherBusy] = useState(false);
