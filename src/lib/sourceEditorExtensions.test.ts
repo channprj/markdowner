@@ -58,12 +58,10 @@ import {
 
 describe('buildSourceEditorExtensions', () => {
   it('builds CodeMirror extensions in stable order from editor settings', () => {
-    const activeDocumentPath = () => '/tmp/project/readme.md';
     const onViewportChange = vi.fn();
     const onTypewriterChange = vi.fn();
 
     const extensions = buildSourceEditorExtensions({
-      activeDocumentPath,
       editorLineWrap: true,
       focusModeEnabled: true,
       typewriterModeEnabled: true,
@@ -72,7 +70,7 @@ describe('buildSourceEditorExtensions', () => {
     });
 
     expect(mocks.markdown).toHaveBeenCalledTimes(1);
-    expect(mocks.createSourceLinkClickExtension).toHaveBeenCalledWith(activeDocumentPath);
+    expect(mocks.createSourceLinkClickExtension).toHaveBeenCalledWith();
     expect(extensions).toEqual([
       'markdown-extension',
       'find-highlight-field',
@@ -91,7 +89,6 @@ describe('buildSourceEditorExtensions', () => {
     const view = { scrollDOM };
 
     const extensions = buildSourceEditorExtensions({
-      activeDocumentPath: () => null,
       editorLineWrap: false,
       focusModeEnabled: false,
       typewriterModeEnabled: false,

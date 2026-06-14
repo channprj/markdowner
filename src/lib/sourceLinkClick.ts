@@ -1,6 +1,7 @@
 import { EditorView } from '@uiw/react-codemirror';
 
-import { isOpenLinkClick, openMarkdownLink } from './linkOpener';
+import { publishEditorEvent } from './editorEvents';
+import { isOpenLinkClick } from './linkOpener';
 import { findMarkdownLinkUrlAtOffset } from './markdownLinkScanner';
 
 /**
@@ -9,10 +10,11 @@ import { findMarkdownLinkUrlAtOffset } from './markdownLinkScanner';
  * Split-View preview behavior so users get the same "modifier + click =
  * follow link" convention everywhere VS Code / Zed put it.
  *
- * The `getBasePath` callback returns the active document's absolute path so
- * relative targets like `[notes](./other.md)` resolve correctly.
+ * The actual open is routed through the `'link:open'` editor event so the CM
+ * extension stays decoupled from App's tab/snapshot plumbing — App subscribes
+ * once and resolves the href against the active document.
  */
-export function createSourceLinkClickExtension(getBasePath: () => string | null) {
+export function createSourceLinkClickExtension() {
   return EditorView.domEventHandlers({
     click(event, view) {
       if (!isOpenLinkClick(event)) return false;
@@ -23,9 +25,7 @@ export function createSourceLinkClickExtension(getBasePath: () => string | null)
       const url = findMarkdownLinkUrlAtOffset(line.text, offsetInLine);
       if (!url) return false;
       event.preventDefault();
-      void openMarkdownLink(url, getBasePath()).catch(() => {
-        // Non-fatal — user can always copy/paste manually.
-      });
+      publishEditorEvent('link:open', { href: url, openInNewTab: false });
       return true;
     },
   });

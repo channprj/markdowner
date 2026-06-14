@@ -7,11 +7,18 @@
  * publish/subscribe site so downstream listeners stay in sync.
  */
 
-export type EditorOverlayEvent = 'link:edit-request' | 'slash:open-at-cursor';
+export type EditorOverlayEvent = 'link:edit-request' | 'link:open' | 'slash:open-at-cursor';
 
 interface LinkEditRequest {
   /** When true, request the URL input to take focus immediately. */
   focusInput?: boolean;
+}
+
+interface LinkOpenRequest {
+  /** Raw href from the clicked markdown link (relative, absolute, or URL). */
+  href: string;
+  /** Cmd/Ctrl-click: open markdown targets in a new tab instead of the current one. */
+  openInNewTab: boolean;
 }
 
 interface SlashOpenAtCursorRequest {
@@ -25,9 +32,11 @@ interface SlashOpenAtCursorRequest {
 
 type PayloadFor<E extends EditorOverlayEvent> = E extends 'link:edit-request'
   ? LinkEditRequest
-  : E extends 'slash:open-at-cursor'
-    ? SlashOpenAtCursorRequest
-    : never;
+  : E extends 'link:open'
+    ? LinkOpenRequest
+    : E extends 'slash:open-at-cursor'
+      ? SlashOpenAtCursorRequest
+      : never;
 
 type Listener<E extends EditorOverlayEvent> = (payload: PayloadFor<E>) => void;
 

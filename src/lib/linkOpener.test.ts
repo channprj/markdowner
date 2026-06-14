@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { findClickedAnchorHref, isOpenLinkClick } from './linkOpener';
+import {
+  attachMarkdownLinkClickInterceptor,
+  findClickedAnchorHref,
+  isOpenLinkClick,
+} from './linkOpener';
 
 describe('isOpenLinkClick', () => {
   it('treats Cmd+Click as the link-open intent on macOS', () => {
@@ -61,5 +65,60 @@ describe('findClickedAnchorHref', () => {
     const target = container.querySelector('span');
 
     expect(findClickedAnchorHref(target, container)).toBeNull();
+  });
+});
+
+describe('attachMarkdownLinkClickInterceptor', () => {
+  function setup() {
+    const surface = document.createElement('div');
+    surface.innerHTML = '<p>Read <a href="./next.md"><span>next</span></a></p>';
+    document.body.appendChild(surface);
+    const onOpen = vi.fn();
+    const cleanup = attachMarkdownLinkClickInterceptor(surface, onOpen);
+    const span = surface.querySelector('span') as HTMLElement;
+    return { surface, onOpen, cleanup, span };
+  }
+
+  it('routes an anchor click to onOpen and cancels the default navigation', () => {
+    const { onOpen, cleanup, span } = setup();
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+
+    span.dispatchEvent(event);
+
+    expect(onOpen).toHaveBeenCalledWith('./next.md', { openInNewTab: false });
+    expect(event.defaultPrevented).toBe(true);
+    cleanup();
+  });
+
+  it('treats Cmd/Ctrl-click as an open-in-new-tab request', () => {
+    const { onOpen, cleanup, span } = setup();
+
+    span.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }));
+    expect(onOpen).toHaveBeenLastCalledWith('./next.md', { openInNewTab: true });
+
+    span.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+    expect(onOpen).toHaveBeenLastCalledWith('./next.md', { openInNewTab: true });
+    cleanup();
+  });
+
+  it('ignores clicks that miss an anchor and non-left buttons', () => {
+    const { surface, onOpen, cleanup, span } = setup();
+
+    surface.querySelector('p')?.firstChild?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }),
+    );
+    span.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 1 }));
+
+    expect(onOpen).not.toHaveBeenCalled();
+    cleanup();
+  });
+
+  it('stops firing once cleaned up', () => {
+    const { onOpen, cleanup, span } = setup();
+    cleanup();
+
+    span.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(onOpen).not.toHaveBeenCalled();
   });
 });

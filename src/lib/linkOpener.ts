@@ -70,3 +70,36 @@ export function findClickedAnchorHref(
   if (container && !container.contains(anchor)) return null;
   return anchor.getAttribute('href') || null;
 }
+
+/**
+ * Capture-phase click interceptor for a rendered markdown surface (the WYSIWYG
+ * contenteditable or the split-view preview pane). When a rendered anchor is
+ * clicked it cancels the default action and routes the href to `onOpen`.
+ *
+ * Why capture phase + preventDefault here instead of ProseMirror's
+ * `editorProps.handleClick` or React's bubble-phase `onClick`: inside a Tauri
+ * WKWebView, clicking an `<a>` triggers a native webview navigation that those
+ * handlers don't reliably cancel (ProseMirror derives its click from `mouseup`,
+ * whose `preventDefault` does not stop the subsequent click's navigation). A
+ * capture listener on the surface runs before the browser's default link
+ * activation, so `preventDefault()` reliably wins.
+ *
+ * `openInNewTab` follows the browser/editor convention: Cmd-click on macOS,
+ * Ctrl-click elsewhere. Returns a cleanup function that detaches the listener.
+ */
+export function attachMarkdownLinkClickInterceptor(
+  surface: HTMLElement,
+  onOpen: (href: string, options: { openInNewTab: boolean }) => void,
+): () => void {
+  const handleClick = (event: MouseEvent) => {
+    // Left button only; let a prior handler that already acted win.
+    if (event.button !== 0 || event.defaultPrevented) return;
+    const href = findClickedAnchorHref(event.target, surface);
+    if (!href) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onOpen(href, { openInNewTab: event.metaKey || event.ctrlKey });
+  };
+  surface.addEventListener('click', handleClick, true);
+  return () => surface.removeEventListener('click', handleClick, true);
+}

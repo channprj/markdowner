@@ -79,7 +79,6 @@ export const sourceTypewriterModeExtension = EditorView.theme({
 });
 
 interface SourceEditorExtensionOptions {
-  activeDocumentPath: () => string | null;
   editorLineWrap: boolean;
   focusModeEnabled: boolean;
   typewriterModeEnabled: boolean;
@@ -88,7 +87,6 @@ interface SourceEditorExtensionOptions {
 }
 
 export function buildSourceEditorExtensions({
-  activeDocumentPath,
   editorLineWrap,
   focusModeEnabled,
   typewriterModeEnabled,
@@ -98,7 +96,7 @@ export function buildSourceEditorExtensions({
   return [
     markdown(),
     sourceFindHighlightField,
-    createSourceLinkClickExtension(activeDocumentPath),
+    createSourceLinkClickExtension(),
     ...(editorLineWrap ? [EditorView.lineWrapping] : []),
     ...(focusModeEnabled ? [sourceFocusModeExtension] : []),
     ...(typewriterModeEnabled ? [sourceTypewriterModeExtension] : []),

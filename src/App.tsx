@@ -23,7 +23,7 @@ import { ImeDebugOverlay } from '@/components/wysiwyg/ImeDebugOverlay';
 import { MarkdownLinkInputRule } from '@/components/wysiwyg/markdownLinkInputRule';
 import { PreventTableHoverSelection } from '@/components/wysiwyg/preventTableHoverSelection';
 import { TableArrowNavigation } from '@/components/wysiwyg/tableArrowNavigation';
-import { publishEditorEvent } from '@/lib/editorEvents';
+import { publishEditorEvent, subscribeEditorEvent } from '@/lib/editorEvents';
 import { imeLog } from '@/lib/imeDebug';
 import { EditorView } from '@uiw/react-codemirror';
 import type {
@@ -232,8 +232,8 @@ import {
   buildShellChromeModel,
 } from './lib/shellModel';
 import {
+  attachMarkdownLinkClickInterceptor,
   findClickedAnchorHref,
-  openMarkdownLink,
 } from './lib/linkOpener';
 import {
   matchesShortcut,
@@ -1357,8 +1357,8 @@ export default function App() {
     const href = findClickedAnchorHref(event.target, event.currentTarget);
     if (href) {
       event.preventDefault();
-      void openMarkdownLink(href, snapshot.activeDocumentPath).catch(() => {
-        // Ignored — user can also open via the source editor.
+      void openEditorMarkdownLink(href, {
+        openInNewTab: event.metaKey || event.ctrlKey,
       });
       return;
     }
@@ -1645,20 +1645,11 @@ export default function App() {
       attributes: {
         class: `editor-surface tiptap-surface ${MARKDOWN_CONTENT_SCOPE_CLASS}`,
       },
-      // Clicks on links inside the WYSIWYG surface follow the target. Cmd/Ctrl
-      // keeps the current document tab in place and opens markdown targets in
-      // another tab, matching the browser convention for modifier-click.
-      handleClick: (_view: any, _pos: number, event: MouseEvent) => {
-        const href = findClickedAnchorHref(event.target);
-        if (!href) return false;
-        event.preventDefault();
-        void openWysiwygLink(href, {
-          openInNewTab: event.metaKey || event.ctrlKey,
-        }).catch(() => {
-          // Ignored — non-fatal; user can fall back to the popup's open button.
-        });
-        return true;
-      },
+      // Link clicks are handled by a capture-phase listener on the editor DOM
+      // (see the attachMarkdownLinkClickInterceptor effect) rather than
+      // ProseMirror's handleClick: the latter derives its click from `mouseup`
+      // and can't reliably cancel WebKit's native anchor navigation in the
+      // Tauri webview.
       handleKeyDown: (view: any, event: KeyboardEvent) => {
         // CJK IME guard: ProseMirror's readDOMChange synthesises an Enter
         // keypress via `view.someProp("handleKeyDown", f => f(view, keyEvent(13,
@@ -2113,6 +2104,28 @@ export default function App() {
   useEffect(() => {
     editorInstanceRef.current = editor;
   }, [editor]);
+
+  // Follow markdown links clicked in the WYSIWYG surface. Capture phase beats
+  // both WebKit's native anchor navigation and ProseMirror's flaky handleClick.
+  useEffect(() => {
+    if (!editor) return;
+    return attachMarkdownLinkClickInterceptor(
+      editor.view.dom as HTMLElement,
+      (href, options) => {
+        void openEditorMarkdownLink(href, options);
+      },
+    );
+  }, [editor]);
+
+  // Links followed from surfaces outside this component (the CodeMirror source
+  // editor) route here via the editor event bus.
+  useEffect(
+    () =>
+      subscribeEditorEvent('link:open', ({ href, openInNewTab }) => {
+        void openEditorMarkdownLink(href, { openInNewTab });
+      }),
+    [],
+  );
 
   const sourceFindResult = useMemo(
     () => findTextMatches(localDraft, findQuery, findOptions),
@@ -3122,7 +3135,6 @@ export default function App() {
   const sourceEditorExtensions = useMemo(
     () =>
       buildSourceEditorExtensions({
-        activeDocumentPath: () => activeDocumentPathRef.current,
         editorLineWrap: settings.editorLineWrap,
         focusModeEnabled: settings.focusModeEnabled,
         typewriterModeEnabled: settings.typewriterModeEnabled,
@@ -3272,7 +3284,12 @@ export default function App() {
     }
   };
 
-  const openWysiwygLink = useEffectEvent(
+  // Single entry point for following a markdown link from any editor surface
+  // (WYSIWYG, Split-view preview, source editor). Markdown targets open as an
+  // editor tab (applying the returned snapshot so the UI actually reconciles —
+  // the bug behind earlier silent no-ops); other files go to the OS handler,
+  // external URLs to the default browser.
+  const openEditorMarkdownLink = useEffectEvent(
     async (
       href: string,
       options: {

@@ -265,19 +265,23 @@ function captureRuntimeErrors() {
   };
 }
 
-function createAnchorClickEvent(
-  target: Element,
+// Simulate following a rendered markdown link in the WYSIWYG surface: append
+// an anchor to the editor DOM (where App's capture-phase interceptor listens)
+// and dispatch a real click on its inner label. Returns the dispatched event
+// so callers can assert `defaultPrevented`.
+function clickSurfaceLink(
+  surface: HTMLElement,
+  href: string,
   init: MouseEventInit = {},
 ): MouseEvent {
-  const event = new MouseEvent('click', {
-    bubbles: true,
-    cancelable: true,
-    ...init,
-  });
-  Object.defineProperty(event, 'target', {
-    configurable: true,
-    value: target,
-  });
+  const anchor = document.createElement('a');
+  anchor.setAttribute('href', href);
+  const label = document.createElement('span');
+  label.textContent = 'link';
+  anchor.appendChild(label);
+  surface.appendChild(anchor);
+  const event = new MouseEvent('click', { bubbles: true, cancelable: true, ...init });
+  label.dispatchEvent(event);
   return event;
 }
 
@@ -379,6 +383,9 @@ function createMockTiptapEditor(markdown: string, segments: MockTiptapTextSegmen
     dispatch: vi.fn(),
     focus: vi.fn(),
     coordsAtPos: vi.fn(() => ({ top: 0, bottom: 0, left: 0, right: 0 })),
+    // The WYSIWYG link interceptor attaches a capture-phase click listener to
+    // the editor DOM; tests dispatch real clicks on anchors appended here.
+    dom: document.createElement('div'),
   };
   editor.commands = {
     setContent: vi.fn((content: string, _options?: unknown) => {
@@ -4414,15 +4421,8 @@ describe('App recent documents', () => {
     render(<App />);
 
     await screen.findByRole('tab', { name: /current\.md/i });
-    const anchor = document.createElement('a');
-    anchor.href = './next.md';
-    const label = document.createElement('span');
-    anchor.appendChild(label);
-    const event = createAnchorClickEvent(label);
+    const event = clickSurfaceLink(editor.view.dom, './next.md');
 
-    const handled = tiptapMockState.lastOptions.editorProps.handleClick(editor.view, 1, event);
-
-    expect(handled).toBe(true);
     expect(event.defaultPrevented).toBe(true);
     await waitFor(() => {
       expect(resolveMarkdownLinkMock).toHaveBeenCalledWith(
@@ -4469,13 +4469,8 @@ describe('App recent documents', () => {
     render(<App />);
 
     await screen.findByRole('tab', { name: /current\.md/i });
-    const anchor = document.createElement('a');
-    anchor.href = './next.md';
-    const event = createAnchorClickEvent(anchor, { metaKey: true });
+    clickSurfaceLink(editor.view.dom, './next.md', { metaKey: true });
 
-    const handled = tiptapMockState.lastOptions.editorProps.handleClick(editor.view, 1, event);
-
-    expect(handled).toBe(true);
     await waitFor(() => {
       expect(openDocumentMock).toHaveBeenCalledWith('/tmp/project/next.md');
       expect(screen.getByRole('tab', { name: /current\.md/i })).toBeInTheDocument();
@@ -4509,13 +4504,8 @@ describe('App recent documents', () => {
     render(<App />);
 
     await screen.findByRole('tab', { name: /current\.md/i });
-    const anchor = document.createElement('a');
-    anchor.href = 'https://example.com';
-    const event = createAnchorClickEvent(anchor);
+    clickSurfaceLink(editor.view.dom, 'https://example.com');
 
-    const handled = tiptapMockState.lastOptions.editorProps.handleClick(editor.view, 1, event);
-
-    expect(handled).toBe(true);
     await waitFor(() => {
       expect(openExternalUrlMock).toHaveBeenCalledWith('https://example.com');
     });
@@ -4524,6 +4514,56 @@ describe('App recent documents', () => {
       'aria-selected',
       'true',
     );
+  });
+
+  it('follows a Split-view preview markdown link, Cmd-click opening a new tab', async () => {
+    const editor = createMockTiptapEditor('[Next](./next.md)', [{ text: 'Next', from: 1 }]);
+    tiptapMockState.editor = editor;
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'current.md',
+        activeDocumentPath: '/tmp/project/current.md',
+        activeDocumentSource: '[Next](./next.md)',
+        mode: 'SplitView',
+      }),
+    );
+    resolveMarkdownLinkMock.mockResolvedValue({
+      kind: 'markdown',
+      absolutePath: '/tmp/project/next.md',
+    });
+    openDocumentMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'next.md',
+        activeDocumentPath: '/tmp/project/next.md',
+        activeDocumentSource: '# Next',
+        mode: 'SplitView',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByRole('tab', { name: /current\.md/i });
+    const preview = await screen.findByTestId('editor-surface-preview');
+    const anchor = document.createElement('a');
+    anchor.setAttribute('href', './next.md');
+    preview.appendChild(anchor);
+
+    fireEvent.click(anchor, { metaKey: true });
+
+    await waitFor(() => {
+      expect(resolveMarkdownLinkMock).toHaveBeenCalledWith(
+        './next.md',
+        '/tmp/project/current.md',
+      );
+      expect(openDocumentMock).toHaveBeenCalledWith('/tmp/project/next.md');
+      expect(screen.getByRole('tab', { name: /current\.md/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /next\.md/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+    });
   });
 
   it('swallows the WebKit Korean IME duplicate-syllable handleTextInput call', async () => {
