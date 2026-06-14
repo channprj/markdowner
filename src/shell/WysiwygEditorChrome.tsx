@@ -8,24 +8,15 @@ import { TableToolbar } from '@/components/wysiwyg/TableToolbar';
 interface WysiwygEditorChromeProps {
   editor: TiptapEditor | null;
   enabled: boolean;
-  activeDocumentPath: string | null;
 }
 
-export function WysiwygEditorChrome({
-  editor,
-  enabled,
-  activeDocumentPath,
-}: WysiwygEditorChromeProps) {
+export function WysiwygEditorChrome({ editor, enabled }: WysiwygEditorChromeProps) {
   return (
     <>
       <EditorContent editor={editor} />
       <SlashCommandMenu editor={editor} enabled={enabled} />
       <SelectionToolbar editor={editor} enabled={enabled} />
-      <LinkPopup
-        editor={editor}
-        enabled={enabled}
-        activeDocumentPath={activeDocumentPath}
-      />
+      <LinkPopup editor={editor} enabled={enabled} />
       <TableToolbar editor={editor} enabled={enabled} />
     </>
   );

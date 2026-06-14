@@ -13,20 +13,12 @@ import { getMarkRange } from '@tiptap/core';
 import { Check, Copy, ExternalLink, Unlink } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { openMarkdownLink } from '@/lib/linkOpener';
-import { subscribeEditorEvent } from '@/lib/editorEvents';
+import { publishEditorEvent, subscribeEditorEvent } from '@/lib/editorEvents';
 
 interface Props {
   editor: Editor | null;
   /** When false, listeners are detached and nothing is rendered. */
   enabled?: boolean;
-  /**
-   * Absolute path of the active document. Used to resolve relative link
-   * targets like `../other.md`. When null, relative links cannot be opened.
-   */
-  activeDocumentPath?: string | null;
-  /** Called after we open a markdown file from the popup. */
-  onMarkdownOpened?: () => void;
 }
 
 type Placement = 'above' | 'below';
@@ -68,12 +60,7 @@ type FocusKey = (typeof FOCUS_ORDER)[number];
  * and the action buttons inside the popup; Tab from the editor enters the
  * popup; Escape returns focus to the editor.
  */
-export function LinkPopup({
-  editor,
-  enabled = true,
-  activeDocumentPath = null,
-  onMarkdownOpened,
-}: Props) {
+export function LinkPopup({ editor, enabled = true }: Props) {
   const [state, setState] = useState<PopupState>({ open: false });
   const [placement, setPlacement] = useState<Placement>('above');
   const [draft, setDraft] = useState('');
@@ -96,6 +83,16 @@ export function LinkPopup({
       hideTimerRef.current = null;
     }
   };
+
+  // The user is actively editing inside the popup (URL input or an action
+  // button is focused). Hover hide-timers must NOT close it out from under
+  // them — losing focus mid-keystroke was the "링크 수정이 간헐적으로 안 돼요"
+  // bug: a slight mouse drift off the popup fired the 320ms hide while the
+  // caret sat in the URL input.
+  const popupHasFocus = () =>
+    typeof document !== 'undefined' &&
+    !!containerRef.current &&
+    containerRef.current.contains(document.activeElement);
 
   // Recompute the active link range from the current caret position. Returns
   // null when the caret is not inside a link mark.
@@ -272,6 +269,8 @@ export function LinkPopup({
       hideTimerRef.current = window.setTimeout(() => {
         hideTimerRef.current = null;
         if (hoveredLinkRef.current) return;
+        // Keep open while the user is editing inside the popup.
+        if (popupHasFocus()) return;
         setState((prev) => {
           if (!prev.open || prev.origin !== 'hover') return prev;
           // If the caret is now inside a link, hand off to caret-mode.
@@ -446,17 +445,11 @@ export function LinkPopup({
     if (!state.open) return;
     const target = draft.trim();
     if (!target) return;
-    // Route through the Rust shell so we get default-browser opening for web
-    // URLs and editor tab opening for markdown files. window.open is silently
-    // blocked inside the Tauri webview without the shell plugin.
-    void openMarkdownLink(target, activeDocumentPath, {
-      onMarkdownOpened: () => {
-        setState({ open: false });
-        onMarkdownOpened?.();
-      },
-    }).catch(() => {
-      // Swallow errors — the copy button + manual paste remain as a fallback.
-    });
+    setState({ open: false });
+    // App owns link-following (resolve + apply snapshot + OS handlers). The
+    // bus keeps this popup decoupled from that tab plumbing and reuses the
+    // exact same path as a click in the editor surface.
+    publishEditorEvent('link:open', { href: target, openInNewTab: false });
   };
 
   const handleKeyDownInItem = (key: FocusKey) => (event: ReactKeyboardEvent) => {
@@ -573,6 +566,8 @@ export function LinkPopup({
         clearHideTimer();
         hideTimerRef.current = window.setTimeout(() => {
           hideTimerRef.current = null;
+          // Keep open while the user is editing inside the popup.
+          if (popupHasFocus()) return;
           setState((prev) => {
             if (!prev.open || prev.origin !== 'hover') return prev;
             return computeCaretLink() ?? { open: false };

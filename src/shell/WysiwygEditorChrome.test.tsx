@@ -22,18 +22,8 @@ vi.mock('@/components/wysiwyg/SelectionToolbar', () => ({
 }));
 
 vi.mock('@/components/wysiwyg/LinkPopup', () => ({
-  LinkPopup: ({
-    enabled,
-    activeDocumentPath,
-  }: {
-    enabled?: boolean;
-    activeDocumentPath?: string | null;
-  }) => (
-    <div
-      data-testid="link-popup"
-      data-enabled={String(Boolean(enabled))}
-      data-active-document-path={activeDocumentPath ?? ''}
-    />
+  LinkPopup: ({ enabled }: { enabled?: boolean }) => (
+    <div data-testid="link-popup" data-enabled={String(Boolean(enabled))} />
   ),
 }));
 
@@ -51,39 +41,22 @@ describe('WysiwygEditorChrome', () => {
   it('keeps the Tiptap editor content mounted and enables WYSIWYG floating chrome', () => {
     const editor = { id: 'editor' } as never;
 
-    render(
-      <WysiwygEditorChrome
-        editor={editor}
-        enabled
-        activeDocumentPath="/tmp/project/docs/readme.md"
-      />,
-    );
+    render(<WysiwygEditorChrome editor={editor} enabled />);
 
     expect(screen.getByTestId('editor-content')).toHaveAttribute('data-editor-attached', 'true');
     expect(screen.getByTestId('slash-command-menu')).toHaveAttribute('data-enabled', 'true');
     expect(screen.getByTestId('selection-toolbar')).toHaveAttribute('data-enabled', 'true');
     expect(screen.getByTestId('link-popup')).toHaveAttribute('data-enabled', 'true');
-    expect(screen.getByTestId('link-popup')).toHaveAttribute(
-      'data-active-document-path',
-      '/tmp/project/docs/readme.md',
-    );
     expect(screen.getByTestId('table-toolbar')).toHaveAttribute('data-enabled', 'true');
   });
 
   it('leaves editor content mounted while disabling WYSIWYG-only chrome', () => {
-    render(
-      <WysiwygEditorChrome
-        editor={null}
-        enabled={false}
-        activeDocumentPath={null}
-      />,
-    );
+    render(<WysiwygEditorChrome editor={null} enabled={false} />);
 
     expect(screen.getByTestId('editor-content')).toHaveAttribute('data-editor-attached', 'false');
     expect(screen.getByTestId('slash-command-menu')).toHaveAttribute('data-enabled', 'false');
     expect(screen.getByTestId('selection-toolbar')).toHaveAttribute('data-enabled', 'false');
     expect(screen.getByTestId('link-popup')).toHaveAttribute('data-enabled', 'false');
-    expect(screen.getByTestId('link-popup')).toHaveAttribute('data-active-document-path', '');
     expect(screen.getByTestId('table-toolbar')).toHaveAttribute('data-enabled', 'false');
   });
 });

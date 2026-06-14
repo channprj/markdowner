@@ -4962,11 +4962,7 @@ export default function App() {
         tableDensity={settings.tableDensity}
         tableViewMode={settings.tableViewMode}
         editorContent={
-          <WysiwygEditorChrome
-            editor={editor}
-            enabled={currentMode === 'Wysiwyg'}
-            activeDocumentPath={snapshot.activeDocumentPath}
-          />
+          <WysiwygEditorChrome editor={editor} enabled={currentMode === 'Wysiwyg'} />
         }
         sourceEditor={
           <SourceEditorPane

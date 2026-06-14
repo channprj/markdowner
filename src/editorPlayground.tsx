@@ -174,7 +174,7 @@ function Playground() {
     >
       <div className="notion-editor-shell">
         <div className="notion-editor-content">
-          <WysiwygEditorChrome editor={editor} enabled activeDocumentPath={null} />
+          <WysiwygEditorChrome editor={editor} enabled />
         </div>
       </div>
       <ImeDebugOverlay />

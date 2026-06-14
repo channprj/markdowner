@@ -93,6 +93,40 @@ describe('LinkPopup', () => {
     expect(editor.state.doc.textContent).toBe('docs tail');
   });
 
+  it('keeps the hover popup open while the URL input is focused, even on pointer drift', async () => {
+    render(<LinkPopup editor={editor} enabled />);
+    // Park the caret outside the link so ONLY hover can open the popup.
+    await act(async () => {
+      editor.commands.setTextSelection(8); // inside " tail"
+    });
+    await flushPopupFrame();
+
+    const anchor = host.querySelector('a') as HTMLAnchorElement;
+    await act(async () => {
+      fireEvent.mouseOver(anchor);
+    });
+    const input = await screen.findByRole('textbox', { name: /link url/i });
+    expect(input).toHaveValue('https://old.example');
+
+    // User moves into the popup and focuses the URL input to edit it.
+    await act(async () => {
+      input.focus();
+    });
+    expect(document.activeElement).toBe(input);
+
+    // Pointer drifts off the popup; the hide grace period (320ms) elapses.
+    await act(async () => {
+      fireEvent.mouseLeave(screen.getByTestId('link-popup'));
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+
+    // The popup must NOT have closed out from under the mid-edit caret.
+    expect(screen.queryByTestId('link-popup')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /link url/i })).toHaveValue(
+      'https://old.example',
+    );
+  });
+
   it('bails instead of linking the wrong range when positions went stale', async () => {
     await openAtCaret();
     const input = screen.getByRole('textbox', { name: /link url/i });
