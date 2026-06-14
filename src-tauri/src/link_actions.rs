@@ -8,7 +8,12 @@ use serde::Serialize;
 /// this classification to open markdown files in Markdowner, other local files
 /// through the OS handler, and external URLs in the system browser.
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+// `rename_all` only renames the variant names (the `kind` tag). The fields of
+// struct variants (`absolute_path`) need `rename_all_fields` too, otherwise
+// they serialize snake_case and the frontend's `resolved.absolutePath` is
+// undefined — which fed `undefined` into `open_document` ("missing required
+// key path") and silently broke every markdown link click.
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ResolvedLink {
     Markdown { absolute_path: String },
     File { absolute_path: String },
@@ -149,6 +154,21 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{ResolvedLink, classify_external_scheme, is_markdown_path, resolve_markdown_link};
+
+    #[test]
+    fn markdown_variant_serializes_camel_case_absolute_path() {
+        // The frontend (desktop.ts ResolvedLink) reads `resolved.absolutePath`
+        // and feeds it to `open_document`. The JSON field MUST be camelCase.
+        let json = serde_json::to_string(&ResolvedLink::Markdown {
+            absolute_path: "/tmp/next.md".to_string(),
+        })
+        .unwrap();
+        assert!(
+            json.contains("\"absolutePath\":\"/tmp/next.md\""),
+            "expected camelCase absolutePath, got: {json}"
+        );
+        assert!(!json.contains("absolute_path"), "snake_case leaked: {json}");
+    }
 
     #[test]
     fn is_markdown_path_matches_common_extensions() {
