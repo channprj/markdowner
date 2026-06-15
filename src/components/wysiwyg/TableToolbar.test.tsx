@@ -177,6 +177,24 @@ describe('TableToolbar', () => {
     expect(editor.calls).toEqual(['addColumnAfter', 'addRowAfter']);
   });
 
+  it('runs table commands on mouse down so WebKit toolbar clicks cannot lose the table selection before click', async () => {
+    const editor = createTableEditor();
+
+    render(<TableToolbar editor={editor} />);
+
+    act(() => {
+      editor.emit('selectionUpdate');
+    });
+
+    const toolbar = await screen.findByRole('toolbar', { name: /table editing/i });
+
+    fireEvent.mouseDown(within(toolbar).getByRole('button', { name: /add row after/i }), {
+      button: 0,
+    });
+
+    expect(editor.calls).toEqual(['addRowAfter']);
+  });
+
   it('uses directional panel icons for row and column insert actions', async () => {
     const editor = createTableEditor();
 

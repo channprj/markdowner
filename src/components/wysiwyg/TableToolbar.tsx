@@ -247,7 +247,18 @@ function TableToolbarButton({ label, danger = false, onClick, children }: TableT
       aria-label={label}
       title={label}
       className={cn('table-toolbar-button', danger && 'is-danger')}
-      onClick={onClick}
+      onMouseDown={(event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClick();
+      }}
+      onClick={(event) => {
+        // Mouse activation already ran on mousedown, before WebKit can mutate
+        // the table selection during the release/click path. Keep click for
+        // keyboard and assistive activation, where detail is 0.
+        if (event.detail === 0) onClick();
+      }}
     >
       {children}
     </button>
