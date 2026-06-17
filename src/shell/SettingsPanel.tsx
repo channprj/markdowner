@@ -1122,6 +1122,36 @@ export function SettingsPanel({
             Reset to Defaults
           </Button>
         </div>
+
+        <Separator />
+        <div data-testid="settings-analytics-section" className={sectionGroupClass}>
+          <div className={switchFieldClass}>
+            <Label
+              htmlFor="analytics-enabled"
+              className="flex flex-col items-start gap-0.5 text-left"
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-sm font-medium leading-none">
+                  Share anonymous usage data
+                </span>
+                <span className="rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                  Beta
+                </span>
+              </span>
+            </Label>
+            <Switch
+              id="analytics-enabled"
+              checked={settings.analyticsEnabled}
+              onCheckedChange={(checked) => handleSettingChange('analyticsEnabled', checked)}
+            />
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Markdowner is in beta. To help improve the app, we may collect anonymous
+            usage data about how its features are used. We never collect your document
+            contents, file names, or file paths, and session recording is disabled. You
+            can turn this off at any time with the toggle above.
+          </p>
+        </div>
         </div>
       </div>
     </section>

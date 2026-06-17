@@ -38,7 +38,7 @@
     "security": {
       "csp": {
         "default-src": "'self' customprotocol: asset:",
-        "connect-src": "ipc: http://ipc.localhost",
+        "connect-src": "ipc: http://ipc.localhost https://us.i.posthog.com https://us-assets.i.posthog.com",
         "img-src": "'self' asset: http://asset.localhost https: blob: data:",
         "style-src": "'self' 'unsafe-inline'"
       },

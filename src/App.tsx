@@ -215,6 +215,7 @@ import {
   resolveOutlinePanelSizing,
   saveSettings,
 } from './lib/settings';
+import { syncAnalytics } from './lib/analytics';
 import { resolveShellBindings } from './lib/keymap';
 import { moveTab, reorderTabByDrag } from './lib/tabs';
 import { useUpdateCheck } from './lib/useUpdateCheck';
@@ -2829,6 +2830,14 @@ export default function App() {
       cancelled = true;
     };
   }, [settingsLoaded, settings.defaultAppPromptSeen]);
+
+  // Reconcile PostHog with the analytics opt-out setting: initialize on first
+  // enable, opt in/out on later toggles. The wrapper is a no-op in tests and
+  // never throws, so this can't affect editor behaviour.
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    syncAnalytics(settings.analyticsEnabled);
+  }, [settingsLoaded, settings.analyticsEnabled]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {

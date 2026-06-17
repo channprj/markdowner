@@ -24,6 +24,8 @@ pub struct Settings {
     pub theme_follow_system: bool,
     pub pdf_paper_size: String,
     pub diagnostics_enabled: bool,
+    /// Opt-in (default on) sharing of anonymous, content-free usage analytics.
+    pub analytics_enabled: bool,
     pub show_minimap: bool,
     pub table_density: String,
     pub table_view_mode: String,
@@ -59,6 +61,7 @@ impl Default for Settings {
             theme_follow_system: true,
             pdf_paper_size: "A4".to_string(),
             diagnostics_enabled: true,
+            analytics_enabled: true,
             show_minimap: true,
             table_density: "compact".to_string(),
             table_view_mode: "normal".to_string(),
@@ -233,6 +236,27 @@ mod tests {
         assert!(payload.contains("\"diagnosticsEnabled\":false"));
         let parsed: Settings = serde_json::from_str(&payload).expect("parse");
         assert!(!parsed.diagnostics_enabled);
+    }
+
+    #[test]
+    fn analytics_enabled_defaults_to_enabled_and_round_trips() {
+        // Legacy settings.json (pre-analytics) loads with analytics opted in.
+        let legacy = r#"{"autoSave":true,"editorFontSize":16}"#;
+        let parsed: Settings = serde_json::from_str(legacy).expect("legacy settings parse");
+        assert!(
+            parsed.analytics_enabled,
+            "missing analyticsEnabled should default to true"
+        );
+
+        // Explicit false survives round-trip via the camelCase key.
+        let original = Settings {
+            analytics_enabled: false,
+            ..Default::default()
+        };
+        let payload = serde_json::to_string(&original).expect("serialize");
+        assert!(payload.contains("\"analyticsEnabled\":false"));
+        let parsed: Settings = serde_json::from_str(&payload).expect("parse");
+        assert!(!parsed.analytics_enabled);
     }
 
     #[test]

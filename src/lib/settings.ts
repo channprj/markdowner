@@ -75,6 +75,8 @@ export interface Settings {
   themeFollowSystem: boolean;
   pdfPaperSize: 'A4' | 'Letter';
   diagnosticsEnabled: boolean;
+  /** Opt-in (default on) sharing of anonymous, content-free usage analytics. */
+  analyticsEnabled: boolean;
   showMinimap: boolean;
   tableDensity: 'compact' | 'normal';
   tableViewMode: 'normal' | 'inline';
@@ -156,6 +158,7 @@ export const DEFAULT_SETTINGS: Settings = {
   themeFollowSystem: true,
   pdfPaperSize: 'A4',
   diagnosticsEnabled: true,
+  analyticsEnabled: true,
   showMinimap: true,
   tableDensity: 'compact',
   tableViewMode: 'normal',
@@ -362,6 +365,9 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): Setting
   }
   if (typeof merged.defaultAppPromptSeen !== 'boolean') {
     merged.defaultAppPromptSeen = DEFAULT_SETTINGS.defaultAppPromptSeen;
+  }
+  if (typeof merged.analyticsEnabled !== 'boolean') {
+    merged.analyticsEnabled = DEFAULT_SETTINGS.analyticsEnabled;
   }
   merged.keybindingOverrides = normalizeKeybindingOverrides(merged.keybindingOverrides);
   return merged;
