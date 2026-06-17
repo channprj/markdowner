@@ -1,6 +1,6 @@
 [package]
 name = "markdowner-desktop"
-version = "0.260618.3"
+version = "0.260618.4"
 description = "Markdowner desktop shell"
 edition = "2024"
 default-run = "markdowner-desktop"
