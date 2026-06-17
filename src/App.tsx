@@ -3737,9 +3737,10 @@ export default function App() {
     });
     if (typeof selected !== 'string') return;
     try {
+      const fresh = flushWysiwygDraftNow();
       const html = await buildExportHtml({
         title: baseName,
-        source: localDraft,
+        source: fresh ?? localDraft,
         activeDocumentPath: snapshot.activeDocumentPath,
       });
       await exportTextFile(selected, html);
@@ -3761,9 +3762,10 @@ export default function App() {
     });
     if (typeof selected !== 'string') return;
     try {
+      const fresh = flushWysiwygDraftNow();
       const html = await buildExportHtml({
         title: baseName,
-        source: localDraft,
+        source: fresh ?? localDraft,
         activeDocumentPath: snapshot.activeDocumentPath,
         forPrint: true,
         paperSize: settings.pdfPaperSize,

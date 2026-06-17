@@ -2403,6 +2403,79 @@ describe('App recent documents', () => {
     expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('Meeting notes');
   });
 
+  it('flushes the live WYSIWYG draft before exporting HTML so inserted images are embedded', async () => {
+    const editor = createMockTiptapEditor('# Meeting notes', [{ text: '# Meeting notes', from: 1 }]);
+    tiptapMockState.editor = editor;
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        recentDocuments: ['/tmp/project/meeting-notes.md'],
+        mode: 'Wysiwyg',
+      }),
+    );
+    saveDialogMock.mockResolvedValue('/tmp/project/exports/meeting-notes.html');
+    readImagesBase64Mock.mockImplementation(async (sources: readonly string[]) =>
+      sources.map((source) => ({ source, dataUri: `data:image/png;base64,EMBED(${source})` })),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByRole('tab', { name: /meeting-notes\.md/i });
+    editor.markdown = '# Meeting notes\n\n![shot](./assets/shot.png)';
+
+    const menu = await openAppMenu();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /^export to html…$/i }));
+
+    await waitFor(() => {
+      expect(readImagesBase64Mock).toHaveBeenCalledWith(['/tmp/project/assets/shot.png']);
+      expect(exportTextFileMock).toHaveBeenCalledWith(
+        '/tmp/project/exports/meeting-notes.html',
+        expect.stringContaining('src="data:image/png;base64,EMBED(/tmp/project/assets/shot.png)"'),
+      );
+    });
+  });
+
+  it('flushes the live WYSIWYG draft before exporting PDF so inserted images are embedded', async () => {
+    const editor = createMockTiptapEditor('# Meeting notes', [{ text: '# Meeting notes', from: 1 }]);
+    tiptapMockState.editor = editor;
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        recentDocuments: ['/tmp/project/meeting-notes.md'],
+        mode: 'Wysiwyg',
+      }),
+    );
+    saveDialogMock.mockResolvedValue('/tmp/project/exports/meeting-notes.pdf');
+    readImagesBase64Mock.mockImplementation(async (sources: readonly string[]) =>
+      sources.map((source) => ({ source, dataUri: `data:image/png;base64,EMBED(${source})` })),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByRole('tab', { name: /meeting-notes\.md/i });
+    editor.markdown = '# Meeting notes\n\n![shot](./assets/shot.png)';
+
+    const menu = await openAppMenu();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /^export to pdf…$/i }));
+
+    await waitFor(() => {
+      expect(readImagesBase64Mock).toHaveBeenCalledWith(['/tmp/project/assets/shot.png']);
+      expect(exportPdfFileMock).toHaveBeenCalledWith(
+        '/tmp/project/exports/meeting-notes.pdf',
+        expect.stringContaining('src="data:image/png;base64,EMBED(/tmp/project/assets/shot.png)"'),
+        'A4',
+      );
+    });
+  });
+
   it('exports every workspace markdown file to PDFs under the project exports folder', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
