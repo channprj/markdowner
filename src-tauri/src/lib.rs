@@ -2095,6 +2095,23 @@ fn hide_app_or_window(window: tauri::WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Bring the main window forward and activate the app over whatever was in
+/// front (e.g. the terminal a `mdner …` command was typed into).
+///
+/// macOS `set_focus()` short-circuits while the window is hidden or minimized
+/// (tao guards on `isVisible`/`isMiniaturized`), so `show()` + `unminimize()`
+/// must run first — both apply synchronously, so the subsequent `set_focus()`
+/// sees the updated state and issues `activateIgnoringOtherApps`. Without the
+/// pre-steps a `mdner …` invocation against a hidden/minimized instance would
+/// silently do nothing.
+fn focus_main_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 pub fn run() {
     // Capture the shell's working directory before Tauri initializes so
     // relative paths like `markdowner README.md` resolve against where the
@@ -2112,8 +2129,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            focus_main_window(app);
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_focus();
                 if argv.len() > 1 {
                     let cwd_path = Path::new(&cwd);
                     let cwd_arg = if cwd_path.as_os_str().is_empty() {
@@ -2229,6 +2246,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running Markdowner desktop shell")
         .run(|app_handle, event| {
+            // A fresh `mdner …` launch execs the bundle binary directly rather
+            // than going through LaunchServices, so the OS hands focus back to
+            // the terminal once startup settles. Activating in `setup` lands
+            // too early (macOS yields it ~2s later); doing it on `Ready` — once
+            // the event loop is up and the app is a fully launched, foreground-
+            // eligible app — makes the activation stick.
+            if let tauri::RunEvent::Ready = &event {
+                focus_main_window(app_handle);
+            }
             if let tauri::RunEvent::Opened { urls } = &event {
                 if let Some(url) = urls.first() {
                     if let Ok(path) = url.to_file_path() {
