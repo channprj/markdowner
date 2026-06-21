@@ -42,6 +42,16 @@ describe('CommandPalette submenu', () => {
     cleanup();
   });
 
+  it('dims the editor behind the palette without blurring live previews', () => {
+    const spies = { preview: vi.fn(), commit: vi.fn(), cancel: vi.fn() };
+
+    render(<CommandPalette open onOpenChange={vi.fn()} commands={buildCommands(spies)} />);
+
+    const overlay = document.querySelector('[data-slot="dialog-overlay"]');
+    expect(overlay).toHaveClass('bg-black/35');
+    expect(overlay).toHaveClass('supports-backdrop-filter:backdrop-blur-none');
+  });
+
   it('opens the nested theme list and previews the initial selection', () => {
     const spies = { preview: vi.fn(), commit: vi.fn(), cancel: vi.fn() };
     openSubmenu(spies);
