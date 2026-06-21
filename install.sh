@@ -83,8 +83,22 @@ info "Asset:   ${DOWNLOAD_URL##*/} (${MATCHED_ARCH})"
 
 WORK_DIR="$(mktemp -d -t markdowner-install)"
 MOUNT_POINT=""
+# Scratch paths for the atomic install swap (assigned just before the swap).
+# Tracked here so the EXIT trap can restore/clean them if the script aborts.
+DEST_APP=""
+STAGED_APP=""
+BACKUP_APP=""
 
 cleanup() {
+  # If an aborted swap left the destination missing, put the backup back so the
+  # user is never left without an installed app.
+  if [ -n "$BACKUP_APP" ] && [ -n "$DEST_APP" ] && [ ! -e "$DEST_APP" ] && [ -e "$BACKUP_APP" ]; then
+    ${SUDO:-} mv "$BACKUP_APP" "$DEST_APP" 2>/dev/null || true
+  fi
+  [ -n "$STAGED_APP" ] && ${SUDO:-} rm -rf "$STAGED_APP" 2>/dev/null || true
+  if [ -n "$BACKUP_APP" ] && { [ -z "$DEST_APP" ] || [ -e "$DEST_APP" ]; }; then
+    ${SUDO:-} rm -rf "$BACKUP_APP" 2>/dev/null || true
+  fi
   if [ -n "$MOUNT_POINT" ] && [ -d "$MOUNT_POINT" ]; then
     hdiutil detach "$MOUNT_POINT" -quiet >/dev/null 2>&1 \
       || hdiutil detach "$MOUNT_POINT" -force -quiet >/dev/null 2>&1 \
@@ -123,14 +137,24 @@ if [ ! -w "$INSTALL_PATH" ]; then
   SUDO="sudo"
 fi
 
-if [ -e "$DEST_APP" ]; then
-  info "Removing existing ${DEST_APP}"
-  $SUDO rm -rf "$DEST_APP"
-fi
+STAGED_APP="${DEST_APP}.markdowner-staged"
+BACKUP_APP="${DEST_APP}.markdowner-backup"
+$SUDO rm -rf "$STAGED_APP" "$BACKUP_APP" 2>/dev/null || true
 
 info "Installing to ${DEST_APP}"
-$SUDO ditto "$SRC_APP" "$DEST_APP"
-$SUDO xattr -dr com.apple.quarantine "$DEST_APP" >/dev/null 2>&1 || true
+# Stage the new bundle next to the destination, then swap it in with atomic
+# renames. The existing install is never removed before the staged copy is in
+# place, so a failed copy can never leave the user with no app.
+$SUDO ditto "$SRC_APP" "$STAGED_APP"
+$SUDO xattr -dr com.apple.quarantine "$STAGED_APP" >/dev/null 2>&1 || true
+if [ -e "$DEST_APP" ]; then
+  $SUDO mv "$DEST_APP" "$BACKUP_APP"
+fi
+if ! $SUDO mv "$STAGED_APP" "$DEST_APP"; then
+  [ -e "$BACKUP_APP" ] && $SUDO mv "$BACKUP_APP" "$DEST_APP"
+  die "Failed to move the new bundle into place."
+fi
+$SUDO rm -rf "$BACKUP_APP" 2>/dev/null || true
 
 ok "Installed Markdowner ${TAG}"
 printf '    Launch with: open "%s"\n' "$DEST_APP" >&2

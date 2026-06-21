@@ -163,31 +163,13 @@ fn is_dir_writable(dir: &Path) -> bool {
     }
 }
 
-/// Generate the detached installer script. It waits for the running app
-/// (`pid`) to exit, then mounts the DMG, replaces the bundle, clears the
-/// Gatekeeper quarantine attribute, and relaunches. Mirrors `install.sh`.
-fn render_install_script(dmg_path: &str, app_bundle: &str, pid: u32) -> String {
-    format!(
-        r#"#!/bin/bash
-APP_PID={pid}
-DMG="{dmg}"
-DEST="{dest}"
-while kill -0 "$APP_PID" 2>/dev/null; do sleep 0.2; done
-MOUNT=$(hdiutil attach "$DMG" -nobrowse -readonly -noverify | awk -F'\t' '$NF ~ "^/Volumes/" {{print $NF}}' | tail -n1)
-if [ -n "$MOUNT" ] && [ -d "$MOUNT/Markdowner.app" ]; then
-  rm -rf "$DEST"
-  ditto "$MOUNT/Markdowner.app" "$DEST"
-  xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
-  hdiutil detach "$MOUNT" -quiet 2>/dev/null || hdiutil detach "$MOUNT" -force -quiet 2>/dev/null || true
-fi
-open "$DEST"
-rm -f "$DMG"
-"#,
-        pid = pid,
-        dmg = dmg_path,
-        dest = app_bundle,
-    )
-}
+/// The detached installer, embedded at compile time. It waits for the running
+/// app to exit, then mounts the DMG, stages the new bundle next to the
+/// destination, and swaps it in atomically — never removing the live bundle
+/// until a verified replacement exists. See `scripts/self-update.sh` for the
+/// full safety contract. The running PID, DMG path, and destination are passed
+/// as positional arguments so paths are never interpolated into shell source.
+const INSTALL_SCRIPT: &str = include_str!("../scripts/self-update.sh");
 
 #[tauri::command]
 pub fn download_and_install_update(
@@ -222,13 +204,17 @@ pub fn download_and_install_update(
     }
 
     // Stage and launch the detached installer, then quit so it can swap the
-    // bundle we are running from.
-    let script = render_install_script(&dmg_str, &bundle_str, std::process::id());
+    // bundle we are running from. Paths go in as positional arguments, never
+    // interpolated into the script source.
     let script_path = tmp_dir.join("markdowner-update.sh");
-    std::fs::write(&script_path, script).map_err(|e| format!("Failed to write installer: {e}"))?;
+    std::fs::write(&script_path, INSTALL_SCRIPT)
+        .map_err(|e| format!("Failed to write installer: {e}"))?;
 
     std::process::Command::new("/bin/bash")
         .arg(&script_path)
+        .arg(std::process::id().to_string())
+        .arg(&dmg_str)
+        .arg(&bundle_str)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -317,22 +303,27 @@ mod tests {
     }
 
     #[test]
-    fn install_script_includes_quarantine_clear_and_relaunch() {
-        let script = render_install_script(
-            "/tmp/markdowner-update.dmg",
-            "/Applications/Markdowner.app",
-            4321,
-        );
-        // The interpolated paths land in the variable definitions...
-        assert!(script.contains("APP_PID=4321"));
-        assert!(script.contains("DMG=\"/tmp/markdowner-update.dmg\""));
-        assert!(script.contains("DEST=\"/Applications/Markdowner.app\""));
-        // ...and the commands reference them by variable.
-        assert!(script.contains("hdiutil attach \"$DMG\""));
-        assert!(script.contains("ditto \"$MOUNT/Markdowner.app\" \"$DEST\""));
-        assert!(script.contains("xattr -dr com.apple.quarantine \"$DEST\""));
-        assert!(script.contains("open \"$DEST\""));
-        // Waits for the running app to exit before swapping the bundle.
+    fn embedded_install_script_swaps_atomically_and_never_destroys_the_live_bundle() {
+        let script = INSTALL_SCRIPT;
+        // Reads the running PID, DMG, and destination from positional args
+        // rather than interpolated source.
+        assert!(script.contains("APP_PID=\"$1\""));
+        assert!(script.contains("DMG=\"$2\""));
+        assert!(script.contains("DEST=\"$3\""));
+        // Waits for the running app to exit before touching the bundle.
         assert!(script.contains("kill -0 \"$APP_PID\""));
+        // Stages the new bundle into a scratch path, NOT directly over DEST...
+        assert!(script.contains("ditto \"$MOUNT/Markdowner.app\" \"$STAGED\""));
+        assert!(script.contains("xattr -dr com.apple.quarantine \"$STAGED\""));
+        // ...then swaps it in atomically, with a backup that can be restored.
+        assert!(script.contains("mv \"$DEST\" \"$BACKUP\""));
+        assert!(script.contains("trap fail INT TERM"));
+        assert!(script.contains("mv \"$STAGED\" \"$DEST\""));
+        assert!(script.contains("trap - INT TERM"));
+        assert!(script.contains("mv \"$BACKUP\" \"$DEST\""));
+        assert!(script.contains("open \"$DEST\""));
+        // The data-loss pattern (delete the live bundle before a verified
+        // replacement exists) must never reappear.
+        assert!(!script.contains("rm -rf \"$DEST\""));
     }
 }
