@@ -189,6 +189,9 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
       <DialogContent
         showCloseButton={false}
         className="sm:max-w-lg p-0 gap-0 overflow-hidden top-[20%] translate-y-0"
+        // Keep the dim, drop the blur: live previews (e.g. code-block theme)
+        // must stay legible behind the palette.
+        overlayClassName="supports-backdrop-filter:backdrop-blur-none"
         onEscapeKeyDown={(event) => {
           // In a submenu, Escape steps back to the root list instead of closing.
           if (submenu) {
