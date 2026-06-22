@@ -66,6 +66,8 @@ export interface Settings {
   editorWrapColumn: number;
   /** Show a vertical guide line at the wrap column (column mode only). */
   editorShowWrapLine: boolean;
+  /** Apply CSS `word-break: keep-all` across editor and preview surfaces. */
+  editorWordBreakKeepAll: boolean;
   outlineFontSize: number;
   outlineRowSpacing: number;
   defaultMode: 'Editor' | 'Wysiwyg' | 'SplitView';
@@ -149,6 +151,7 @@ export const DEFAULT_SETTINGS: Settings = {
   editorLineWrap: true,
   editorWrapColumn: 120,
   editorShowWrapLine: true,
+  editorWordBreakKeepAll: true,
   outlineFontSize: 12,
   outlineRowSpacing: 0,
   defaultMode: 'Wysiwyg',
@@ -324,6 +327,9 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): Setting
   merged.editorWrapColumn = normalizeWrapColumn(merged.editorWrapColumn);
   if (typeof merged.editorShowWrapLine !== 'boolean') {
     merged.editorShowWrapLine = DEFAULT_SETTINGS.editorShowWrapLine;
+  }
+  if (typeof merged.editorWordBreakKeepAll !== 'boolean') {
+    merged.editorWordBreakKeepAll = DEFAULT_SETTINGS.editorWordBreakKeepAll;
   }
   if (typeof merged.focusModeEnabled !== 'boolean') {
     merged.focusModeEnabled = DEFAULT_SETTINGS.focusModeEnabled;

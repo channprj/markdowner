@@ -752,6 +752,19 @@ section[data-mode='Wysiwyg'] {
   word-break: normal;
 }
 
+.editor-pane-source[data-word-break='keep-all'] .cm-content,
+.editor-pane-source[data-word-break='keep-all'] .cm-line,
+.editor-pane-preview[data-word-break='keep-all'],
+.editor-pane-wysiwyg[data-word-break='keep-all'] .notion-editor-content .ProseMirror {
+  word-break: keep-all;
+}
+.editor-pane-source[data-word-break='normal'] .cm-content,
+.editor-pane-source[data-word-break='normal'] .cm-line,
+.editor-pane-preview[data-word-break='normal'],
+.editor-pane-wysiwyg[data-word-break='normal'] .notion-editor-content .ProseMirror {
+  word-break: normal;
+}
+
 /* Wrap guide line — a 1px vertical rule at the wrap column, painted as a
    background stripe on the capped text element. A background only paints inside
    the element's box, so when the window is narrower than the column the element

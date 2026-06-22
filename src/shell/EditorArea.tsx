@@ -61,6 +61,8 @@ export interface EditorAreaProps {
   wrapColumn?: number;
   /** Show a vertical guide line at the wrap column (fixed-column mode only). */
   showWrapLine?: boolean;
+  /** Apply CSS `word-break: keep-all` across source, preview, and WYSIWYG text. */
+  wordBreakKeepAll?: boolean;
   /** When true, an overlay minimap is rendered against the editor surface. */
   minimapEnabled?: boolean;
   /** The scrollable element the minimap mirrors. Typically the active editor pane. */
@@ -106,6 +108,7 @@ export function EditorArea({
   lineWrap = true,
   wrapColumn,
   showWrapLine = true,
+  wordBreakKeepAll = true,
   minimapEnabled = false,
   minimapScrollEl = null,
   tableDensity = 'compact',
@@ -138,9 +141,11 @@ export function EditorArea({
   // its absence means "wrap to window" (column 0) or "no wrap" (lineWrap off).
   const wrapColumnAttribute = columnMode ? String(wrapColumn) : undefined;
   const wrapLineAttribute = showWrapLine ? 'on' : 'off';
+  const wordBreakAttribute = wordBreakKeepAll ? 'keep-all' : 'normal';
   const editorModeAttributes = {
     'data-focus-mode': String(focusModeEnabled),
     'data-typewriter-mode': String(typewriterModeEnabled),
+    'data-word-break': wordBreakAttribute,
   };
   const editorModeClassName = cn(
     focusModeEnabled && 'editor-focus-mode',

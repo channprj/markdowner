@@ -6188,6 +6188,60 @@ describe('App recent documents', () => {
     });
   });
 
+  it('toggles Word Break Keep All from the Command Palette and persists it through save_settings', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: true,
+          editorWordBreakKeepAll: true,
+        };
+      }
+      return undefined;
+    });
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const sourceSurface = await screen.findByTestId('editor-surface-source');
+    await waitFor(() => {
+      expect(sourceSurface).toHaveAttribute('data-word-break', 'keep-all');
+    });
+
+    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /command palette/i });
+    const input = within(dialog).getByRole('textbox', { name: /command palette search/i });
+
+    fireEvent.change(input, { target: { value: 'word break' } });
+
+    const keepAllOption = await within(dialog).findByRole('option', {
+      name: /disable word break keep all/i,
+    });
+    fireEvent.click(keepAllOption);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_settings', {
+        settings: expect.objectContaining({ editorWordBreakKeepAll: false }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(sourceSurface).toHaveAttribute('data-word-break', 'normal');
+    });
+  });
+
   it('toggles Auto Save from the Command Palette and persists it through save_settings', async () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {
@@ -6273,6 +6327,7 @@ describe('App recent documents', () => {
           editorLineWrap: true,
           editorWrapColumn: 120,
           editorShowWrapLine: true,
+          editorWordBreakKeepAll: true,
           outlineFontSize: 12,
           outlineRowSpacing: 0,
           defaultMode: 'Wysiwyg',
@@ -7082,6 +7137,38 @@ describe('App recent documents', () => {
     });
   });
 
+  it('persists Word Break Keep All changes from the Settings dialog through save_settings', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          autoSave: false,
+          editorFontSize: 14,
+          editorFontFamily: '',
+          editorLineWrap: true,
+          editorWordBreakKeepAll: true,
+        };
+      }
+      return undefined;
+    });
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+
+    const dialog = await screen.findByTestId('settings-panel');
+    const wordBreakToggle = within(dialog).getByLabelText(/word break keep all/i);
+
+    fireEvent.click(wordBreakToggle);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_settings', {
+        settings: expect.objectContaining({ editorWordBreakKeepAll: false }),
+      });
+    });
+  });
+
   it('persists Default Startup Mode changes from the Settings dialog through save_settings', async () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {
@@ -7559,6 +7646,7 @@ describe('App recent documents', () => {
           editorLineWrap: true,
           editorWrapColumn: 120,
           editorShowWrapLine: true,
+          editorWordBreakKeepAll: true,
           outlineFontSize: 12,
           outlineRowSpacing: 0,
           defaultMode: 'Wysiwyg',

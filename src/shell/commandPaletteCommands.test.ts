@@ -87,6 +87,7 @@ describe('buildCommandPaletteCommands', () => {
       'preferences.toggleFocusMode',
       'preferences.toggleTypewriterMode',
       'preferences.toggleWordWrap',
+      'preferences.toggleWordBreakKeepAll',
       'preferences.toggleTableViewMode',
       'preferences.toggleAutoSave',
       'app.settings',
@@ -224,6 +225,7 @@ describe('buildCommandPaletteCommands', () => {
     const current = settings({
       autoSave: true,
       editorLineWrap: false,
+      editorWordBreakKeepAll: true,
       focusModeEnabled: true,
       typewriterModeEnabled: false,
     });
@@ -241,6 +243,8 @@ describe('buildCommandPaletteCommands', () => {
       .toBe('Enable Typewriter Mode');
     expect(commands.find((command) => command.id === 'preferences.toggleWordWrap')?.label)
       .toBe('Enable Word Wrap');
+    expect(commands.find((command) => command.id === 'preferences.toggleWordBreakKeepAll')?.label)
+      .toBe('Disable Word Break Keep All');
     expect(commands.find((command) => command.id === 'preferences.toggleAutoSave')?.label)
       .toBe('Disable Auto Save');
 
@@ -250,8 +254,27 @@ describe('buildCommandPaletteCommands', () => {
       editorLineWrap: true,
     });
 
+    commands.find((command) => command.id === 'preferences.toggleWordBreakKeepAll')?.run?.();
+    expect(updateSettings).toHaveBeenCalledWith({
+      ...current,
+      editorWordBreakKeepAll: false,
+    });
+
     commands.find((command) => command.id === 'preferences.resetDefaults')?.run?.();
     expect(updateSettings).toHaveBeenLastCalledWith(DEFAULT_SETTINGS);
+  });
+
+  it('labels the word-break keep-all toggle by the next action', () => {
+    const commands = buildCommandPaletteCommands({
+      activeDocumentOpen: true,
+      canGoBack: true,
+      canGoForward: true,
+      settings: settings({ editorWordBreakKeepAll: false }),
+      actions: actions(),
+    });
+
+    expect(commands.find((command) => command.id === 'preferences.toggleWordBreakKeepAll')?.label)
+      .toBe('Enable Word Break Keep All');
   });
 
   it('toggles the table view mode and labels it by the next action', () => {

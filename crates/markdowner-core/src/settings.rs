@@ -15,6 +15,7 @@ pub struct Settings {
     pub editor_line_wrap: bool,
     pub editor_wrap_column: u32,
     pub editor_show_wrap_line: bool,
+    pub editor_word_break_keep_all: bool,
     pub outline_font_size: u32,
     pub outline_row_spacing: u32,
     pub default_mode: EditorMode,
@@ -52,6 +53,7 @@ impl Default for Settings {
             editor_line_wrap: true,
             editor_wrap_column: 120,
             editor_show_wrap_line: true,
+            editor_word_break_keep_all: true,
             outline_font_size: 12,
             outline_row_spacing: 0,
             default_mode: EditorMode::Wysiwyg,
@@ -107,7 +109,10 @@ mod tests {
         });
         let parsed: Settings = serde_json::from_value(json).expect("override settings parse");
         assert_eq!(
-            parsed.keybinding_overrides.get("file.newDocument").map(String::as_str),
+            parsed
+                .keybinding_overrides
+                .get("file.newDocument")
+                .map(String::as_str),
             Some("mod+shift+n")
         );
         let serialized = serde_json::to_value(&parsed).expect("settings serialize");
@@ -135,7 +140,10 @@ mod tests {
         let parsed: Settings = serde_json::from_value(json).expect("explicit settings parse");
         assert!(!parsed.update_check_enabled);
         assert_eq!(parsed.last_update_check_at, Some(1234567890));
-        assert_eq!(parsed.dismissed_update_version.as_deref(), Some("0.260601.0"));
+        assert_eq!(
+            parsed.dismissed_update_version.as_deref(),
+            Some("0.260601.0")
+        );
     }
 
     #[test]
@@ -179,6 +187,27 @@ mod tests {
         assert!(payload.contains("\"editorShowWrapLine\":false"));
         let parsed: Settings = serde_json::from_str(&payload).expect("parse");
         assert!(!parsed.editor_show_wrap_line);
+    }
+
+    #[test]
+    fn word_break_keep_all_defaults_to_enabled_and_round_trips() {
+        // Legacy settings.json (pre-word-break option) loads with keep-all ON.
+        let legacy = r#"{"autoSave":true,"editorLineWrap":true}"#;
+        let parsed: Settings = serde_json::from_str(legacy).expect("legacy settings parse");
+        assert!(
+            parsed.editor_word_break_keep_all,
+            "missing editorWordBreakKeepAll should default to true"
+        );
+
+        // Explicit false survives round-trip via the camelCase key.
+        let original = Settings {
+            editor_word_break_keep_all: false,
+            ..Default::default()
+        };
+        let payload = serde_json::to_string(&original).expect("serialize");
+        assert!(payload.contains("\"editorWordBreakKeepAll\":false"));
+        let parsed: Settings = serde_json::from_str(&payload).expect("parse");
+        assert!(!parsed.editor_word_break_keep_all);
     }
 
     #[test]

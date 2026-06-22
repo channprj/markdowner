@@ -169,6 +169,7 @@ describe('word wrap column + wrap line', () => {
   it('defaults to a 120-column cap with the wrap line on', () => {
     expect(DEFAULT_SETTINGS.editorWrapColumn).toBe(120);
     expect(DEFAULT_SETTINGS.editorShowWrapLine).toBe(true);
+    expect(DEFAULT_SETTINGS.editorWordBreakKeepAll).toBe(true);
   });
 
   it('treats 0 as the special "wrap to window" value', () => {
@@ -198,5 +199,25 @@ describe('word wrap column + wrap line', () => {
         editorShowWrapLine: false,
       }),
     ).toEqual(['editorShowWrapLine']);
+  });
+
+  it('keeps word-break keep-all enabled when persisted settings are missing or malformed', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue({
+      editorWordBreakKeepAll: 'false',
+    });
+
+    const settings = await loadSettings();
+
+    expect(settings.editorWordBreakKeepAll).toBe(true);
+  });
+
+  it('tracks the word-break keep-all toggle as a change', () => {
+    expect(
+      getChangedSettingsKeys(DEFAULT_SETTINGS, {
+        ...DEFAULT_SETTINGS,
+        editorWordBreakKeepAll: false,
+      }),
+    ).toEqual(['editorWordBreakKeepAll']);
   });
 });

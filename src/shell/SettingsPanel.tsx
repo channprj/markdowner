@@ -859,6 +859,20 @@ export function SettingsPanel({
           </div>
 
           <div className={switchFieldClass}>
+            <Label htmlFor="word-break-keep-all" className="flex flex-col items-start gap-0.5 text-left text-sm">
+              <span>Word Break Keep All</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                Keeps Korean/CJK words intact when lines wrap.
+              </span>
+            </Label>
+            <Switch
+              id="word-break-keep-all"
+              checked={settings.editorWordBreakKeepAll}
+              onCheckedChange={(checked) => handleSettingChange('editorWordBreakKeepAll', checked)}
+            />
+          </div>
+
+          <div className={switchFieldClass}>
             <Label htmlFor="focus-mode" className="text-sm">Focus Mode</Label>
             <Switch
               id="focus-mode"

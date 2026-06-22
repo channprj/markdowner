@@ -5191,6 +5191,7 @@ export default function App() {
         lineWrap={settings.editorLineWrap}
         wrapColumn={settings.editorWrapColumn}
         showWrapLine={settings.editorShowWrapLine}
+        wordBreakKeepAll={settings.editorWordBreakKeepAll}
         splitSourceRef={splitSourceScrollRef}
         splitPreviewRef={splitPreviewScrollRef}
         onSplitSourceScroll={handleSplitSourceScroll}

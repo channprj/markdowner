@@ -52,6 +52,46 @@ describe('EditorArea mode switch', () => {
     expect(screen.getByTestId('wysiwyg-marker').parentElement).toHaveClass('notion-editor-content');
   });
 
+  it('applies word-break keep-all to every editor surface by default', () => {
+    render(<EditorArea {...baseProps} currentMode="SplitView" />);
+
+    expect(screen.getByTestId('editor-surface-source')).toHaveAttribute(
+      'data-word-break',
+      'keep-all',
+    );
+    expect(screen.getByTestId('editor-surface-preview')).toHaveAttribute(
+      'data-word-break',
+      'keep-all',
+    );
+    expect(screen.getByTestId('editor-surface-wysiwyg')).toHaveAttribute(
+      'data-word-break',
+      'keep-all',
+    );
+  });
+
+  it('can disable word-break keep-all across editor surfaces', () => {
+    render(
+      <EditorArea
+        {...baseProps}
+        currentMode="SplitView"
+        wordBreakKeepAll={false}
+      />,
+    );
+
+    expect(screen.getByTestId('editor-surface-source')).toHaveAttribute(
+      'data-word-break',
+      'normal',
+    );
+    expect(screen.getByTestId('editor-surface-preview')).toHaveAttribute(
+      'data-word-break',
+      'normal',
+    );
+    expect(screen.getByTestId('editor-surface-wysiwyg')).toHaveAttribute(
+      'data-word-break',
+      'normal',
+    );
+  });
+
   it('keeps typewriter spacing off the flex pane in source mode', () => {
     render(<EditorArea {...baseProps} currentMode="Editor" typewriterModeEnabled />);
 

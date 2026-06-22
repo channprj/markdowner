@@ -244,6 +244,18 @@ export function buildCommandPaletteCommands(
         }),
     },
     {
+      id: 'preferences.toggleWordBreakKeepAll',
+      category: 'Preferences',
+      label: settings.editorWordBreakKeepAll
+        ? 'Disable Word Break Keep All'
+        : 'Enable Word Break Keep All',
+      run: () =>
+        actions.updateSettings({
+          ...settings,
+          editorWordBreakKeepAll: !settings.editorWordBreakKeepAll,
+        }),
+    },
+    {
       id: 'preferences.toggleTableViewMode',
       category: 'Preferences',
       label:
