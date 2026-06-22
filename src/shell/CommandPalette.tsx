@@ -12,6 +12,14 @@ import { cn } from '@/lib/utils';
 import { fuzzyScore } from '@/lib/fuzzy';
 import { hangulToQwerty } from '@/lib/hangulQwerty';
 
+const textSuggestionSuppressionAttributes = {
+  spellCheck: false,
+  autoComplete: 'off',
+  autoCorrect: 'off',
+  autoCapitalize: 'off',
+  writingsuggestions: 'false',
+} as const;
+
 export interface CommandPaletteCommand {
   id: string;
   label: string;
@@ -225,6 +233,7 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
             aria-activedescendant={activeOptionId}
             aria-autocomplete="list"
             inputMode="text"
+            {...textSuggestionSuppressionAttributes}
             className="h-9 border-0 shadow-none focus-visible:ring-0 px-1"
           />
         </div>
