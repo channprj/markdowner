@@ -387,6 +387,8 @@ export async function buildExportHtml(options: ExportHtmlOptions): Promise<strin
   const printCss = forPrint
     ? `@page { size: ${paperSize}; }
 .markdowner-export { box-sizing: border-box; width: 100%; max-width: none; }
+.markdowner-export pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.markdowner-export pre code { white-space: inherit; }
 img, svg, video { max-width: 100%; height: auto; }`
     : `.markdowner-export { box-sizing: border-box; max-width: 820px; margin: 0 auto; padding: 40px 32px; }`;
   const exportCss = `${css}

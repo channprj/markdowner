@@ -154,6 +154,20 @@ describe('buildExportHtml', () => {
     expect(html).toContain('@page { size: Letter');
   });
 
+  it('wraps long code block lines for PDF export', async () => {
+    const html = await buildExportHtml({
+      title: 'P',
+      source: '```text\n' + 'a'.repeat(240) + '\n```',
+      activeDocumentPath: null,
+      forPrint: true,
+    });
+
+    expect(html).toContain(
+      '.markdowner-export pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }',
+    );
+    expect(html).toContain('.markdowner-export pre code { white-space: inherit; }');
+  });
+
   it('escapes the title to avoid breaking the document', async () => {
     const html = await buildExportHtml({ title: 'a<b>&"', source: 'x', activeDocumentPath: null });
     expect(html).toContain('<title>a&lt;b&gt;&amp;&quot;</title>');
