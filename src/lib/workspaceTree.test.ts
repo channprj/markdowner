@@ -4,6 +4,7 @@ import {
   buildWorkspaceTreeSignature,
   buildWorkspaceTree,
   collectWorkspaceFolderKeys,
+  countVisibleWorkspaceTreeRows,
   displayFileName,
   displayWorkspacePath,
   filterWorkspaceTree,
@@ -186,6 +187,43 @@ describe('collectWorkspaceFolderKeys', () => {
     );
 
     expect(collectWorkspaceFolderKeys(tree)).toEqual(['guides', 'guides/reference']);
+  });
+});
+
+describe('countVisibleWorkspaceTreeRows', () => {
+  it('counts visible rows and skips descendants of collapsed folders', () => {
+    const tree = buildWorkspaceTree(
+      [
+        '/tmp/project/guides/draft.md',
+        '/tmp/project/guides/reference/api.md',
+        '/tmp/project/README.md',
+      ],
+      '/tmp/project',
+    );
+
+    expect(
+      countVisibleWorkspaceTreeRows({
+        nodes: tree,
+        collapsedFolderKeys: [],
+        filtering: false,
+      }),
+    ).toBe(5);
+
+    expect(
+      countVisibleWorkspaceTreeRows({
+        nodes: tree,
+        collapsedFolderKeys: ['guides'],
+        filtering: false,
+      }),
+    ).toBe(2);
+
+    expect(
+      countVisibleWorkspaceTreeRows({
+        nodes: tree,
+        collapsedFolderKeys: ['guides'],
+        filtering: true,
+      }),
+    ).toBe(5);
   });
 });
 

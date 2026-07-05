@@ -6,6 +6,7 @@ export const SIDEBAR_DEFAULT_WIDTH = 280;
 export const SIDEBAR_KEYBOARD_STEP = 8;
 export const SIDEBAR_KEYBOARD_PAGE_STEP = 32;
 export const ACTIVITY_BAR_WIDTH = 48;
+export const SIDEBAR_ANIMATION_ROW_LIMIT = 300;
 
 export type SidebarPanel = 'files' | 'search' | 'outline';
 
@@ -30,6 +31,7 @@ type ResolveSidebarLayoutStateInput = {
   isOpen: boolean;
   width: number;
   isResizing: boolean;
+  sidebarContentRows?: number;
 };
 
 export type SidebarLayoutState = {
@@ -110,12 +112,15 @@ export function resolveSidebarLayoutState({
   isOpen,
   width,
   isResizing,
+  sidebarContentRows = 0,
 }: ResolveSidebarLayoutStateInput): SidebarLayoutState {
+  const hasHeavySidebarContent = sidebarContentRows > SIDEBAR_ANIMATION_ROW_LIMIT;
+
   return {
     gridTemplateColumns: isOpen
       ? `${ACTIVITY_BAR_WIDTH}px ${clampSidebarWidth(width)}px 4px minmax(0, 1fr)`
       : `${ACTIVITY_BAR_WIDTH}px 0px 0px minmax(0, 1fr)`,
-    gridShouldAnimate: !isResizing,
+    gridShouldAnimate: !isResizing && !hasHeavySidebarContent,
     resizeHandleTabIndex: isOpen ? 0 : -1,
     resizeHandleInteractive: isOpen,
     resizeRailActive: isResizing,

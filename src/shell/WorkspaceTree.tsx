@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { ChevronDown, ChevronRight, FileText, FolderOpen } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -12,7 +13,7 @@ type WorkspaceTreeProps = {
   onOpenFile: (path: string) => void;
 };
 
-export function WorkspaceTree({
+function WorkspaceTreeComponent({
   nodes,
   activePath,
   collapsedKeys,
@@ -37,6 +38,9 @@ export function WorkspaceTree({
     </>
   );
 }
+
+export const WorkspaceTree = memo(WorkspaceTreeComponent);
+WorkspaceTree.displayName = 'WorkspaceTree';
 
 type WorkspaceTreeNodeViewProps = Omit<WorkspaceTreeProps, 'nodes'> & {
   node: WorkspaceTreeNode;

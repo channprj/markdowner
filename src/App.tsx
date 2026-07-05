@@ -33,6 +33,7 @@ import type {
   UIEvent as ReactUIEvent,
 } from 'react';
 import {
+  useCallback,
   startTransition,
   useDeferredValue,
   useEffect,
@@ -322,6 +323,7 @@ import {
 } from './lib/wysiwygPaste';
 import {
   collectWorkspaceFolderKeys,
+  countVisibleWorkspaceTreeRows,
   displayFileName,
   displayWorkspacePath,
   pruneCollapsedWorkspaceFolderKeys,
@@ -2429,7 +2431,20 @@ export default function App() {
     filtering: filteringWorkspace,
     signature: workspaceTreeSignature,
   } = workspaceTreeView;
+  const visibleWorkspaceTreeRowCount = useMemo(
+    () =>
+      countVisibleWorkspaceTreeRows({
+        nodes: filteredWorkspaceTree,
+        collapsedFolderKeys,
+        filtering: filteringWorkspace,
+      }),
+    [collapsedFolderKeys, filteredWorkspaceTree, filteringWorkspace],
+  );
   const outlinePanelSizing = resolveOutlinePanelSizing(settings);
+  const searchResultRowCount = useMemo(
+    () => searchResults.reduce((count, file) => count + 1 + file.matches.length, 0),
+    [searchResults],
+  );
 
   const applyExternalChangeState = (next: ExternalChangeViewState) => {
     setExternalChangeMessage(next.message);
@@ -4154,13 +4169,17 @@ export default function App() {
     await openKnownDocumentPath(path, openDocument);
   };
 
-  const handleToggleWorkspaceFolder = (key: string) => {
+  const handleToggleWorkspaceFolder = useCallback((key: string) => {
     setCollapsedFolderKeys((current) => toggleWorkspaceFolderKey(current, key));
-  };
+  }, []);
 
-  const handleCollapseWorkspaceFolders = () => {
+  const handleCollapseWorkspaceFolders = useCallback(() => {
     setCollapsedFolderKeys(collectWorkspaceFolderKeys(workspaceTree));
-  };
+  }, [workspaceTree]);
+
+  const handleOpenWorkspaceTreeFile = useEffectEvent((path: string) => {
+    void handleOpenWorkspaceDocument(path);
+  });
 
   // Switch to an existing tab. Stashes the outgoing tab's draft, drives Rust's
   // active document to the target's path (or a fresh untitled), then restores
@@ -4891,11 +4910,38 @@ export default function App() {
     documentStats,
   });
   const { documentMeta, openEditorItems, tabStripItems, statusBarModel } = shellChromeModel;
+  const sidebarContentRows =
+    sidebarPanel === 'files'
+      ? visibleWorkspaceTreeRowCount
+      : sidebarPanel === 'search'
+        ? searchResultRowCount
+        : outlineItems.length;
   const sidebarLayout = resolveSidebarLayoutState({
     isOpen: isSidebarOpen,
     width: sidebarWidth,
     isResizing: isResizingSidebar,
+    sidebarContentRows,
   });
+  const renderWorkspaceTreeNodes = useCallback(
+    () => (
+      <WorkspaceTree
+        nodes={filteredWorkspaceTree}
+        activePath={snapshot.activeDocumentPath}
+        collapsedKeys={collapsedFolderKeys}
+        filtering={filteringWorkspace}
+        onToggleFolder={handleToggleWorkspaceFolder}
+        onOpenFile={handleOpenWorkspaceTreeFile}
+      />
+    ),
+    [
+      collapsedFolderKeys,
+      filteredWorkspaceTree,
+      filteringWorkspace,
+      handleOpenWorkspaceTreeFile,
+      handleToggleWorkspaceFolder,
+      snapshot.activeDocumentPath,
+    ],
+  );
   const quickOpenSignature = buildQuickOpenSignature(snapshot);
   // The signature covers the exact snapshot fields Quick Open needs; other
   // active-document snapshot changes should not rebuild large file lists.
@@ -5090,16 +5136,7 @@ export default function App() {
           onSelectOpenEditor={(id) => void switchToTab(id)}
           onCloseOpenEditor={(id) => void handleCloseTab(id)}
           onOpenRecentDocument={handleOpenRecentDocument}
-          renderWorkspaceTreeNodes={() => (
-            <WorkspaceTree
-              nodes={filteredWorkspaceTree}
-              activePath={snapshot.activeDocumentPath}
-              collapsedKeys={collapsedFolderKeys}
-              filtering={filteringWorkspace}
-              onToggleFolder={handleToggleWorkspaceFolder}
-              onOpenFile={(path) => void handleOpenWorkspaceDocument(path)}
-            />
-          )}
+          renderWorkspaceTreeNodes={renderWorkspaceTreeNodes}
           displayFileName={displayFileName}
           displayWorkspacePath={displayWorkspacePath}
           outlineItems={outlineItems}

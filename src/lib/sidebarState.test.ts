@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  SIDEBAR_ANIMATION_ROW_LIMIT,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
@@ -168,6 +169,20 @@ describe('sidebar state persistence', () => {
       resizeHandleInteractive: false,
       resizeRailActive: true,
       resizeRailHoverable: false,
+    });
+  });
+
+  it('skips column animation for heavy sidebar content', () => {
+    expect(
+      resolveSidebarLayoutState({
+        isOpen: true,
+        width: 312,
+        isResizing: false,
+        sidebarContentRows: SIDEBAR_ANIMATION_ROW_LIMIT + 1,
+      }),
+    ).toMatchObject({
+      gridTemplateColumns: '48px 312px 4px minmax(0, 1fr)',
+      gridShouldAnimate: false,
     });
   });
 });

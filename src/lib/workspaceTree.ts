@@ -160,6 +160,32 @@ export function collectWorkspaceFolderKeys(nodes: readonly WorkspaceTreeNode[]):
   return folderKeys;
 }
 
+export function countVisibleWorkspaceTreeRows({
+  nodes,
+  collapsedFolderKeys,
+  filtering,
+}: {
+  nodes: readonly WorkspaceTreeNode[];
+  collapsedFolderKeys: readonly string[];
+  filtering: boolean;
+}): number {
+  let count = 0;
+  const collapsedFolders = new Set(collapsedFolderKeys);
+
+  const appendVisibleRows = (treeNodes: readonly WorkspaceTreeNode[]) => {
+    for (const node of treeNodes) {
+      count += 1;
+
+      if (node.kind === 'folder' && (filtering || !collapsedFolders.has(node.key))) {
+        appendVisibleRows(node.children);
+      }
+    }
+  };
+
+  appendVisibleRows(nodes);
+  return count;
+}
+
 export function toggleWorkspaceFolderKey(
   collapsedFolderKeys: readonly string[],
   key: string,
