@@ -4,7 +4,10 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     os::unix::net::{UnixListener, UnixStream},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -16,7 +19,7 @@ use markdowner_core::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tauri::{
-    AppHandle, Emitter, Manager, Runtime, State,
+    AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder,
     menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
 };
 use shell_managed_block::ManagedShellBlock;
@@ -33,6 +36,7 @@ const MENU_COMMAND_EVENT: &str = "markdowner://menu-command";
 const MENU_FILE_ID: &str = "file";
 const MENU_VIEW_ID: &str = "view";
 const MENU_COMMAND_NEW_DOCUMENT: &str = "new-document";
+const MENU_COMMAND_NEW_WINDOW: &str = "new-window";
 const MENU_COMMAND_OPEN_DOCUMENT: &str = "open-document";
 const MENU_COMMAND_OPEN_WORKSPACE: &str = "open-workspace";
 const MENU_COMMAND_OPEN_RECENT_DOCUMENT_PREFIX: &str = "open-recent-document:";
@@ -77,6 +81,10 @@ const CTRL_G_LAUNCHER_SNIPPET: &str =
 
 const CLI_BINARY_INSTALL_PATH: &str = "/usr/local/bin/mdner";
 const CLI_BINARY_SCRIPT_TAG: &str = "# markdowner-cli-wrapper";
+const NEW_WINDOW_LABEL_PREFIX: &str = "markdownerWindow";
+const NEW_WINDOW_URL: &str = "index.html?markdownerNewWindow=1";
+
+static NEXT_WINDOW_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MenuCommandDescriptor {
@@ -136,6 +144,11 @@ const FILE_MENU_COMMANDS: &[MenuCommandDescriptor] = &[
         id: MENU_COMMAND_NEW_DOCUMENT,
         label: "New Document",
         accelerator: Some("CmdOrCtrl+N"),
+    },
+    MenuCommandDescriptor {
+        id: MENU_COMMAND_NEW_WINDOW,
+        label: "New Window",
+        accelerator: Some("CmdOrCtrl+Shift+N"),
     },
     MenuCommandDescriptor {
         id: MENU_COMMAND_OPEN_DOCUMENT,
@@ -1136,6 +1149,7 @@ fn menu_command_from_id(id: &str) -> Option<String> {
 
     match id {
         MENU_COMMAND_NEW_DOCUMENT => Some(MENU_COMMAND_NEW_DOCUMENT.to_string()),
+        MENU_COMMAND_NEW_WINDOW => Some(MENU_COMMAND_NEW_WINDOW.to_string()),
         MENU_COMMAND_OPEN_DOCUMENT => Some(MENU_COMMAND_OPEN_DOCUMENT.to_string()),
         MENU_COMMAND_OPEN_WORKSPACE => Some(MENU_COMMAND_OPEN_WORKSPACE.to_string()),
         MENU_COMMAND_SAVE_ACTIVE_DOCUMENT => Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT.to_string()),
@@ -1148,6 +1162,19 @@ fn menu_command_from_id(id: &str) -> Option<String> {
         MENU_COMMAND_SET_MODE_EDITOR => Some(MENU_COMMAND_SET_MODE_EDITOR.to_string()),
         MENU_COMMAND_SET_MODE_SPLITVIEW => Some(MENU_COMMAND_SET_MODE_SPLITVIEW.to_string()),
         _ => None,
+    }
+}
+
+fn emit_menu_command<R: Runtime>(app: &AppHandle<R>, command: String) {
+    let focused_window = app
+        .webview_windows()
+        .into_values()
+        .find(|window| window.is_focused().unwrap_or(false));
+
+    if let Some(window) = focused_window {
+        let _ = window.emit(MENU_COMMAND_EVENT, command);
+    } else {
+        let _ = app.emit(MENU_COMMAND_EVENT, command);
     }
 }
 
@@ -1415,6 +1442,40 @@ fn new_document(
     app_handle: AppHandle,
 ) -> Result<AppSnapshot, String> {
     with_backend_and_menu(state, app_handle, DesktopBackend::new_document)
+}
+
+fn next_window_label<R: Runtime>(app_handle: &AppHandle<R>) -> String {
+    loop {
+        let id = NEXT_WINDOW_ID.fetch_add(1, Ordering::Relaxed);
+        let label = format!("{NEW_WINDOW_LABEL_PREFIX}{id}");
+        if app_handle.get_webview_window(&label).is_none() {
+            return label;
+        }
+    }
+}
+
+#[tauri::command]
+async fn new_window(app_handle: AppHandle) -> Result<(), String> {
+    let mut window_config = app_handle
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == "main")
+        .cloned()
+        .ok_or_else(|| "Could not find the main window configuration".to_string())?;
+
+    window_config.label = next_window_label(&app_handle);
+    window_config.url = WebviewUrl::App(NEW_WINDOW_URL.into());
+
+    let window = WebviewWindowBuilder::from_config(&app_handle, &window_config)
+        .map_err(|error| error.to_string())?
+        .build()
+        .map_err(|error| error.to_string())?;
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    Ok(())
 }
 
 #[tauri::command]
@@ -1962,7 +2023,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .on_menu_event(|app, event| {
             if let Some(command) = menu_command_from_id(event.id().as_ref()) {
-                let _ = app.emit(MENU_COMMAND_EVENT, command);
+                emit_menu_command(app, command);
             }
         })
         .setup(move |app| {
@@ -2006,6 +2067,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bootstrap,
             new_document,
+            new_window,
             open_document,
             open_workspace,
             open_workspace_document,
@@ -2116,8 +2178,8 @@ mod tests {
     use super::{
         CLI_BINARY_SCRIPT_TAG, CTRL_G_LAUNCHER_BEGIN_MARKER, CTRL_G_LAUNCHER_END_MARKER,
         CTRL_G_LAUNCHER_SNIPPET, DesktopBackend, FILE_MENU_COMMANDS, MENU_COMMAND_CLOSE_WINDOW,
-        MENU_COMMAND_NEW_DOCUMENT, MENU_COMMAND_OPEN_DOCUMENT, MENU_COMMAND_OPEN_WORKSPACE,
-        MENU_COMMAND_QUIT_APP, MENU_COMMAND_SAVE_ACTIVE_DOCUMENT,
+        MENU_COMMAND_NEW_DOCUMENT, MENU_COMMAND_NEW_WINDOW, MENU_COMMAND_OPEN_DOCUMENT,
+        MENU_COMMAND_OPEN_WORKSPACE, MENU_COMMAND_QUIT_APP, MENU_COMMAND_SAVE_ACTIVE_DOCUMENT,
         MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS, MENU_COMMAND_SET_MODE_SPLITVIEW, MENU_EDIT_TITLE,
         MENU_FILE_TITLE, MENU_VIEW_TITLE, TopLevelMenuSection, VIEW_MENU_COMMANDS,
         cli_binary_install_is_ours, cli_binary_wrapper_script_for_target,
@@ -2640,6 +2702,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 MENU_COMMAND_NEW_DOCUMENT,
+                MENU_COMMAND_NEW_WINDOW,
                 MENU_COMMAND_OPEN_DOCUMENT,
                 MENU_COMMAND_OPEN_WORKSPACE,
                 MENU_COMMAND_SAVE_ACTIVE_DOCUMENT,
@@ -2713,6 +2776,10 @@ mod tests {
 
     #[test]
     fn menu_command_mapping_only_accepts_supported_command_ids() {
+        assert_eq!(
+            menu_command_from_id(MENU_COMMAND_NEW_WINDOW),
+            Some(MENU_COMMAND_NEW_WINDOW.to_string())
+        );
         assert_eq!(
             menu_command_from_id(MENU_COMMAND_SET_MODE_SPLITVIEW),
             Some(MENU_COMMAND_SET_MODE_SPLITVIEW.to_string())

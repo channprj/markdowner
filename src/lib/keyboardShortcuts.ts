@@ -67,6 +67,7 @@ export type FindShortcutAction =
 export type ShellShortcutAction =
   | { kind: 'closeTabOrWindow' }
   | { kind: 'newDocument' }
+  | { kind: 'newWindow' }
   | { kind: 'none' }
   | { kind: 'openDocument' }
   | { kind: 'openOutlinePanel' }
@@ -232,6 +233,9 @@ export function resolveShellShortcutAction(
 
   if (matches('file.newDocument') || matches('file.newTab')) {
     return { kind: 'newDocument' };
+  }
+  if (matches('file.newWindow')) {
+    return { kind: 'newWindow' };
   }
   if (matches('file.openWorkspace')) {
     return { kind: 'openWorkspace' };

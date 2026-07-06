@@ -4,6 +4,7 @@ const OPEN_RECENT_DOCUMENT_PREFIX = 'open-recent-document:';
 
 export type NativeMenuCommand =
   | { kind: 'newDocument' }
+  | { kind: 'newWindow' }
   | { kind: 'openDocument' }
   | { kind: 'openWorkspace' }
   | { kind: 'saveActiveDocument' }
@@ -25,6 +26,8 @@ export function parseNativeMenuCommand(command: string): NativeMenuCommand {
   switch (command) {
     case 'new-document':
       return { kind: 'newDocument' };
+    case 'new-window':
+      return { kind: 'newWindow' };
     case 'open-document':
       return { kind: 'openDocument' };
     case 'open-workspace':

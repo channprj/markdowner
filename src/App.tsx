@@ -83,6 +83,7 @@ import {
   activeDocumentDiskSource,
   importTheme,
   newDocument,
+  newWindow,
   openDocument,
   openWorkspace,
   openWorkspaceDocument,
@@ -380,6 +381,7 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 
 const MENU_COMMAND_EVENT = 'markdowner://menu-command';
 const SNAPSHOT_UPDATE_EVENT = 'markdowner://update-snapshot';
+const NEW_WINDOW_QUERY_PARAM = 'markdownerNewWindow';
 const STARTUP_OPEN_TABS_RETRY_MS = 100;
 
 type CloseTarget = 'window' | 'app';
@@ -425,6 +427,10 @@ function useLatestRequestTracker(): LatestRequestTracker {
 }
 
 export default function App() {
+  const shouldCreateInitialDocument = useMemo(
+    () => new URLSearchParams(window.location.search).get(NEW_WINDOW_QUERY_PARAM) === '1',
+    [],
+  );
   const [snapshot, setSnapshot] = useState<AppSnapshot>(EMPTY_SNAPSHOT);
   const [localDraft, setLocalDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -2554,6 +2560,19 @@ export default function App() {
           }
         }
 
+        if (shouldCreateInitialDocument) {
+          const freshDocument = await newDocument();
+          if (cancelled) {
+            return;
+          }
+          applySnapshot(freshDocument);
+          upsertActiveTabFromSnapshot(freshDocument, {
+            markStartupTabsReady: true,
+            preserveSettingsActive: true,
+          });
+          return;
+        }
+
         if (next.activeDocumentSource !== null) {
           // Hydrate the persisted caret map and arm the startup focus + caret
           // directive BEFORE the snapshot commit. Arming after applySnapshot
@@ -3478,6 +3497,14 @@ export default function App() {
     focusActiveEditor();
   };
 
+  const handleNewWindow = async () => {
+    try {
+      await newWindow();
+    } catch (error) {
+      reportOperationError(error, 'Could not open a new window');
+    }
+  };
+
   const handleOpenDocument = async () => {
     const defaultPath = defaultOpenDocumentDialogPath(snapshot);
     const selected = await openDialog({
@@ -4391,6 +4418,9 @@ export default function App() {
       case 'newDocument':
         await handleNewDocument();
         return;
+      case 'newWindow':
+        await handleNewWindow();
+        return;
       case 'openDocument':
         await handleOpenDocument();
         return;
@@ -4486,6 +4516,9 @@ export default function App() {
             return;
           case 'newDocument':
             void handleNewDocument();
+            return;
+          case 'newWindow':
+            void handleNewWindow();
             return;
           case 'openDocument':
             void handleOpenDocument();

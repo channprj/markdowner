@@ -225,6 +225,7 @@ describe('resolveShellShortcutAction', () => {
 
   it.each([
     [{ key: 'n', metaKey: true }, { kind: 'newDocument' }],
+    [{ key: 'N', metaKey: true, shiftKey: true }, { kind: 'newWindow' }],
     [{ key: 't', metaKey: true }, { kind: 'newDocument' }],
     [{ key: 'O', metaKey: true, shiftKey: true }, { kind: 'openWorkspace' }],
     [{ key: 'b', metaKey: true, shiftKey: true }, { kind: 'toggleSidebar' }],

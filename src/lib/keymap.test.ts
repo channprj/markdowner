@@ -32,6 +32,10 @@ describe('keymap descriptors', () => {
     expect(formatKeyBinding({ key: 'f', alt: true })).toBe('⌥⌘F');
     expect(formatKeyBinding({ key: ',' })).toBe('⌘,');
   });
+
+  it('binds new window to command-shift-n by default', () => {
+    expect(DEFAULT_SHELL_BINDINGS['file.newWindow']).toEqual({ key: 'n', shift: true });
+  });
 });
 
 describe('resolveShellBindings', () => {

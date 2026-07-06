@@ -44,6 +44,7 @@ const activeDocumentDiskSourceMock = vi.fn();
 const importThemeMock = vi.fn();
 const hasActiveDocumentExternalChangesMock = vi.fn();
 const newDocumentMock = vi.fn();
+const newWindowMock = vi.fn();
 const openDocumentMock = vi.fn();
 const openWorkspaceMock = vi.fn();
 const openWorkspaceDocumentMock = vi.fn();
@@ -98,6 +99,7 @@ vi.mock('./lib/desktop', () => ({
   importTheme: importThemeMock,
   hasActiveDocumentExternalChanges: hasActiveDocumentExternalChangesMock,
   newDocument: newDocumentMock,
+  newWindow: newWindowMock,
   openDocument: openDocumentMock,
   openWorkspace: openWorkspaceMock,
   openWorkspaceDocument: openWorkspaceDocumentMock,
@@ -493,6 +495,8 @@ describe('App recent documents', () => {
     activeDocumentDiskSourceMock.mockReset();
     importThemeMock.mockReset();
     newDocumentMock.mockReset();
+    newWindowMock.mockReset();
+    newWindowMock.mockResolvedValue(undefined);
     openDocumentMock.mockReset();
     openWorkspaceMock.mockReset();
     openWorkspaceDocumentMock.mockReset();
@@ -551,6 +555,7 @@ describe('App recent documents', () => {
     updateSnapshotHandler = undefined;
     window.localStorage.removeItem('markdowner.sidebarOpen');
     window.localStorage.removeItem('markdowner.sidebarWidth');
+    window.history.replaceState(null, '', '/');
     onCloseRequestedMock.mockImplementation(async (handler) => {
       closeRequestedHandler = handler;
       return vi.fn();
@@ -2945,6 +2950,67 @@ describe('App recent documents', () => {
     await waitFor(() => {
       expect(newDocumentMock).toHaveBeenCalled();
     });
+  });
+
+  it('opens a fresh window from Cmd+Shift+N without creating a tab in the current window', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findByText(/Start your next document/);
+    fireEvent.keyDown(window, { key: 'N', metaKey: true, shiftKey: true });
+
+    await waitFor(() => {
+      expect(newWindowMock).toHaveBeenCalled();
+    });
+    expect(newDocumentMock).not.toHaveBeenCalled();
+  });
+
+  it('opens a fresh window from the native new-window menu command', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(menuCommandHandler).toBeTypeOf('function');
+    });
+
+    await menuCommandHandler?.({ payload: 'new-window' });
+
+    await waitFor(() => {
+      expect(newWindowMock).toHaveBeenCalled();
+    });
+    expect(newDocumentMock).not.toHaveBeenCalled();
+  });
+
+  it('starts a fresh window URL with an untitled tab instead of restoring previous tabs', async () => {
+    window.history.replaceState(null, '', '/?markdownerNewWindow=1');
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+    loadOpenTabsMock.mockResolvedValue({
+      openTabs: ['/tmp/project/meeting-notes.md'],
+      activeTabPath: '/tmp/project/meeting-notes.md',
+      cursorPositions: {},
+    });
+    newDocumentMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'Untitled.md',
+        activeDocumentPath: null,
+        activeDocumentSource: '',
+        activeDocumentDirty: true,
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    await screen.findAllByText(/^Untitled\.md/);
+    expect(newDocumentMock).toHaveBeenCalled();
+    expect(openDocumentMock).not.toHaveBeenCalledWith('/tmp/project/meeting-notes.md');
   });
 
   it('stacks a new Untitled tab on every Cmd+N instead of reusing one', async () => {

@@ -26,13 +26,13 @@ describe('ShortcutsDialog keymap', () => {
   afterEach(cleanup);
 
   it('renders the keymap table with effective bindings', () => {
-    renderDialog({ 'file.newDocument': 'mod+shift+n' });
+    renderDialog({ 'file.newDocument': 'mod+shift+x' });
 
     const table = screen.getByTestId('keymap-table');
     expect(within(table).getByText('Toggle Sidebar')).toBeInTheDocument();
     expect(within(table).getByText('⌘⇧B')).toBeInTheDocument();
     // Overridden binding shows instead of the default ⌘N.
-    expect(within(rowFor('New file')).getByText('⌘⇧N')).toBeInTheDocument();
+    expect(within(rowFor('New file')).getByText('⌘⇧X')).toBeInTheDocument();
     // Fixed rows render without an edit affordance.
     expect(
       within(rowFor('WYSIWYG mode')).queryByRole('button', { name: /edit shortcut/i }),
@@ -67,16 +67,16 @@ describe('ShortcutsDialog keymap', () => {
       within(rowFor('New file')).getByRole('button', { name: /edit shortcut for new file/i }),
     );
     const recorder = screen.getByTestId('keymap-recorder');
-    fireEvent.keyDown(recorder, { key: 'N', metaKey: true, shiftKey: true });
+    fireEvent.keyDown(recorder, { key: 'X', metaKey: true, shiftKey: true });
     expect(screen.queryByRole('alert')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
 
-    expect(onChange).toHaveBeenCalledWith({ 'file.newDocument': 'mod+shift+n' });
+    expect(onChange).toHaveBeenCalledWith({ 'file.newDocument': 'mod+shift+x' });
   });
 
   it('removes the override when re-recording the default combination', () => {
-    const onChange = renderDialog({ 'file.newDocument': 'mod+shift+n' });
+    const onChange = renderDialog({ 'file.newDocument': 'mod+shift+x' });
 
     fireEvent.click(
       within(rowFor('New file')).getByRole('button', { name: /edit shortcut for new file/i }),
@@ -88,7 +88,7 @@ describe('ShortcutsDialog keymap', () => {
   });
 
   it('resets an overridden binding back to its default', () => {
-    const onChange = renderDialog({ 'file.newDocument': 'mod+shift+n' });
+    const onChange = renderDialog({ 'file.newDocument': 'mod+shift+x' });
 
     fireEvent.click(
       within(rowFor('New file')).getByRole('button', { name: /reset shortcut for new file/i }),

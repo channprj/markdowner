@@ -20,6 +20,7 @@ describe('parseNativeMenuCommand', () => {
 
   it.each([
     ['new-document', { kind: 'newDocument' }],
+    ['new-window', { kind: 'newWindow' }],
     ['open-document', { kind: 'openDocument' }],
     ['open-workspace', { kind: 'openWorkspace' }],
     ['save-active-document', { kind: 'saveActiveDocument' }],

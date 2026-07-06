@@ -22,6 +22,7 @@ export type KeyBinding = {
 export type ShellCommandId =
   | 'file.newDocument'
   | 'file.newTab'
+  | 'file.newWindow'
   | 'file.openDocument'
   | 'file.openWorkspace'
   | 'file.save'
@@ -46,6 +47,7 @@ export type ShellBindings = Record<ShellCommandId, KeyBinding>;
 export const DEFAULT_SHELL_BINDINGS: ShellBindings = {
   'file.newDocument': { key: 'n' },
   'file.newTab': { key: 't' },
+  'file.newWindow': { key: 'n', shift: true },
   'file.openDocument': { key: 'o' },
   'file.openWorkspace': { key: 'o', shift: true },
   'file.save': { key: 's' },
@@ -82,6 +84,7 @@ export type KeymapRow = {
 export const KEYMAP_ROWS: KeymapRow[] = [
   { id: 'file.newDocument', commandId: 'file.newDocument', label: 'New file', section: 'General' },
   { id: 'file.newTab', commandId: 'file.newTab', label: 'New tab', section: 'General' },
+  { id: 'file.newWindow', commandId: 'file.newWindow', label: 'New window', section: 'General' },
   { id: 'file.openDocument', commandId: 'file.openDocument', label: 'Open file', section: 'General' },
   { id: 'file.openWorkspace', commandId: 'file.openWorkspace', label: 'Open workspace', section: 'General' },
   { id: 'file.save', commandId: 'file.save', label: 'Save', section: 'General' },

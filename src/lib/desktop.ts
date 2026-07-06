@@ -35,6 +35,10 @@ export async function newDocument() {
   return invoke<AppSnapshot>('new_document');
 }
 
+export async function newWindow() {
+  return invoke<void>('new_window');
+}
+
 export async function openDocument(path: string) {
   // Defense-in-depth: a nullish path means a caller (e.g. a link resolved to
   // a markdown target whose `absolutePath` was missing) lost the path before
