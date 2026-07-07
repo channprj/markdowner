@@ -3,6 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CodeBlockView } from './CodeBlockView';
 
+const mocks = vi.hoisted(() => ({
+  renderMermaidDiagramSvg: vi.fn(async () => ({
+    svg: '<svg data-testid="mock-mermaid-svg" viewBox="0 0 120 80"><text>Rendered flow</text></svg>',
+    bindFunctions: undefined,
+  })),
+}));
+
 // Tiptap pulls in ProseMirror primitives in CodeBlockView.tsx only via the
 // NodeView render helpers (which we stub below), so mocking @tiptap/react
 // here keeps the test isolated from the full editor stack.
@@ -13,6 +20,10 @@ vi.mock('@tiptap/react', () => ({
     </div>
   ),
   NodeViewContent: (props: Record<string, unknown>) => <div data-testid="node-view-content" {...props} />,
+}));
+
+vi.mock('./mermaidRenderer', () => ({
+  renderMermaidDiagramSvg: mocks.renderMermaidDiagramSvg,
 }));
 
 type ChainStub = {
@@ -38,7 +49,8 @@ function renderView({
   language = null as string | null,
   editable = true,
   pos = 5,
-}: { language?: string | null; editable?: boolean; pos?: number } = {}) {
+  textContent = '',
+}: { language?: string | null; editable?: boolean; pos?: number; textContent?: string } = {}) {
   const chain = createChainStub();
   const editor: EditorStub = {
     isEditable: editable,
@@ -50,7 +62,7 @@ function renderView({
   render(
     <CodeBlockView
       // The component only touches the fields we provide; cast at the boundary.
-      node={{ attrs: { language } } as any}
+      node={{ attrs: { language }, textContent } as any}
       updateAttributes={updateAttributes}
       editor={editor as any}
       getPos={getPos as any}
@@ -76,6 +88,7 @@ function renderView({
 describe('CodeBlockView language picker', () => {
   afterEach(() => {
     cleanup();
+    mocks.renderMermaidDiagramSvg.mockClear();
   });
 
   it('cycles through languages starting with the same letter on repeated key presses', () => {
@@ -216,6 +229,26 @@ describe('CodeBlockView language picker', () => {
     expect(trigger).toBeDisabled();
     fireEvent.keyDown(trigger, { key: 'Enter' });
     expect(screen.queryByRole('listbox', { name: /code block language/i })).toBeNull();
+  });
+
+  it('renders Mermaid code blocks as diagrams before the editable source', async () => {
+    renderView({
+      language: 'mermaid',
+      textContent: 'flowchart TD\n  A[Draft] --> B[Preview]\n',
+    });
+
+    expect(
+      await screen.findByRole('img', { name: /rendered mermaid diagram/i }),
+    ).toBeInTheDocument();
+    expect(await screen.findByTestId('mermaid-diagram-svg')).toBeInTheDocument();
+    expect(screen.getByTestId('mock-mermaid-svg')).toBeInTheDocument();
+    expect(mocks.renderMermaidDiagramSvg).toHaveBeenCalledWith(
+      expect.stringMatching(/^markdowner-mermaid-\d+$/),
+      'flowchart TD\n  A[Draft] --> B[Preview]',
+    );
+    expect(screen.getByText('Mermaid')).toBeInTheDocument();
+    expect(screen.getByText(/mermaid source/i)).toBeInTheDocument();
+    expect(screen.getByTestId('node-view-content')).toBeInTheDocument();
   });
 
   it('resets the cycle after the trigger loses focus', () => {

@@ -1,7 +1,7 @@
 {
   "name": "markdowner-desktop",
   "private": true,
-  "version": "0.260705.0",
+  "version": "0.260707.0",
   "type": "module",
   "packageManager": "pnpm@10.33.4",
   "scripts": {
@@ -47,6 +47,7 @@
     "clsx": "^2.1.1",
     "lowlight": "^3.3.0",
     "lucide-react": "^1.14.0",
+    "mermaid": "^11.16.0",
     "posthog-js": "^1.388.1",
     "radix-ui": "^1.4.3",
     "react": "^19.1.1",

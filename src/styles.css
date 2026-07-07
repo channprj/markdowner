@@ -1221,6 +1221,77 @@ section[data-minimap='on'] .editor-pane-preview {
   font-family: inherit;
   white-space: pre;
 }
+.code-block-view-mermaid {
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--card) 88%, var(--muted));
+}
+.mermaid-diagram-panel {
+  padding: 2.35rem 1rem 1rem;
+  background: color-mix(in oklab, var(--background) 74%, var(--muted));
+  border-bottom: 1px solid var(--border);
+}
+.mermaid-diagram-canvas {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  overflow: auto;
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--background) 88%, transparent);
+  color: var(--foreground);
+}
+.mermaid-diagram-svg {
+  display: flex;
+  justify-content: center;
+  min-width: min-content;
+  width: 100%;
+  padding: 0.5rem;
+}
+.mermaid-diagram-svg svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.mermaid-diagram-status {
+  padding: 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  text-align: center;
+}
+.mermaid-diagram-status[data-state='error'] {
+  color: var(--destructive);
+}
+.mermaid-source-shell {
+  background: color-mix(in oklab, var(--muted) 72%, var(--background));
+}
+.mermaid-source-label {
+  padding: 0.45rem 0.85rem 0;
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+.mermaid-source-pre {
+  margin: 0;
+  padding: 0.55rem 0.85rem 0.85rem;
+  overflow: auto;
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  white-space: pre;
+}
+.mermaid-source-pre > code {
+  display: block;
+  background: transparent;
+  padding: 0;
+  font-family: inherit;
+  white-space: pre;
+}
 /* Float the toolbar inside the codeblock at the top-right so the language
    selector reads as a chip attached to the code rather than a header bar. */
 .code-block-toolbar {

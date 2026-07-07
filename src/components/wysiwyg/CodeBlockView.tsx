@@ -15,6 +15,8 @@ import {
 } from '@tiptap/react';
 import { Check, Copy } from 'lucide-react';
 
+import { renderMermaidDiagramSvg } from './mermaidRenderer';
+
 // Curated set kept short on purpose — these are the languages bundled in the
 // common subset of highlight.js / lowlight, plus the handful most users will
 // reach for first in a Markdown editor. Selecting "Plain text" maps to a
@@ -35,6 +37,7 @@ export const CODE_BLOCK_LANGUAGES: ReadonlyArray<{ value: string; label: string 
   { value: 'json', label: 'JSON' },
   { value: 'kotlin', label: 'Kotlin' },
   { value: 'markdown', label: 'Markdown' },
+  { value: 'mermaid', label: 'Mermaid' },
   { value: 'php', label: 'PHP' },
   { value: 'python', label: 'Python' },
   { value: 'ruby', label: 'Ruby' },
@@ -50,6 +53,7 @@ export const CODE_BLOCK_LANGUAGES: ReadonlyArray<{ value: string; label: string 
 ];
 
 const PLAINTEXT_VALUE = 'plaintext';
+const MERMAID_VALUE = 'mermaid';
 const POPUP_MIN_WIDTH = 192;
 const POPUP_GAP = 4;
 
@@ -57,10 +61,80 @@ const POPUP_GAP = 4;
 // needed for `aria-controls`/`aria-activedescendant` to resolve to *this* code
 // block's popup when multiple code blocks are visible on screen at once.
 let LANGUAGE_PICKER_ID_SEQ = 0;
+let MERMAID_RENDER_ID_SEQ = 0;
+
+type MermaidRenderState =
+  | { status: 'empty' }
+  | { status: 'loading' }
+  | { status: 'rendered'; svg: string }
+  | { status: 'error'; message: string };
+
+function MermaidDiagram({ source }: { source: string }) {
+  const renderId = useMemo(
+    () => `markdowner-mermaid-${++MERMAID_RENDER_ID_SEQ}`,
+    [],
+  );
+  const [renderState, setRenderState] = useState<MermaidRenderState>({ status: 'empty' });
+
+  useEffect(() => {
+    const trimmed = source.trim();
+    if (!trimmed) {
+      setRenderState({ status: 'empty' });
+      return;
+    }
+
+    let cancelled = false;
+    setRenderState({ status: 'loading' });
+    renderMermaidDiagramSvg(renderId, trimmed)
+      .then(({ svg }) => {
+        if (!cancelled) setRenderState({ status: 'rendered', svg });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : 'Invalid Mermaid diagram';
+        setRenderState({ status: 'error', message });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [renderId, source]);
+
+  return (
+    <div className="mermaid-diagram-panel" contentEditable={false}>
+      <div
+        className="mermaid-diagram-canvas"
+        role="img"
+        aria-label="Rendered Mermaid diagram"
+      >
+        {renderState.status === 'rendered' ? (
+          <div
+            className="mermaid-diagram-svg"
+            data-testid="mermaid-diagram-svg"
+            dangerouslySetInnerHTML={{ __html: renderState.svg }}
+          />
+        ) : (
+          <div
+            className="mermaid-diagram-status"
+            data-state={renderState.status}
+            aria-live="polite"
+          >
+            {renderState.status === 'error'
+              ? renderState.message
+              : renderState.status === 'loading'
+                ? 'Rendering diagram...'
+                : 'Empty diagram'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function CodeBlockView(props: NodeViewProps) {
   const { node, updateAttributes, editor, getPos } = props;
   const language = (node.attrs.language as string | null) ?? PLAINTEXT_VALUE;
+  const isMermaid = language === MERMAID_VALUE;
   const editable = editor.isEditable;
 
   const options = useMemo(() => CODE_BLOCK_LANGUAGES, []);
@@ -386,13 +460,33 @@ export function CodeBlockView(props: NodeViewProps) {
   };
 
   return (
-    <NodeViewWrapper className="code-block-view" data-language={language}>
-      <pre>
-        <NodeViewContent
-          as={'code' as unknown as 'div'}
-          className={`language-${language} hljs`}
-        />
-      </pre>
+    <NodeViewWrapper
+      className={`code-block-view${isMermaid ? ' code-block-view-mermaid' : ''}`}
+      data-language={language}
+    >
+      {isMermaid ? (
+        <>
+          <MermaidDiagram source={node.textContent ?? ''} />
+          <div className="mermaid-source-shell">
+            <div className="mermaid-source-label" contentEditable={false}>
+              Mermaid source
+            </div>
+            <pre className="mermaid-source-pre">
+              <NodeViewContent
+                as={'code' as unknown as 'div'}
+                className="language-mermaid hljs"
+              />
+            </pre>
+          </div>
+        </>
+      ) : (
+        <pre>
+          <NodeViewContent
+            as={'code' as unknown as 'div'}
+            className={`language-${language} hljs`}
+          />
+        </pre>
+      )}
       <div className="code-block-toolbar" contentEditable={false}>
         <button
           ref={triggerRef}
