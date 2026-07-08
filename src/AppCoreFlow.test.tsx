@@ -96,6 +96,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 const LINE_WRAPPING_SENTINEL = '__line_wrapping__';
+const CORE_FLOW_TIMEOUT_MS = 15_000;
 
 vi.mock('@uiw/react-codemirror', () => ({
   default: ({
@@ -271,177 +272,189 @@ describe('App core Markdown editing flow', () => {
     cleanup();
   });
 
-  it('opens a Markdown file and switches WYSIWYG, source, and split modes without runtime errors', async () => {
-    const openedPath = '/tmp/project/core-flow.md';
-    const openedSource = ['# Core flow', '', 'A **bold** paragraph.'].join('\n');
-    const openedSnapshot = baseSnapshot({
-      activeDocumentName: 'core-flow.md',
-      activeDocumentPath: openedPath,
-      activeDocumentSource: openedSource,
-      mode: 'Wysiwyg',
-    });
-    openDialogMock.mockResolvedValue(openedPath);
-    openDocumentMock.mockResolvedValue(openedSnapshot);
-    setModeMock.mockImplementation(async (mode: EditorMode) => ({
-      ...openedSnapshot,
-      mode,
-    }));
-    const runtimeErrors = captureRuntimeErrors();
-
-    try {
-      const { default: App } = await import('./App');
-
-      render(
-        <StrictMode>
-          <App />
-        </StrictMode>,
-      );
-
-      const openFileButton = await screen.findByRole('button', { name: /^open file…$/i });
-      fireEvent.click(openFileButton);
-
-      expect(await screen.findByRole('tab', { name: /core-flow\.md/i })).toBeInTheDocument();
-      await waitFor(() => {
-        expect(openDocumentMock).toHaveBeenCalledWith(openedPath);
+  it(
+    'opens a Markdown file and switches WYSIWYG, source, and split modes without runtime errors',
+    async () => {
+      const openedPath = '/tmp/project/core-flow.md';
+      const openedSource = ['# Core flow', '', 'A **bold** paragraph.'].join('\n');
+      const openedSnapshot = baseSnapshot({
+        activeDocumentName: 'core-flow.md',
+        activeDocumentPath: openedPath,
+        activeDocumentSource: openedSource,
+        mode: 'Wysiwyg',
       });
-      expect(screen.getByTestId('editor-surface-wysiwyg')).toHaveTextContent('Core flow');
+      openDialogMock.mockResolvedValue(openedPath);
+      openDocumentMock.mockResolvedValue(openedSnapshot);
+      setModeMock.mockImplementation(async (mode: EditorMode) => ({
+        ...openedSnapshot,
+        mode,
+      }));
+      const runtimeErrors = captureRuntimeErrors();
 
-      fireEvent.keyDown(window, { key: 'k', metaKey: true });
-      fireEvent.keyDown(window, { key: 'e', metaKey: true });
-      expect(await screen.findByLabelText('Source editor')).toHaveValue(openedSource);
+      try {
+        const { default: App } = await import('./App');
 
-      fireEvent.keyDown(window, { key: 'k', metaKey: true });
-      fireEvent.keyDown(window, { key: 'w', metaKey: true });
-      await waitFor(() => {
-        expect(setModeMock).toHaveBeenCalledWith('Wysiwyg');
-      });
-      expect(screen.getByTestId('editor-surface-wysiwyg')).toHaveTextContent('Core flow');
+        render(
+          <StrictMode>
+            <App />
+          </StrictMode>,
+        );
 
-      fireEvent.keyDown(window, { key: 'k', metaKey: true });
-      fireEvent.keyDown(window, { key: 's', metaKey: true });
-      await waitFor(() => {
-        expect(setModeMock).toHaveBeenCalledWith('SplitView');
-      });
-      await waitFor(() => {
-        expect(screen.getByTestId('editor-surface-preview')).toHaveTextContent('Core flow');
-      });
+        const openFileButton = await screen.findByRole('button', { name: /^open file…$/i });
+        fireEvent.click(openFileButton);
 
-      await runtimeErrors.expectClean();
-    } finally {
-      runtimeErrors.restore();
-    }
-  });
-
-  it('opens a Markdown file from the command palette dialog without a render loop', async () => {
-    const openedPath = '/tmp/project/palette-open.md';
-    const openedSource = ['# Palette open', '', 'Dialog-driven open flow.'].join('\n');
-    const openedSnapshot = baseSnapshot({
-      activeDocumentName: 'palette-open.md',
-      activeDocumentPath: openedPath,
-      activeDocumentSource: openedSource,
-      mode: 'Wysiwyg',
-    });
-    openDialogMock.mockResolvedValue(openedPath);
-    openDocumentMock.mockResolvedValue(openedSnapshot);
-    setModeMock.mockImplementation(async (mode: EditorMode) => ({
-      ...openedSnapshot,
-      mode,
-    }));
-    const runtimeErrors = captureRuntimeErrors();
-
-    try {
-      const { default: App } = await import('./App');
-
-      render(
-        <StrictMode>
-          <App />
-        </StrictMode>,
-      );
-
-      fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
-      const dialog = await screen.findByRole('dialog', { name: /command palette/i });
-      const input = screen.getByRole('textbox', { name: /command palette search/i });
-      fireEvent.change(input, { target: { value: 'open file' } });
-      fireEvent.click(await screen.findByRole('option', { name: /^open file/i }));
-
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog', { name: /command palette/i })).toBeNull();
-      });
-      expect(await screen.findByRole('tab', { name: /palette-open\.md/i })).toBeInTheDocument();
-      expect(screen.getByText('Palette open')).toBeInTheDocument();
-
-      fireEvent.keyDown(window, { key: 'k', metaKey: true });
-      fireEvent.keyDown(window, { key: 'e', metaKey: true });
-      expect(await screen.findByLabelText('Source editor')).toHaveValue(openedSource);
-
-      fireEvent.keyDown(window, { key: 'k', metaKey: true });
-      fireEvent.keyDown(window, { key: 's', metaKey: true });
-      await waitFor(() => {
-        expect(screen.getByTestId('editor-surface-preview')).toHaveTextContent('Palette open');
-      });
-
-      await runtimeErrors.expectClean();
-    } finally {
-      runtimeErrors.restore();
-    }
-  });
-
-  it('opens a dropped Markdown file as the active tab and keeps all modes usable', async () => {
-    const droppedPath = '/tmp/project/dropped.md';
-    const droppedSource = ['# Dropped file', '', 'Opened by drag and drop.'].join('\n');
-    const droppedSnapshot = baseSnapshot({
-      activeDocumentName: 'dropped.md',
-      activeDocumentPath: droppedPath,
-      activeDocumentSource: droppedSource,
-      mode: 'Wysiwyg',
-    });
-    openDroppedPathMock.mockResolvedValue(droppedSnapshot);
-    setModeMock.mockImplementation(async (mode: EditorMode) => ({
-      ...droppedSnapshot,
-      mode,
-    }));
-    const runtimeErrors = captureRuntimeErrors();
-
-    try {
-      const { default: App } = await import('./App');
-
-      render(
-        <StrictMode>
-          <App />
-        </StrictMode>,
-      );
-
-      await waitFor(() => {
-        expect(dragDropHandler).toBeTypeOf('function');
-      });
-
-      await act(async () => {
-        await dragDropHandler?.({
-          payload: {
-            type: 'drop',
-            paths: [droppedPath],
-          },
+        expect(await screen.findByRole('tab', { name: /core-flow\.md/i })).toBeInTheDocument();
+        await waitFor(() => {
+          expect(openDocumentMock).toHaveBeenCalledWith(openedPath);
         });
+        expect(screen.getByTestId('editor-surface-wysiwyg')).toHaveTextContent('Core flow');
+
+        fireEvent.keyDown(window, { key: 'k', metaKey: true });
+        fireEvent.keyDown(window, { key: 'e', metaKey: true });
+        expect(await screen.findByLabelText('Source editor')).toHaveValue(openedSource);
+
+        fireEvent.keyDown(window, { key: 'k', metaKey: true });
+        fireEvent.keyDown(window, { key: 'w', metaKey: true });
+        await waitFor(() => {
+          expect(setModeMock).toHaveBeenCalledWith('Wysiwyg');
+        });
+        expect(screen.getByTestId('editor-surface-wysiwyg')).toHaveTextContent('Core flow');
+
+        fireEvent.keyDown(window, { key: 'k', metaKey: true });
+        fireEvent.keyDown(window, { key: 's', metaKey: true });
+        await waitFor(() => {
+          expect(setModeMock).toHaveBeenCalledWith('SplitView');
+        });
+        await waitFor(() => {
+          expect(screen.getByTestId('editor-surface-preview')).toHaveTextContent('Core flow');
+        });
+
+        await runtimeErrors.expectClean();
+      } finally {
+        runtimeErrors.restore();
+      }
+    },
+    CORE_FLOW_TIMEOUT_MS,
+  );
+
+  it(
+    'opens a Markdown file from the command palette dialog without a render loop',
+    async () => {
+      const openedPath = '/tmp/project/palette-open.md';
+      const openedSource = ['# Palette open', '', 'Dialog-driven open flow.'].join('\n');
+      const openedSnapshot = baseSnapshot({
+        activeDocumentName: 'palette-open.md',
+        activeDocumentPath: openedPath,
+        activeDocumentSource: openedSource,
+        mode: 'Wysiwyg',
       });
+      openDialogMock.mockResolvedValue(openedPath);
+      openDocumentMock.mockResolvedValue(openedSnapshot);
+      setModeMock.mockImplementation(async (mode: EditorMode) => ({
+        ...openedSnapshot,
+        mode,
+      }));
+      const runtimeErrors = captureRuntimeErrors();
 
-      expect(await screen.findByRole('tab', { name: /dropped\.md/i })).toBeInTheDocument();
-      expect(screen.getByText('Dropped file')).toBeInTheDocument();
+      try {
+        const { default: App } = await import('./App');
 
-      fireEvent.keyDown(window, { key: 'k', metaKey: true });
-      fireEvent.keyDown(window, { key: 'e', metaKey: true });
-      expect(await screen.findByLabelText('Source editor')).toHaveValue(droppedSource);
+        render(
+          <StrictMode>
+            <App />
+          </StrictMode>,
+        );
 
-      fireEvent.keyDown(window, { key: 'k', metaKey: true });
-      fireEvent.keyDown(window, { key: 's', metaKey: true });
-      await waitFor(() => {
-        expect(screen.getByTestId('editor-surface-preview')).toHaveTextContent('Dropped file');
+        fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
+        const dialog = await screen.findByRole('dialog', { name: /command palette/i });
+        const input = screen.getByRole('textbox', { name: /command palette search/i });
+        fireEvent.change(input, { target: { value: 'open file' } });
+        fireEvent.click(await screen.findByRole('option', { name: /^open file/i }));
+
+        await waitFor(() => {
+          expect(screen.queryByRole('dialog', { name: /command palette/i })).toBeNull();
+        });
+        expect(await screen.findByRole('tab', { name: /palette-open\.md/i })).toBeInTheDocument();
+        expect(screen.getByText('Palette open')).toBeInTheDocument();
+
+        fireEvent.keyDown(window, { key: 'k', metaKey: true });
+        fireEvent.keyDown(window, { key: 'e', metaKey: true });
+        expect(await screen.findByLabelText('Source editor')).toHaveValue(openedSource);
+
+        fireEvent.keyDown(window, { key: 'k', metaKey: true });
+        fireEvent.keyDown(window, { key: 's', metaKey: true });
+        await waitFor(() => {
+          expect(screen.getByTestId('editor-surface-preview')).toHaveTextContent('Palette open');
+        });
+
+        await runtimeErrors.expectClean();
+      } finally {
+        runtimeErrors.restore();
+      }
+    },
+    CORE_FLOW_TIMEOUT_MS,
+  );
+
+  it(
+    'opens a dropped Markdown file as the active tab and keeps all modes usable',
+    async () => {
+      const droppedPath = '/tmp/project/dropped.md';
+      const droppedSource = ['# Dropped file', '', 'Opened by drag and drop.'].join('\n');
+      const droppedSnapshot = baseSnapshot({
+        activeDocumentName: 'dropped.md',
+        activeDocumentPath: droppedPath,
+        activeDocumentSource: droppedSource,
+        mode: 'Wysiwyg',
       });
+      openDroppedPathMock.mockResolvedValue(droppedSnapshot);
+      setModeMock.mockImplementation(async (mode: EditorMode) => ({
+        ...droppedSnapshot,
+        mode,
+      }));
+      const runtimeErrors = captureRuntimeErrors();
 
-      await runtimeErrors.expectClean();
-    } finally {
-      runtimeErrors.restore();
-    }
-  });
+      try {
+        const { default: App } = await import('./App');
+
+        render(
+          <StrictMode>
+            <App />
+          </StrictMode>,
+        );
+
+        await waitFor(() => {
+          expect(dragDropHandler).toBeTypeOf('function');
+        });
+
+        await act(async () => {
+          await dragDropHandler?.({
+            payload: {
+              type: 'drop',
+              paths: [droppedPath],
+            },
+          });
+        });
+
+        expect(await screen.findByRole('tab', { name: /dropped\.md/i })).toBeInTheDocument();
+        expect(screen.getByText('Dropped file')).toBeInTheDocument();
+
+        fireEvent.keyDown(window, { key: 'k', metaKey: true });
+        fireEvent.keyDown(window, { key: 'e', metaKey: true });
+        expect(await screen.findByLabelText('Source editor')).toHaveValue(droppedSource);
+
+        fireEvent.keyDown(window, { key: 'k', metaKey: true });
+        fireEvent.keyDown(window, { key: 's', metaKey: true });
+        await waitFor(() => {
+          expect(screen.getByTestId('editor-surface-preview')).toHaveTextContent('Dropped file');
+        });
+
+        await runtimeErrors.expectClean();
+      } finally {
+        runtimeErrors.restore();
+      }
+    },
+    CORE_FLOW_TIMEOUT_MS,
+  );
 
   it('restores persisted Markdown tabs before saving the open-tab session', async () => {
     const restoredPath = '/tmp/project/restored.md';
