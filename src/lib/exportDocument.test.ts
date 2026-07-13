@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  DARK_EXPORT_STYLE,
   DEFAULT_EXPORT_STYLE,
+  applyExportStylePreset,
   buildExportHtml,
   buildWorkspaceExportTargets,
   buildWorkspacePdfExportTargets,
@@ -10,6 +12,7 @@ import {
   loadExportStyle,
   normalizeExportStyle,
   renderMarkdownToHtml,
+  resolveExportStyleForTheme,
   saveExportStyle,
 } from './exportDocument';
 
@@ -53,13 +56,57 @@ describe('defaultPdfExportPath', () => {
 });
 
 describe('export styles', () => {
+  it('resolves the app preset to a complete dark export palette', () => {
+    const style = resolveExportStyleForTheme(DEFAULT_EXPORT_STYLE, 'dark');
+
+    expect(style).toMatchObject({
+      preset: 'app',
+      textColor: '#f4f4f5',
+      backgroundColor: '#18181b',
+      tableBorderColor: '#3f3f46',
+      tableHeaderTextColor: '#fafafa',
+      tableHeaderBackgroundColor: '#27272a',
+    });
+  });
+
+  it('applies fixed presets without changing paper size', () => {
+    const style = applyExportStylePreset(
+      { ...DEFAULT_EXPORT_STYLE, paperSize: 'Letter' },
+      'dark',
+      'light',
+    );
+
+    expect(style).toEqual({ ...DARK_EXPORT_STYLE, preset: 'dark', paperSize: 'Letter' });
+  });
+
+  it('migrates untouched legacy styles to app and customized legacy styles to custom', () => {
+    const {
+      preset: _preset,
+      tableBorderColor: _border,
+      tableHeaderTextColor: _headerText,
+      tableHeaderBackgroundColor: _headerBackground,
+      ...legacyDefault
+    } = DEFAULT_EXPORT_STYLE;
+
+    expect(normalizeExportStyle(legacyDefault).preset).toBe('app');
+    expect(normalizeExportStyle({ ...legacyDefault, fontSize: 13 }).preset).toBe('custom');
+    expect(normalizeExportStyle({ ...legacyDefault, textColor: '#123456' })).toMatchObject({
+      preset: 'custom',
+      textColor: '#123456',
+    });
+  });
+
   it('provides readable defaults for inline code and keyboard keys', () => {
     expect(DEFAULT_EXPORT_STYLE).toEqual(
       expect.objectContaining({
+        preset: 'app',
         inlineCodeTextColor: '#7c2d12',
         inlineCodeBackgroundColor: '#ffedd5',
         kbdTextColor: '#334155',
         kbdBackgroundColor: '#e2e8f0',
+        tableBorderColor: '#d4d4d8',
+        tableHeaderTextColor: '#18181b',
+        tableHeaderBackgroundColor: '#f4f4f5',
       }),
     );
   });
@@ -84,6 +131,22 @@ describe('export styles', () => {
     expect(normalizeExportStyle({ ...DEFAULT_EXPORT_STYLE, lineHeight: 0.4 }).lineHeight).toBe(0.8);
   });
 
+  it('falls back invalid table colors to the selected fixed palette', () => {
+    expect(
+      normalizeExportStyle({
+        ...DARK_EXPORT_STYLE,
+        tableBorderColor: 'transparent',
+        tableHeaderTextColor: '#123',
+        tableHeaderBackgroundColor: 'oklch(0 0 0)',
+      }),
+    ).toMatchObject({
+      preset: 'dark',
+      tableBorderColor: '#3f3f46',
+      tableHeaderTextColor: '#fafafa',
+      tableHeaderBackgroundColor: '#27272a',
+    });
+  });
+
   it('uses a compact default and normalizes unsafe persisted values', () => {
     expect(DEFAULT_EXPORT_STYLE.fontSize).toBe(14);
     expect(
@@ -99,6 +162,7 @@ describe('export styles', () => {
       }),
     ).toEqual({
       ...DEFAULT_EXPORT_STYLE,
+      preset: 'custom',
       fontSize: 24,
       backgroundColor: '#fefefe',
       lineHeight: 0.8,
@@ -276,6 +340,7 @@ describe('buildExportHtml', () => {
       activeDocumentPath: null,
       style: {
         ...DEFAULT_EXPORT_STYLE,
+        preset: 'custom',
         fontSize: 13,
         fontFamily: 'serif',
         textColor: '#223344',
@@ -303,6 +368,36 @@ describe('buildExportHtml', () => {
     expect(html).toContain('.markdowner-export kbd');
     expect(html).toContain('color: #4a3520');
     expect(html).toContain('background: #f1e6d2');
+  });
+
+  it('uses one dark palette for the page and table when the app preset follows dark', async () => {
+    const html = await buildExportHtml({
+      title: 'Dark table',
+      source: '| Name | Value |\n| --- | --- |\n| A | 1 |',
+      activeDocumentPath: null,
+      style: DEFAULT_EXPORT_STYLE,
+      doc: document,
+    });
+
+    expect(html).toContain('background: #18181b');
+    expect(html).toContain('--border: #3f3f46');
+    expect(html).toContain('border-color: #3f3f46');
+    expect(html).toContain('background: #27272a');
+    expect(html).toContain('color: #fafafa');
+  });
+
+  it('keeps a fixed light preset light under a dark app root', async () => {
+    const html = await buildExportHtml({
+      title: 'Light table',
+      source: '| A |\n| --- |\n| B |',
+      activeDocumentPath: null,
+      style: applyExportStylePreset(DEFAULT_EXPORT_STYLE, 'light', 'dark'),
+      doc: document,
+    });
+
+    expect(html).toContain('background: #ffffff');
+    expect(html).toContain('border-color: #d4d4d8');
+    expect(html).not.toContain('border-color: #3f3f46');
   });
 
   it('wraps long code block lines for PDF export', async () => {

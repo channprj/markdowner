@@ -22,8 +22,11 @@ const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
 export type ExportFormat = 'html' | 'pdf';
 export type ExportScope = 'document' | 'workspace';
 export type ExportFontFamily = 'sans' | 'serif' | 'mono';
+export type ExportStylePreset = 'app' | 'light' | 'dark' | 'custom';
+export type ExportTheme = 'light' | 'dark';
 
 export interface ExportStyle {
+  preset: ExportStylePreset;
   fontSize: number;
   fontFamily: ExportFontFamily;
   textColor: string;
@@ -32,6 +35,9 @@ export interface ExportStyle {
   inlineCodeBackgroundColor: string;
   kbdTextColor: string;
   kbdBackgroundColor: string;
+  tableBorderColor: string;
+  tableHeaderTextColor: string;
+  tableHeaderBackgroundColor: string;
   lineHeight: number;
   paragraphSpacing: number;
   contentPadding: number;
@@ -39,6 +45,7 @@ export interface ExportStyle {
 }
 
 export const DEFAULT_EXPORT_STYLE: ExportStyle = {
+  preset: 'app',
   fontSize: 14,
   fontFamily: 'sans',
   textColor: '#202124',
@@ -47,11 +54,42 @@ export const DEFAULT_EXPORT_STYLE: ExportStyle = {
   inlineCodeBackgroundColor: '#ffedd5',
   kbdTextColor: '#334155',
   kbdBackgroundColor: '#e2e8f0',
+  tableBorderColor: '#d4d4d8',
+  tableHeaderTextColor: '#18181b',
+  tableHeaderBackgroundColor: '#f4f4f5',
   lineHeight: 1.6,
   paragraphSpacing: 8,
   contentPadding: 32,
   paperSize: 'A4',
 };
+
+export const DARK_EXPORT_STYLE: ExportStyle = {
+  ...DEFAULT_EXPORT_STYLE,
+  preset: 'dark',
+  textColor: '#f4f4f5',
+  backgroundColor: '#18181b',
+  inlineCodeTextColor: '#fed7aa',
+  inlineCodeBackgroundColor: '#431407',
+  kbdTextColor: '#e2e8f0',
+  kbdBackgroundColor: '#334155',
+  tableBorderColor: '#3f3f46',
+  tableHeaderTextColor: '#fafafa',
+  tableHeaderBackgroundColor: '#27272a',
+};
+
+const LEGACY_APPEARANCE_KEYS = [
+  'fontSize',
+  'fontFamily',
+  'textColor',
+  'backgroundColor',
+  'inlineCodeTextColor',
+  'inlineCodeBackgroundColor',
+  'kbdTextColor',
+  'kbdBackgroundColor',
+  'lineHeight',
+  'paragraphSpacing',
+  'contentPadding',
+] as const satisfies readonly (keyof ExportStyle)[];
 
 type ExportStyleStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
@@ -83,31 +121,51 @@ function exportStyleStorage(storage?: ExportStyleStorage): ExportStyleStorage | 
 
 export function normalizeExportStyle(value: unknown): ExportStyle {
   const candidate = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const presetCandidate = candidate.preset;
+  const hasValidPreset =
+    presetCandidate === 'app' ||
+    presetCandidate === 'light' ||
+    presetCandidate === 'dark' ||
+    presetCandidate === 'custom';
+  const fallbackStyle = presetCandidate === 'dark' ? DARK_EXPORT_STYLE : DEFAULT_EXPORT_STYLE;
   const fontFamily = candidate.fontFamily;
   const paperSize = candidate.paperSize;
   const textColor = candidate.textColor;
   const backgroundColor = candidate.backgroundColor;
 
-  return {
+  const normalized: ExportStyle = {
+    preset: hasValidPreset ? presetCandidate : 'app',
     fontSize: clampNumber(candidate.fontSize, DEFAULT_EXPORT_STYLE.fontSize, 10, 24),
     fontFamily:
       fontFamily === 'sans' || fontFamily === 'serif' || fontFamily === 'mono'
         ? fontFamily
         : DEFAULT_EXPORT_STYLE.fontFamily,
-    textColor: normalizeHexColor(textColor, DEFAULT_EXPORT_STYLE.textColor),
-    backgroundColor: normalizeHexColor(backgroundColor, DEFAULT_EXPORT_STYLE.backgroundColor),
+    textColor: normalizeHexColor(textColor, fallbackStyle.textColor),
+    backgroundColor: normalizeHexColor(backgroundColor, fallbackStyle.backgroundColor),
     inlineCodeTextColor: normalizeHexColor(
       candidate.inlineCodeTextColor,
-      DEFAULT_EXPORT_STYLE.inlineCodeTextColor,
+      fallbackStyle.inlineCodeTextColor,
     ),
     inlineCodeBackgroundColor: normalizeHexColor(
       candidate.inlineCodeBackgroundColor,
-      DEFAULT_EXPORT_STYLE.inlineCodeBackgroundColor,
+      fallbackStyle.inlineCodeBackgroundColor,
     ),
-    kbdTextColor: normalizeHexColor(candidate.kbdTextColor, DEFAULT_EXPORT_STYLE.kbdTextColor),
+    kbdTextColor: normalizeHexColor(candidate.kbdTextColor, fallbackStyle.kbdTextColor),
     kbdBackgroundColor: normalizeHexColor(
       candidate.kbdBackgroundColor,
-      DEFAULT_EXPORT_STYLE.kbdBackgroundColor,
+      fallbackStyle.kbdBackgroundColor,
+    ),
+    tableBorderColor: normalizeHexColor(
+      candidate.tableBorderColor,
+      fallbackStyle.tableBorderColor,
+    ),
+    tableHeaderTextColor: normalizeHexColor(
+      candidate.tableHeaderTextColor,
+      fallbackStyle.tableHeaderTextColor,
+    ),
+    tableHeaderBackgroundColor: normalizeHexColor(
+      candidate.tableHeaderBackgroundColor,
+      fallbackStyle.tableHeaderBackgroundColor,
     ),
     lineHeight: clampNumber(candidate.lineHeight, DEFAULT_EXPORT_STYLE.lineHeight, 0.8, 2.2),
     paragraphSpacing: clampNumber(
@@ -127,6 +185,40 @@ export function normalizeExportStyle(value: unknown): ExportStyle {
         ? paperSize
         : DEFAULT_EXPORT_STYLE.paperSize,
   };
+
+  if (!hasValidPreset) {
+    const hasLegacyCustomization = LEGACY_APPEARANCE_KEYS.some(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(candidate, key) &&
+        normalized[key] !== DEFAULT_EXPORT_STYLE[key],
+    );
+    normalized.preset = hasLegacyCustomization ? 'custom' : 'app';
+  }
+
+  return normalized;
+}
+
+export function applyExportStylePreset(
+  style: ExportStyle,
+  preset: ExportStylePreset,
+  appTheme: ExportTheme,
+): ExportStyle {
+  const current = normalizeExportStyle(style);
+  if (preset === 'custom') return { ...current, preset };
+
+  const useDark = preset === 'dark' || (preset === 'app' && appTheme === 'dark');
+  const template = useDark ? DARK_EXPORT_STYLE : DEFAULT_EXPORT_STYLE;
+  return { ...template, preset, paperSize: current.paperSize };
+}
+
+export function resolveExportStyleForTheme(
+  style: ExportStyle,
+  appTheme: ExportTheme,
+): ExportStyle {
+  const normalized = normalizeExportStyle(style);
+  return normalized.preset === 'app'
+    ? applyExportStylePreset(normalized, 'app', appTheme)
+    : normalized;
 }
 
 export function loadExportStyle(storage?: ExportStyleStorage): ExportStyle {
@@ -518,7 +610,9 @@ export async function buildExportHtml(options: ExportHtmlOptions): Promise<strin
     doc = document,
     embedImages = readImagesBase64,
   } = options;
-  const style = normalizeExportStyle(rawStyle);
+  const appTheme: ExportTheme =
+    doc.documentElement.dataset.theme === 'BuiltInDark' ? 'dark' : 'light';
+  const style = resolveExportStyleForTheme(normalizeExportStyle(rawStyle), appTheme);
 
   const exportSource = normalizeRawHtmlImagesForExport(source);
   const resolveImageSrc = await buildEmbeddingImageResolver(
@@ -540,6 +634,10 @@ img, svg, video { max-width: 100%; height: auto; }`
   const styleCss = `.markdowner-export {
   --foreground: ${style.textColor};
   --background: ${style.backgroundColor};
+  --primary: ${style.textColor};
+  --muted-foreground: color-mix(in srgb, ${style.textColor} 68%, ${style.backgroundColor});
+  --border: ${style.tableBorderColor};
+  --muted: ${style.tableHeaderBackgroundColor};
   box-sizing: border-box;
   min-height: 100vh;
   padding: ${style.contentPadding}px;
@@ -555,6 +653,14 @@ img, svg, video { max-width: 100%; height: auto; }`
 .markdowner-export h4 { font-size: 1.125em; }
 .markdowner-export h5, .markdowner-export h6 { font-size: 1em; }
 .markdowner-export p { margin-block: 0 ${style.paragraphSpacing}px; }
+.markdowner-export th,
+.markdowner-export td {
+  border-color: ${style.tableBorderColor};
+}
+.markdowner-export th {
+  color: ${style.tableHeaderTextColor};
+  background: ${style.tableHeaderBackgroundColor};
+}
 .markdowner-export code { font-size: 0.875em; }
 .markdowner-export code:not(pre code) {
   color: ${style.inlineCodeTextColor};
