@@ -2572,6 +2572,9 @@ describe('App recent documents', () => {
     expect(exportPdfFileMock).not.toHaveBeenCalled();
     expect(await screen.findByRole('heading', { name: 'Export Preview' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Preset')).toHaveValue('app');
+    expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
+    expect(screen.getByLabelText('Table border color')).toHaveValue('#3f3f46');
     const exportTab = screen.getByRole('tab', { name: /Export Preview/i });
     expect(exportTab).toHaveAttribute('aria-selected', 'true');
     fireEvent.change(screen.getByLabelText('Body size'), { target: { value: '13' } });
@@ -2601,6 +2604,8 @@ describe('App recent documents', () => {
       );
     });
     expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('Meeting notes');
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('border-color: #3f3f46');
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('background: #27272a');
     await waitFor(() => {
       expect(screen.queryByRole('tab', { name: /Export Preview/i })).not.toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /meeting-notes\.md/i })).toHaveAttribute(
@@ -2611,7 +2616,9 @@ describe('App recent documents', () => {
 
     const reopenedMenu = await openAppMenu();
     fireEvent.click(within(reopenedMenu).getByRole('menuitem', { name: /^export to pdf…$/i }));
+    expect(await screen.findByLabelText('Preset')).toHaveValue('custom');
     expect(await screen.findByLabelText('Body size')).toHaveValue('13');
+    expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
   });
 
   it('keeps the Export Preview tab open when the native save dialog is cancelled', async () => {

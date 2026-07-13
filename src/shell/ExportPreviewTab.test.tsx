@@ -27,6 +27,7 @@ function renderPreview(overrides: Partial<ComponentProps<typeof ExportPreviewTab
     <ExportPreviewTab
       request={HTML_REQUEST}
       initialStyle={DEFAULT_EXPORT_STYLE}
+      appTheme="light"
       busy={false}
       onCancel={() => {}}
       onConfirm={() => {}}
@@ -49,6 +50,23 @@ describe('ExportPreviewTab', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('puts Preset first under Config and removes the verbose description', () => {
+    renderPreview();
+
+    expect(screen.getByText('Config')).toBeInTheDocument();
+    expect(screen.queryByText('Artifact controls')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'Every value below is applied to both this preview and the exported file.',
+      ),
+    ).not.toBeInTheDocument();
+    const preset = screen.getByLabelText('Preset');
+    const bodySize = screen.getByLabelText('Body size');
+    expect(
+      preset.compareDocumentPosition(bodySize) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('edits the body size in the live preview and confirms the draft style', async () => {
     const onConfirm = vi.fn();
     renderPreview({ onConfirm });
@@ -62,7 +80,9 @@ describe('ExportPreviewTab', () => {
       );
     });
     fireEvent.click(screen.getByRole('button', { name: 'Export HTML' }));
-    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ fontSize: 13 }));
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ preset: 'custom', fontSize: 13 }),
+    );
   });
 
   it('exposes typography, spacing, inline code, and keyboard-key controls', () => {
@@ -81,6 +101,85 @@ describe('ExportPreviewTab', () => {
     expect(screen.getByLabelText('Inline code background color')).toHaveValue('#ffedd5');
     expect(screen.getByLabelText('Keyboard key text color')).toHaveValue('#334155');
     expect(screen.getByLabelText('Keyboard key background color')).toHaveValue('#e2e8f0');
+    expect(screen.getByLabelText('Table border color')).toHaveValue('#d4d4d8');
+    expect(screen.getByLabelText('Table header text color')).toHaveValue('#18181b');
+    expect(screen.getByLabelText('Table header background color')).toHaveValue('#f4f4f5');
+  });
+
+  it('switches presets, marks manual edits Custom, and preserves paper size', () => {
+    renderPreview({
+      request: { ...HTML_REQUEST, format: 'pdf' },
+      initialStyle: { ...DEFAULT_EXPORT_STYLE, paperSize: 'Letter' },
+      appTheme: 'dark',
+    });
+
+    expect(screen.getByLabelText('Preset')).toHaveValue('app');
+    expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
+    expect(screen.getByLabelText('Table border color')).toHaveValue('#3f3f46');
+    fireEvent.change(screen.getByLabelText('Preset'), { target: { value: 'light' } });
+    expect(screen.getByLabelText('Background color')).toHaveValue('#ffffff');
+    expect(screen.getByLabelText('Paper size')).toHaveValue('Letter');
+    fireEvent.change(screen.getByLabelText('Table border color'), {
+      target: { value: '#123456' },
+    });
+    expect(screen.getByLabelText('Preset')).toHaveValue('custom');
+    expect(screen.getByLabelText('Table border color')).toHaveValue('#123456');
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(screen.getByLabelText('Preset')).toHaveValue('app');
+    expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
+    expect(screen.getByLabelText('Paper size')).toHaveValue('Letter');
+  });
+
+  it('updates an app preset when the app theme changes', () => {
+    const { rerender } = renderPreview({ appTheme: 'dark' });
+    expect(screen.getByLabelText('Preset')).toHaveValue('app');
+    expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
+
+    rerender(
+      <ExportPreviewTab
+        request={HTML_REQUEST}
+        initialStyle={DEFAULT_EXPORT_STYLE}
+        appTheme="light"
+        busy={false}
+        onCancel={() => {}}
+        onConfirm={() => {}}
+        buildPreview={previewBuilder()}
+      />,
+    );
+
+    expect(screen.getByLabelText('Preset')).toHaveValue('app');
+    expect(screen.getByLabelText('Background color')).toHaveValue('#ffffff');
+    expect(screen.getByLabelText('Table border color')).toHaveValue('#d4d4d8');
+  });
+
+  it('keeps Custom edits when the app theme changes', () => {
+    const { rerender } = renderPreview({ appTheme: 'dark' });
+    fireEvent.change(screen.getByLabelText('Background color'), {
+      target: { value: '#123456' },
+    });
+
+    rerender(
+      <ExportPreviewTab
+        request={HTML_REQUEST}
+        initialStyle={DEFAULT_EXPORT_STYLE}
+        appTheme="light"
+        busy={false}
+        onCancel={() => {}}
+        onConfirm={() => {}}
+        buildPreview={previewBuilder()}
+      />,
+    );
+
+    expect(screen.getByLabelText('Preset')).toHaveValue('custom');
+    expect(screen.getByLabelText('Background color')).toHaveValue('#123456');
+  });
+
+  it('uses the selected dark background for the preview sheet and iframe', async () => {
+    renderPreview({ appTheme: 'dark' });
+
+    const iframe = await screen.findByTitle('HTML export preview');
+    expect(iframe).toHaveStyle({ backgroundColor: '#18181b' });
+    expect(iframe.parentElement).toHaveStyle({ backgroundColor: '#18181b' });
   });
 
   it('updates inline-code color in the live preview', async () => {
@@ -101,6 +200,7 @@ describe('ExportPreviewTab', () => {
   it('shows paper size for PDF only and resets changed values', () => {
     const commonProps = {
       initialStyle: DEFAULT_EXPORT_STYLE,
+      appTheme: 'light' as const,
       busy: false,
       onCancel: vi.fn(),
       onConfirm: vi.fn(),
@@ -119,7 +219,9 @@ describe('ExportPreviewTab', () => {
     expect(screen.getByLabelText('Paper size')).toHaveValue('A4');
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    expect(screen.getByLabelText('Preset')).toHaveValue('app');
     expect(screen.getByLabelText('Body size')).toHaveValue('14');
+    expect(screen.getByLabelText('Paper size')).toHaveValue('A4');
   });
 
   it('cancels without confirming and locks actions while exporting', () => {
@@ -135,6 +237,7 @@ describe('ExportPreviewTab', () => {
       <ExportPreviewTab
         request={HTML_REQUEST}
         initialStyle={DEFAULT_EXPORT_STYLE}
+        appTheme="light"
         busy
         onCancel={onCancel}
         onConfirm={onConfirm}
@@ -144,6 +247,7 @@ describe('ExportPreviewTab', () => {
     expect(screen.getByRole('button', { name: 'Exporting…' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
     expect(screen.getByLabelText('Body size')).toBeDisabled();
+    expect(screen.getByLabelText('Preset')).toBeDisabled();
   });
 
   it('reports a preview failure without confirming an export', async () => {

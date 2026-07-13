@@ -123,6 +123,7 @@ import {
   saveExportStyle,
   type ExportFormat,
   type ExportStyle,
+  type ExportTheme,
 } from '@/lib/exportDocument';
 import {
   applyDraftBackupsToRestoredTabs,
@@ -523,6 +524,8 @@ export default function App() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [exportRequest, setExportRequest] = useState<ExportPreviewRequest | null>(null);
   const [exportStyle, setExportStyle] = useState<ExportStyle>(() => loadExportStyle());
+  const exportAppTheme: ExportTheme =
+    snapshot.theme.kind === 'BuiltInDark' ? 'dark' : 'light';
   const exportPreviewInitialStyle = useMemo(
     () => normalizeExportStyle({ ...exportStyle, paperSize: settings.pdfPaperSize }),
     [exportStyle, settings.pdfPaperSize],
@@ -6180,6 +6183,7 @@ export default function App() {
           <ExportPreviewTab
             request={exportRequest}
             initialStyle={exportPreviewInitialStyle}
+            appTheme={exportAppTheme}
             busy={busy}
             onCancel={() => void handleCloseTab(EXPORT_PREVIEW_TAB_ID)}
             onConfirm={(style) => void handleConfirmExport(style)}

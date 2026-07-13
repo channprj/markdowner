@@ -5,13 +5,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  DEFAULT_EXPORT_STYLE,
+  applyExportStylePreset,
   buildExportHtml,
   normalizeExportStyle,
+  resolveExportStyleForTheme,
   type ExportFormat,
   type ExportHtmlOptions,
   type ExportScope,
   type ExportStyle,
+  type ExportStylePreset,
+  type ExportTheme,
 } from '@/lib/exportDocument';
 import { cn } from '@/lib/utils';
 
@@ -27,6 +30,7 @@ export interface ExportPreviewRequest {
 export interface ExportPreviewTabProps {
   request: ExportPreviewRequest;
   initialStyle: ExportStyle;
+  appTheme: ExportTheme;
   busy: boolean;
   onCancel: () => void;
   onConfirm: (style: ExportStyle) => void;
@@ -40,7 +44,10 @@ type ColorStyleKey =
   | 'inlineCodeTextColor'
   | 'inlineCodeBackgroundColor'
   | 'kbdTextColor'
-  | 'kbdBackgroundColor';
+  | 'kbdBackgroundColor'
+  | 'tableBorderColor'
+  | 'tableHeaderTextColor'
+  | 'tableHeaderBackgroundColor';
 
 interface RangeControlProps {
   id: string;
@@ -147,23 +154,35 @@ function requestDescription(request: ExportPreviewRequest): string {
 export function ExportPreviewTab({
   request,
   initialStyle,
+  appTheme,
   busy,
   onCancel,
   onConfirm,
   buildPreview = buildExportHtml,
 }: ExportPreviewTabProps) {
   const idPrefix = useId();
+  const requestIdentity = `${request.format}:${request.scope}:${request.activeDocumentPath ?? ''}:${request.title}`;
   const [draftStyle, setDraftStyle] = useState<ExportStyle>(() =>
-    normalizeExportStyle(initialStyle),
+    resolveExportStyleForTheme(initialStyle, appTheme),
   );
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewStatus, setPreviewStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const previewRequestRef = useRef(0);
-  const requestIdentity = `${request.format}:${request.scope}:${request.activeDocumentPath ?? ''}:${request.title}`;
+  const previousRequestIdentityRef = useRef(requestIdentity);
 
   useEffect(() => {
-    setDraftStyle(normalizeExportStyle(initialStyle));
-  }, [initialStyle, requestIdentity]);
+    const requestChanged = previousRequestIdentityRef.current !== requestIdentity;
+    previousRequestIdentityRef.current = requestIdentity;
+    if (requestChanged) {
+      setDraftStyle(resolveExportStyleForTheme(initialStyle, appTheme));
+      return;
+    }
+    setDraftStyle((current) =>
+      current.preset === 'app'
+        ? resolveExportStyleForTheme(initialStyle, appTheme)
+        : current,
+    );
+  }, [appTheme, initialStyle, requestIdentity]);
 
   useEffect(() => {
     const previewRequest = ++previewRequestRef.current;
@@ -190,10 +209,14 @@ export function ExportPreviewTab({
   }, [buildPreview, draftStyle, request]);
 
   const updateNumber = (key: NumericStyleKey, value: number) => {
-    setDraftStyle((current) => normalizeExportStyle({ ...current, [key]: value }));
+    setDraftStyle((current) =>
+      normalizeExportStyle({ ...current, [key]: value, preset: 'custom' }),
+    );
   };
   const updateColor = (key: ColorStyleKey, value: string) => {
-    setDraftStyle((current) => normalizeExportStyle({ ...current, [key]: value }));
+    setDraftStyle((current) =>
+      normalizeExportStyle({ ...current, [key]: value, preset: 'custom' }),
+    );
   };
   const controlId = (name: string) => `${idPrefix}-${name}`;
   const formatLabel = request.format.toUpperCase();
@@ -226,7 +249,9 @@ export function ExportPreviewTab({
             variant="ghost"
             size="sm"
             disabled={busy}
-            onClick={() => setDraftStyle({ ...DEFAULT_EXPORT_STYLE })}
+            onClick={() =>
+              setDraftStyle(applyExportStylePreset(initialStyle, 'app', appTheme))
+            }
           >
             <RotateCcw />
             Reset
@@ -250,13 +275,37 @@ export function ExportPreviewTab({
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(220px,auto)_minmax(0,1fr)] lg:grid-cols-[300px_minmax(0,1fr)] lg:grid-rows-1">
         <aside className="overflow-y-auto border-b border-border bg-background px-4 py-4 lg:border-r lg:border-b-0">
           <div className="mb-5 border-l-2 border-foreground pl-3">
-            <p className="font-heading text-sm font-medium">Artifact controls</p>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Every value below is applied to both this preview and the exported file.
-            </p>
+            <p className="font-heading text-sm font-medium">Config</p>
           </div>
 
           <div className="grid gap-5">
+            <div className="grid gap-2">
+              <Label htmlFor={controlId('preset')} className="text-xs font-medium text-foreground/85">
+                Preset
+              </Label>
+              <select
+                id={controlId('preset')}
+                aria-label="Preset"
+                value={draftStyle.preset}
+                disabled={busy}
+                onChange={(event) =>
+                  setDraftStyle((current) =>
+                    applyExportStylePreset(
+                      current,
+                      event.target.value as ExportStylePreset,
+                      appTheme,
+                    ),
+                  )
+                }
+                className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-shadow focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+              >
+                <option value="app">Match app theme</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+
             <RangeControl
               id={controlId('font-size')}
               label="Body size"
@@ -280,7 +329,11 @@ export function ExportPreviewTab({
                 disabled={busy}
                 onChange={(event) =>
                   setDraftStyle((current) =>
-                    normalizeExportStyle({ ...current, fontFamily: event.target.value }),
+                    normalizeExportStyle({
+                      ...current,
+                      fontFamily: event.target.value,
+                      preset: 'custom',
+                    }),
                   )
                 }
                 className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-shadow focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
@@ -307,6 +360,35 @@ export function ExportPreviewTab({
                 onChange={(value) => updateColor('backgroundColor', value)}
               />
             </div>
+
+            <fieldset className="grid gap-3 border-t border-border pt-4">
+              <legend className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Table
+              </legend>
+              <ColorControl
+                id={controlId('table-border-color')}
+                label="Table border color"
+                value={draftStyle.tableBorderColor}
+                disabled={busy}
+                onChange={(value) => updateColor('tableBorderColor', value)}
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <ColorControl
+                  id={controlId('table-header-text-color')}
+                  label="Table header text color"
+                  value={draftStyle.tableHeaderTextColor}
+                  disabled={busy}
+                  onChange={(value) => updateColor('tableHeaderTextColor', value)}
+                />
+                <ColorControl
+                  id={controlId('table-header-background-color')}
+                  label="Table header background color"
+                  value={draftStyle.tableHeaderBackgroundColor}
+                  disabled={busy}
+                  onChange={(value) => updateColor('tableHeaderBackgroundColor', value)}
+                />
+              </div>
+            </fieldset>
 
             <RangeControl
               id={controlId('line-height')}
@@ -414,17 +496,23 @@ export function ExportPreviewTab({
         <div className="relative min-h-0 overflow-auto bg-[radial-gradient(circle_at_1px_1px,color-mix(in_srgb,var(--border)_72%,transparent)_1px,transparent_0)] bg-[length:18px_18px] p-4 sm:p-6">
           <div
             className={cn(
-              'relative mx-auto overflow-hidden border border-black/10 bg-white shadow-[0_28px_90px_-36px_rgba(0,0,0,0.62)]',
+              'relative mx-auto overflow-hidden border border-black/10 shadow-[0_28px_90px_-36px_rgba(0,0,0,0.62)]',
               isPdf ? 'min-h-full w-full max-w-[760px]' : 'h-full min-h-[520px] w-full max-w-[1080px]',
             )}
-            style={isPdf ? { aspectRatio: draftStyle.paperSize === 'A4' ? '210 / 297' : '8.5 / 11' } : undefined}
+            style={{
+              backgroundColor: draftStyle.backgroundColor,
+              ...(isPdf
+                ? { aspectRatio: draftStyle.paperSize === 'A4' ? '210 / 297' : '8.5 / 11' }
+                : {}),
+            }}
           >
             {previewHtml ? (
               <iframe
                 title={`${formatLabel} export preview`}
                 sandbox=""
                 srcDoc={previewHtml}
-                className="h-full min-h-[520px] w-full border-0 bg-white"
+                className="h-full min-h-[520px] w-full border-0"
+                style={{ backgroundColor: draftStyle.backgroundColor }}
               />
             ) : null}
             {previewStatus === 'loading' ? (
