@@ -86,8 +86,6 @@ git commit -m "feat(export): customize inline code colors"
 **Files:**
 - Create: `src/shell/ExportPreviewTab.tsx`
 - Create: `src/shell/ExportPreviewTab.test.tsx`
-- Delete: `src/shell/ExportDialog.tsx`
-- Delete: `src/shell/ExportDialog.test.tsx`
 
 - [ ] **Step 1: Write failing full-surface component tests**
 
@@ -144,7 +142,7 @@ Add paired color inputs labelled exactly:
 
 Use `min={0.8}`, `max={2.2}`, and `step={0.1}` for line height. Keep PDF paper ratio and HTML full-stage behavior.
 
-- [ ] **Step 4: Delete the obsolete modal and run focused tests**
+- [ ] **Step 4: Run focused tests while retaining the old modal until App integration**
 
 Run:
 
@@ -152,12 +150,12 @@ Run:
 pnpm vitest run src/shell/ExportPreviewTab.test.tsx
 ```
 
-Expected: all preview component tests pass.
+Expected: all preview component tests pass. Keep `ExportDialog` temporarily so this intermediate commit remains buildable.
 
 - [ ] **Step 5: Commit the full-surface component**
 
 ```bash
-git add src/shell/ExportPreviewTab.tsx src/shell/ExportPreviewTab.test.tsx src/shell/ExportDialog.tsx src/shell/ExportDialog.test.tsx
+git add src/shell/ExportPreviewTab.tsx src/shell/ExportPreviewTab.test.tsx
 git commit -m "refactor(export): create full-surface preview"
 ```
 
@@ -172,6 +170,8 @@ git commit -m "refactor(export): create full-surface preview"
 - Modify: `src/shell/Tabs.test.tsx`
 - Modify: `src/App.tsx`
 - Modify: `src/App.test.tsx`
+- Delete: `src/shell/ExportDialog.tsx`
+- Delete: `src/shell/ExportDialog.test.tsx`
 
 - [ ] **Step 1: Write failing tab-model tests**
 
@@ -248,7 +248,7 @@ Expected: all tab, export, and App integration tests pass.
 - [ ] **Step 7: Commit tab integration**
 
 ```bash
-git add src/App.tsx src/App.test.tsx src/lib/documentTabs.ts src/lib/documentTabs.test.ts src/lib/shellModel.ts src/lib/shellModel.test.ts src/shell/Tabs.tsx src/shell/Tabs.test.tsx src/shell/ExportPreviewTab.tsx src/shell/ExportPreviewTab.test.tsx
+git add src/App.tsx src/App.test.tsx src/lib/documentTabs.ts src/lib/documentTabs.test.ts src/lib/shellModel.ts src/lib/shellModel.test.ts src/shell/Tabs.tsx src/shell/Tabs.test.tsx src/shell/ExportDialog.tsx src/shell/ExportDialog.test.tsx src/shell/ExportPreviewTab.tsx src/shell/ExportPreviewTab.test.tsx
 git commit -m "feat(export): open preview in an app tab"
 ```
 
@@ -256,12 +256,12 @@ git commit -m "feat(export): open preview in an app tab"
 
 **Files:**
 - Modify: `src/components/ui/dialog.tsx`
+- Create: `src/components/ui/dialog.test.tsx`
 - Modify: `src/shell/QuickOpen.tsx`
 - Modify: `src/shell/QuickOpen.test.tsx`
 - Modify: `src/shell/CommandPalette.tsx`
 - Modify: `src/shell/CommandPalette.test.tsx`
 - Modify: dialog consumers returned by `rg -n "overlayClassName|backdrop-blur" src`
-- Test: `src/styles.test.ts`
 
 - [ ] **Step 1: Write failing dim-overlay tests**
 
@@ -279,7 +279,7 @@ Keep a Command Palette regression assertion proving Cmd+Shift+P uses dim without
 Run:
 
 ```bash
-pnpm vitest run src/shell/QuickOpen.test.tsx src/shell/CommandPalette.test.tsx src/styles.test.ts
+pnpm vitest run src/components/ui/dialog.test.tsx src/shell/QuickOpen.test.tsx src/shell/CommandPalette.test.tsx
 ```
 
 Expected: the shared or Quick Open overlay still contains `backdrop-blur` and/or the lighter old dim.
@@ -300,7 +300,7 @@ Run:
 
 ```bash
 rg -n "backdrop-blur" src
-pnpm vitest run src/shell/QuickOpen.test.tsx src/shell/CommandPalette.test.tsx src/styles.test.ts
+pnpm vitest run src/components/ui/dialog.test.tsx src/shell/QuickOpen.test.tsx src/shell/CommandPalette.test.tsx
 ```
 
 Expected: `rg` returns no modal-overlay blur utility and all focused tests pass.
@@ -308,7 +308,7 @@ Expected: `rg` returns no modal-overlay blur utility and all focused tests pass.
 - [ ] **Step 5: Commit the overlay normalization**
 
 ```bash
-git add src/components/ui/dialog.tsx src/shell/QuickOpen.tsx src/shell/QuickOpen.test.tsx src/shell/CommandPalette.tsx src/shell/CommandPalette.test.tsx src/styles.test.ts
+git add src/components/ui/dialog.tsx src/components/ui/dialog.test.tsx src/shell/QuickOpen.tsx src/shell/QuickOpen.test.tsx src/shell/CommandPalette.tsx src/shell/CommandPalette.test.tsx
 git commit -m "fix(ui): use dim-only modal backdrops"
 ```
 
