@@ -16,6 +16,119 @@ import { MARKDOWN_CONTENT_SCOPE_CLASS } from './themeScope';
 
 const MARKDOWN_EXTENSION_RE = /\.(md|markdown|mdown|mkd)$/i;
 const PATH_SEPARATOR_RE = /[\\/]/;
+const EXPORT_STYLE_STORAGE_KEY = 'markdowner.exportStyle.v1';
+const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
+
+export type ExportFormat = 'html' | 'pdf';
+export type ExportScope = 'document' | 'workspace';
+export type ExportFontFamily = 'sans' | 'serif' | 'mono';
+
+export interface ExportStyle {
+  fontSize: number;
+  fontFamily: ExportFontFamily;
+  textColor: string;
+  backgroundColor: string;
+  lineHeight: number;
+  paragraphSpacing: number;
+  contentPadding: number;
+  paperSize: 'A4' | 'Letter';
+}
+
+export const DEFAULT_EXPORT_STYLE: ExportStyle = {
+  fontSize: 14,
+  fontFamily: 'sans',
+  textColor: '#202124',
+  backgroundColor: '#ffffff',
+  lineHeight: 1.6,
+  paragraphSpacing: 8,
+  contentPadding: 32,
+  paperSize: 'A4',
+};
+
+type ExportStyleStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+const EXPORT_FONT_STACKS: Record<ExportFontFamily, string> = {
+  sans: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  serif: 'ui-serif, Georgia, Cambria, "Times New Roman", serif',
+  mono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+};
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(max, Math.max(min, numeric));
+}
+
+function exportStyleStorage(storage?: ExportStyleStorage): ExportStyleStorage | null {
+  if (storage) return storage;
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeExportStyle(value: unknown): ExportStyle {
+  const candidate = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const fontFamily = candidate.fontFamily;
+  const paperSize = candidate.paperSize;
+  const textColor = candidate.textColor;
+  const backgroundColor = candidate.backgroundColor;
+
+  return {
+    fontSize: clampNumber(candidate.fontSize, DEFAULT_EXPORT_STYLE.fontSize, 10, 24),
+    fontFamily:
+      fontFamily === 'sans' || fontFamily === 'serif' || fontFamily === 'mono'
+        ? fontFamily
+        : DEFAULT_EXPORT_STYLE.fontFamily,
+    textColor:
+      typeof textColor === 'string' && HEX_COLOR_RE.test(textColor)
+        ? textColor
+        : DEFAULT_EXPORT_STYLE.textColor,
+    backgroundColor:
+      typeof backgroundColor === 'string' && HEX_COLOR_RE.test(backgroundColor)
+        ? backgroundColor
+        : DEFAULT_EXPORT_STYLE.backgroundColor,
+    lineHeight: clampNumber(candidate.lineHeight, DEFAULT_EXPORT_STYLE.lineHeight, 1.2, 2.2),
+    paragraphSpacing: clampNumber(
+      candidate.paragraphSpacing,
+      DEFAULT_EXPORT_STYLE.paragraphSpacing,
+      0,
+      32,
+    ),
+    contentPadding: clampNumber(
+      candidate.contentPadding,
+      DEFAULT_EXPORT_STYLE.contentPadding,
+      0,
+      72,
+    ),
+    paperSize:
+      paperSize === 'A4' || paperSize === 'Letter'
+        ? paperSize
+        : DEFAULT_EXPORT_STYLE.paperSize,
+  };
+}
+
+export function loadExportStyle(storage?: ExportStyleStorage): ExportStyle {
+  try {
+    const saved = exportStyleStorage(storage)?.getItem(EXPORT_STYLE_STORAGE_KEY);
+    return saved ? normalizeExportStyle(JSON.parse(saved)) : { ...DEFAULT_EXPORT_STYLE };
+  } catch {
+    return { ...DEFAULT_EXPORT_STYLE };
+  }
+}
+
+export function saveExportStyle(style: ExportStyle, storage?: ExportStyleStorage): void {
+  try {
+    exportStyleStorage(storage)?.setItem(
+      EXPORT_STYLE_STORAGE_KEY,
+      JSON.stringify(normalizeExportStyle(style)),
+    );
+  } catch {
+    // Export still works when storage is disabled or full.
+  }
+}
 
 /** Strip the markdown extension from a document name for an export filename. */
 export function exportBaseName(activeDocumentName: string | null | undefined): string {
@@ -67,23 +180,25 @@ export function defaultPdfExportPath(
   return replaceMarkdownExtension(activeDocumentPath, '.pdf');
 }
 
-export interface WorkspacePdfExportTarget {
+export interface WorkspaceExportTarget {
   sourcePath: string;
   outputPath: string;
   title: string;
 }
 
-export function buildWorkspacePdfExportTargets(input: {
+export function buildWorkspaceExportTargets(input: {
   rootDir: string;
   workspaceDocuments: readonly string[];
-}): WorkspacePdfExportTarget[] {
+  format: ExportFormat;
+}): WorkspaceExportTarget[] {
   const rootDir = trimTrailingSeparators(input.rootDir);
   if (!rootDir) return [];
 
   const separator = detectPathSeparator(rootDir);
   const rootPrefix = `${rootDir}${separator}`;
   const seen = new Set<string>();
-  const targets: WorkspacePdfExportTarget[] = [];
+  const targets: WorkspaceExportTarget[] = [];
+  const exportExtension = input.format === 'html' ? '.html' : '.pdf';
 
   for (const sourcePath of input.workspaceDocuments) {
     if (!sourcePath || seen.has(sourcePath) || !MARKDOWN_EXTENSION_RE.test(sourcePath)) {
@@ -99,16 +214,25 @@ export function buildWorkspacePdfExportTargets(input: {
       continue;
     }
 
-    const relativePdfPath = replaceMarkdownExtension(relativePath, '.pdf');
+    const relativeExportPath = replaceMarkdownExtension(relativePath, exportExtension);
     targets.push({
       sourcePath,
-      outputPath: joinPath(separator, rootDir, 'exports', relativePdfPath),
+      outputPath: joinPath(separator, rootDir, 'exports', relativeExportPath),
       title: exportBaseName(fileName(sourcePath)),
     });
     seen.add(sourcePath);
   }
 
   return targets;
+}
+
+export type WorkspacePdfExportTarget = WorkspaceExportTarget;
+
+export function buildWorkspacePdfExportTargets(input: {
+  rootDir: string;
+  workspaceDocuments: readonly string[];
+}): WorkspacePdfExportTarget[] {
+  return buildWorkspaceExportTargets({ ...input, format: 'pdf' });
 }
 
 function escapeHtml(value: string): string {
@@ -350,6 +474,7 @@ export interface ExportHtmlOptions {
   /** Add print page rules + pagination-friendly layout (used by PDF export). */
   forPrint?: boolean;
   paperSize?: 'A4' | 'Letter';
+  style?: ExportStyle;
   /** Injectable for tests; defaults to the live document. */
   doc?: Document;
   /** Injectable for tests; defaults to the Tauri image reader/fetcher. */
@@ -370,9 +495,11 @@ export async function buildExportHtml(options: ExportHtmlOptions): Promise<strin
     activeDocumentPath,
     forPrint = false,
     paperSize = 'A4',
+    style: rawStyle = DEFAULT_EXPORT_STYLE,
     doc = document,
     embedImages = readImagesBase64,
   } = options;
+  const style = normalizeExportStyle(rawStyle);
 
   const exportSource = normalizeRawHtmlImagesForExport(source);
   const resolveImageSrc = await buildEmbeddingImageResolver(
@@ -390,10 +517,30 @@ export async function buildExportHtml(options: ExportHtmlOptions): Promise<strin
 .markdowner-export pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .markdowner-export pre code { white-space: inherit; }
 img, svg, video { max-width: 100%; height: auto; }`
-    : `.markdowner-export { box-sizing: border-box; max-width: 820px; margin: 0 auto; padding: 40px 32px; }`;
+    : `.markdowner-export { box-sizing: border-box; max-width: 820px; margin: 0 auto; }`;
+  const styleCss = `.markdowner-export {
+  --foreground: ${style.textColor};
+  --background: ${style.backgroundColor};
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: ${style.contentPadding}px;
+  color: ${style.textColor};
+  background: ${style.backgroundColor};
+  font-family: ${EXPORT_FONT_STACKS[style.fontFamily]};
+  font-size: ${style.fontSize}px;
+  line-height: ${style.lineHeight};
+}
+.markdowner-export h1 { font-size: 2em; }
+.markdowner-export h2 { font-size: 1.5em; }
+.markdowner-export h3 { font-size: 1.25em; }
+.markdowner-export h4 { font-size: 1.125em; }
+.markdowner-export h5, .markdowner-export h6 { font-size: 1em; }
+.markdowner-export p { margin-block: 0 ${style.paragraphSpacing}px; }
+.markdowner-export code { font-size: 0.875em; }`;
   const exportCss = `${css}
-html, body { margin: 0; background: var(--background, #ffffff); }
-${printCss}`;
+html, body { margin: 0; color: ${style.textColor}; background: ${style.backgroundColor}; }
+${printCss}
+${styleCss}`;
 
   return `<!doctype html>
 <html ${rootAttributes(doc)}>

@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  DEFAULT_EXPORT_STYLE,
   buildExportHtml,
+  buildWorkspaceExportTargets,
   buildWorkspacePdfExportTargets,
   defaultPdfExportPath,
   exportBaseName,
+  loadExportStyle,
+  normalizeExportStyle,
   renderMarkdownToHtml,
+  saveExportStyle,
 } from './exportDocument';
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -44,6 +49,85 @@ describe('defaultPdfExportPath', () => {
 
   it('falls back to the document name for untitled documents', () => {
     expect(defaultPdfExportPath(null, 'Draft.markdown')).toBe('Draft.pdf');
+  });
+});
+
+describe('export styles', () => {
+  it('uses a compact default and normalizes unsafe persisted values', () => {
+    expect(DEFAULT_EXPORT_STYLE.fontSize).toBe(14);
+    expect(
+      normalizeExportStyle({
+        fontSize: 99,
+        fontFamily: 'unknown',
+        textColor: 'red',
+        backgroundColor: '#fefefe',
+        lineHeight: 0,
+        paragraphSpacing: -4,
+        contentPadding: 999,
+        paperSize: 'Legal',
+      }),
+    ).toEqual({
+      ...DEFAULT_EXPORT_STYLE,
+      fontSize: 24,
+      backgroundColor: '#fefefe',
+      lineHeight: 1.2,
+      paragraphSpacing: 0,
+      contentPadding: 72,
+    });
+  });
+
+  it('round-trips a confirmed style through storage', () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        values.set(key, value);
+      },
+    };
+    const style = {
+      ...DEFAULT_EXPORT_STYLE,
+      fontSize: 13,
+      fontFamily: 'serif' as const,
+    };
+
+    saveExportStyle(style, storage);
+
+    expect(loadExportStyle(storage)).toEqual(style);
+  });
+
+  it('falls back to defaults when saved JSON cannot be read', () => {
+    const storage = {
+      getItem: () => '{broken',
+      setItem: () => undefined,
+    };
+
+    expect(loadExportStyle(storage)).toEqual(DEFAULT_EXPORT_STYLE);
+  });
+});
+
+describe('buildWorkspaceExportTargets', () => {
+  it('preserves project-relative folders for HTML exports', () => {
+    expect(
+      buildWorkspaceExportTargets({
+        rootDir: '/tmp/project',
+        workspaceDocuments: [
+          '/tmp/project/README.md',
+          '/tmp/project/docs/guide.markdown',
+        ],
+        format: 'html',
+      }),
+    ).toEqual([
+      {
+        sourcePath: '/tmp/project/README.md',
+        outputPath: '/tmp/project/exports/README.html',
+        title: 'README',
+      },
+      {
+        sourcePath: '/tmp/project/docs/guide.markdown',
+        outputPath: '/tmp/project/exports/docs/guide.html',
+        title: 'guide',
+      },
+    ]);
   });
 });
 
@@ -152,6 +236,32 @@ describe('buildExportHtml', () => {
       paperSize: 'Letter',
     });
     expect(html).toContain('@page { size: Letter');
+  });
+
+  it('injects the selected typography, colors, and spacing into the standalone document', async () => {
+    const html = await buildExportHtml({
+      title: 'Styled',
+      source: '# Heading\n\nBody',
+      activeDocumentPath: null,
+      style: {
+        ...DEFAULT_EXPORT_STYLE,
+        fontSize: 13,
+        fontFamily: 'serif',
+        textColor: '#223344',
+        backgroundColor: '#fffaf0',
+        lineHeight: 1.7,
+        paragraphSpacing: 10,
+        contentPadding: 36,
+      },
+    });
+
+    expect(html).toContain('font-size: 13px');
+    expect(html).toContain('font-family: ui-serif');
+    expect(html).toContain('color: #223344');
+    expect(html).toContain('background: #fffaf0');
+    expect(html).toContain('line-height: 1.7');
+    expect(html).toContain('margin-block: 0 10px');
+    expect(html).toContain('padding: 36px');
   });
 
   it('wraps long code block lines for PDF export', async () => {
