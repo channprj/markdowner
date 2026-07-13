@@ -53,6 +53,37 @@ describe('defaultPdfExportPath', () => {
 });
 
 describe('export styles', () => {
+  it('provides readable defaults for inline code and keyboard keys', () => {
+    expect(DEFAULT_EXPORT_STYLE).toEqual(
+      expect.objectContaining({
+        inlineCodeTextColor: '#7c2d12',
+        inlineCodeBackgroundColor: '#ffedd5',
+        kbdTextColor: '#334155',
+        kbdBackgroundColor: '#e2e8f0',
+      }),
+    );
+  });
+
+  it('accepts compact line heights down to 0.8 and normalizes export element colors', () => {
+    expect(
+      normalizeExportStyle({
+        ...DEFAULT_EXPORT_STYLE,
+        lineHeight: 0.8,
+        inlineCodeTextColor: '#314158',
+        inlineCodeBackgroundColor: 'orange',
+        kbdTextColor: '#abcdef',
+        kbdBackgroundColor: '#f1e6d2',
+      }),
+    ).toEqual({
+      ...DEFAULT_EXPORT_STYLE,
+      lineHeight: 0.8,
+      inlineCodeTextColor: '#314158',
+      kbdTextColor: '#abcdef',
+      kbdBackgroundColor: '#f1e6d2',
+    });
+    expect(normalizeExportStyle({ ...DEFAULT_EXPORT_STYLE, lineHeight: 0.4 }).lineHeight).toBe(0.8);
+  });
+
   it('uses a compact default and normalizes unsafe persisted values', () => {
     expect(DEFAULT_EXPORT_STYLE.fontSize).toBe(14);
     expect(
@@ -70,7 +101,7 @@ describe('export styles', () => {
       ...DEFAULT_EXPORT_STYLE,
       fontSize: 24,
       backgroundColor: '#fefefe',
-      lineHeight: 1.2,
+      lineHeight: 0.8,
       paragraphSpacing: 0,
       contentPadding: 72,
     });
@@ -252,6 +283,10 @@ describe('buildExportHtml', () => {
         lineHeight: 1.7,
         paragraphSpacing: 10,
         contentPadding: 36,
+        inlineCodeTextColor: '#314158',
+        inlineCodeBackgroundColor: '#e8eef5',
+        kbdTextColor: '#4a3520',
+        kbdBackgroundColor: '#f1e6d2',
       },
     });
 
@@ -262,6 +297,12 @@ describe('buildExportHtml', () => {
     expect(html).toContain('line-height: 1.7');
     expect(html).toContain('margin-block: 0 10px');
     expect(html).toContain('padding: 36px');
+    expect(html).toContain('.markdowner-export code:not(pre code)');
+    expect(html).toContain('color: #314158');
+    expect(html).toContain('background: #e8eef5');
+    expect(html).toContain('.markdowner-export kbd');
+    expect(html).toContain('color: #4a3520');
+    expect(html).toContain('background: #f1e6d2');
   });
 
   it('wraps long code block lines for PDF export', async () => {

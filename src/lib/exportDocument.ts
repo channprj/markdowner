@@ -28,6 +28,10 @@ export interface ExportStyle {
   fontFamily: ExportFontFamily;
   textColor: string;
   backgroundColor: string;
+  inlineCodeTextColor: string;
+  inlineCodeBackgroundColor: string;
+  kbdTextColor: string;
+  kbdBackgroundColor: string;
   lineHeight: number;
   paragraphSpacing: number;
   contentPadding: number;
@@ -39,6 +43,10 @@ export const DEFAULT_EXPORT_STYLE: ExportStyle = {
   fontFamily: 'sans',
   textColor: '#202124',
   backgroundColor: '#ffffff',
+  inlineCodeTextColor: '#7c2d12',
+  inlineCodeBackgroundColor: '#ffedd5',
+  kbdTextColor: '#334155',
+  kbdBackgroundColor: '#e2e8f0',
   lineHeight: 1.6,
   paragraphSpacing: 8,
   contentPadding: 32,
@@ -57,6 +65,10 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
   const numeric = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(numeric)) return fallback;
   return Math.min(max, Math.max(min, numeric));
+}
+
+function normalizeHexColor(value: unknown, fallback: string): string {
+  return typeof value === 'string' && HEX_COLOR_RE.test(value) ? value : fallback;
 }
 
 function exportStyleStorage(storage?: ExportStyleStorage): ExportStyleStorage | null {
@@ -82,15 +94,22 @@ export function normalizeExportStyle(value: unknown): ExportStyle {
       fontFamily === 'sans' || fontFamily === 'serif' || fontFamily === 'mono'
         ? fontFamily
         : DEFAULT_EXPORT_STYLE.fontFamily,
-    textColor:
-      typeof textColor === 'string' && HEX_COLOR_RE.test(textColor)
-        ? textColor
-        : DEFAULT_EXPORT_STYLE.textColor,
-    backgroundColor:
-      typeof backgroundColor === 'string' && HEX_COLOR_RE.test(backgroundColor)
-        ? backgroundColor
-        : DEFAULT_EXPORT_STYLE.backgroundColor,
-    lineHeight: clampNumber(candidate.lineHeight, DEFAULT_EXPORT_STYLE.lineHeight, 1.2, 2.2),
+    textColor: normalizeHexColor(textColor, DEFAULT_EXPORT_STYLE.textColor),
+    backgroundColor: normalizeHexColor(backgroundColor, DEFAULT_EXPORT_STYLE.backgroundColor),
+    inlineCodeTextColor: normalizeHexColor(
+      candidate.inlineCodeTextColor,
+      DEFAULT_EXPORT_STYLE.inlineCodeTextColor,
+    ),
+    inlineCodeBackgroundColor: normalizeHexColor(
+      candidate.inlineCodeBackgroundColor,
+      DEFAULT_EXPORT_STYLE.inlineCodeBackgroundColor,
+    ),
+    kbdTextColor: normalizeHexColor(candidate.kbdTextColor, DEFAULT_EXPORT_STYLE.kbdTextColor),
+    kbdBackgroundColor: normalizeHexColor(
+      candidate.kbdBackgroundColor,
+      DEFAULT_EXPORT_STYLE.kbdBackgroundColor,
+    ),
+    lineHeight: clampNumber(candidate.lineHeight, DEFAULT_EXPORT_STYLE.lineHeight, 0.8, 2.2),
     paragraphSpacing: clampNumber(
       candidate.paragraphSpacing,
       DEFAULT_EXPORT_STYLE.paragraphSpacing,
@@ -536,7 +555,16 @@ img, svg, video { max-width: 100%; height: auto; }`
 .markdowner-export h4 { font-size: 1.125em; }
 .markdowner-export h5, .markdowner-export h6 { font-size: 1em; }
 .markdowner-export p { margin-block: 0 ${style.paragraphSpacing}px; }
-.markdowner-export code { font-size: 0.875em; }`;
+.markdowner-export code { font-size: 0.875em; }
+.markdowner-export code:not(pre code) {
+  color: ${style.inlineCodeTextColor};
+  background: ${style.inlineCodeBackgroundColor};
+}
+.markdowner-export kbd {
+  color: ${style.kbdTextColor};
+  background: ${style.kbdBackgroundColor};
+  border: 1px solid color-mix(in srgb, ${style.kbdTextColor} 35%, transparent);
+}`;
   const exportCss = `${css}
 html, body { margin: 0; color: ${style.textColor}; background: ${style.backgroundColor}; }
 ${printCss}
