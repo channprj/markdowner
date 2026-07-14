@@ -65,6 +65,7 @@ export function createCodeBlockExtension() {
             );
             // Not on the last line yet — let the caret move down within the code.
             if (textAfterCaret.includes('\n')) return false;
+            if (!editor.view.endOfTextblock('down')) return false;
             const afterPos = $from.after();
             const nodeAfter = state.doc.nodeAt(afterPos);
             if (!nodeAfter) {

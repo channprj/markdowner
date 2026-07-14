@@ -50,6 +50,7 @@ describe('code block keyboard handling', () => {
     });
 
     it('exits the code block to the paragraph below from the last line', () => {
+      vi.mocked(editor.view.endOfTextblock).mockReturnValue(true);
       // Caret at the very end (last line) of the code block.
       const end = editor.state.doc.firstChild!.nodeSize - 1;
       editor.chain().focus().setTextSelection(end).run();
@@ -65,10 +66,19 @@ describe('code block keyboard handling', () => {
       expect(handled).toBeFalsy();
       expect(editor.state.selection.$from.parent.type.name).toBe('codeBlock');
     });
+
+    it('does not exit when the last logical line has another visual row below', () => {
+      editor.chain().focus().setTextSelection(8).run();
+      const handled = pressArrowDown(editor);
+      expect(editor.view.endOfTextblock).toHaveBeenCalledWith('down');
+      expect(handled).toBeFalsy();
+      expect(editor.state.selection.$from.parent.type.name).toBe('codeBlock');
+    });
   });
 
   it('creates a paragraph below when the code block is the last node', () => {
     editor = buildEditor('<pre><code>only</code></pre>');
+    vi.spyOn(editor.view, 'endOfTextblock').mockReturnValue(true);
     // Remove any trailing node so the code block is genuinely last.
     const docChildCount = editor.state.doc.childCount;
     // Place caret at end of the code block content.

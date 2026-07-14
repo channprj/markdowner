@@ -7354,6 +7354,49 @@ describe('App recent documents', () => {
     });
   });
 
+  it('toggles WYSIWYG Code Block Wrap from the Command Palette and persists it through save_settings', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return { wysiwygCodeBlockWrap: false };
+      }
+      return undefined;
+    });
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'code.md',
+        activeDocumentPath: '/tmp/project/code.md',
+        activeDocumentSource: '```text\nlong-line\n```',
+        mode: 'Wysiwyg',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+
+    const wysiwygSurface = await screen.findByTestId('editor-surface-wysiwyg');
+    expect(wysiwygSurface).toHaveAttribute('data-code-block-wrap', 'off');
+
+    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
+
+    const dialog = await screen.findByRole('dialog', { name: /command palette/i });
+    const input = within(dialog).getByRole('textbox', { name: /command palette search/i });
+
+    fireEvent.change(input, { target: { value: 'code block wrap' } });
+
+    const wrapOption = await within(dialog).findByRole('option', {
+      name: /enable WYSIWYG code block wrap/i,
+    });
+    fireEvent.click(wrapOption);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('save_settings', {
+        settings: expect.objectContaining({ wysiwygCodeBlockWrap: true }),
+      });
+      expect(wysiwygSurface).toHaveAttribute('data-code-block-wrap', 'on');
+    });
+  });
+
   it('toggles Word Break Keep All from the Command Palette and persists it through save_settings', async () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {
@@ -8351,6 +8394,9 @@ describe('App recent documents', () => {
 
     render(<App />);
 
+    const wysiwygSurface = await screen.findByTestId('editor-surface-wysiwyg');
+    expect(wysiwygSurface).toHaveAttribute('data-code-block-wrap', 'off');
+
     fireEvent.keyDown(window, { key: ',', metaKey: true });
 
     const dialog = await screen.findByTestId('settings-panel');
@@ -8362,6 +8408,7 @@ describe('App recent documents', () => {
       expect(invokeMock).toHaveBeenCalledWith('save_settings', {
         settings: expect.objectContaining({ wysiwygCodeBlockWrap: true }),
       });
+      expect(wysiwygSurface).toHaveAttribute('data-code-block-wrap', 'on');
     });
   });
 

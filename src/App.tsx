@@ -6245,6 +6245,7 @@ export default function App() {
         wrapColumn={settings.editorWrapColumn}
         showWrapLine={settings.editorShowWrapLine}
         wordBreakKeepAll={settings.editorWordBreakKeepAll}
+        wysiwygCodeBlockWrap={settings.wysiwygCodeBlockWrap}
         splitSourceRef={splitSourceScrollRef}
         splitPreviewRef={splitPreviewScrollRef}
         onSplitSourceScroll={handleSplitSourceScroll}

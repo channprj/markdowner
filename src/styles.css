@@ -1292,6 +1292,13 @@ section[data-minimap='on'] .editor-pane-preview {
   font-family: inherit;
   white-space: pre;
 }
+.editor-pane-wysiwyg[data-code-block-wrap='on'] .notion-editor-content .ProseMirror .code-block-view > pre,
+.editor-pane-wysiwyg[data-code-block-wrap='on'] .notion-editor-content .ProseMirror .code-block-view > pre > code,
+.editor-pane-wysiwyg[data-code-block-wrap='on'] .notion-editor-content .ProseMirror .mermaid-source-pre,
+.editor-pane-wysiwyg[data-code-block-wrap='on'] .notion-editor-content .ProseMirror .mermaid-source-pre > code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* Float the toolbar inside the codeblock at the top-right so the language
    selector reads as a chip attached to the code rather than a header bar. */
 .code-block-toolbar {

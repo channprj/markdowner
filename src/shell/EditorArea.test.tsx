@@ -92,6 +92,32 @@ describe('EditorArea mode switch', () => {
     );
   });
 
+  it('keeps WYSIWYG code block wrapping off by default', () => {
+    render(<EditorArea {...baseProps} currentMode="Wysiwyg" />);
+
+    expect(screen.getByTestId('editor-surface-wysiwyg')).toHaveAttribute(
+      'data-code-block-wrap',
+      'off',
+    );
+  });
+
+  it('enables code block wrapping on the WYSIWYG pane only', () => {
+    render(
+      <EditorArea {...baseProps} currentMode="SplitView" wysiwygCodeBlockWrap />,
+    );
+
+    expect(screen.getByTestId('editor-surface-wysiwyg')).toHaveAttribute(
+      'data-code-block-wrap',
+      'on',
+    );
+    expect(screen.getByTestId('editor-surface-source')).not.toHaveAttribute(
+      'data-code-block-wrap',
+    );
+    expect(screen.getByTestId('editor-surface-preview')).not.toHaveAttribute(
+      'data-code-block-wrap',
+    );
+  });
+
   it('keeps typewriter spacing off the flex pane in source mode', () => {
     render(<EditorArea {...baseProps} currentMode="Editor" typewriterModeEnabled />);
 

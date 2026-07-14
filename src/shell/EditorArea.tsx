@@ -63,6 +63,8 @@ export interface EditorAreaProps {
   showWrapLine?: boolean;
   /** Apply CSS `word-break: keep-all` across source, preview, and WYSIWYG text. */
   wordBreakKeepAll?: boolean;
+  /** Wrap editable code blocks in the WYSIWYG pane only. */
+  wysiwygCodeBlockWrap?: boolean;
   /** When true, an overlay minimap is rendered against the editor surface. */
   minimapEnabled?: boolean;
   /** The scrollable element the minimap mirrors. Typically the active editor pane. */
@@ -109,6 +111,7 @@ export function EditorArea({
   wrapColumn,
   showWrapLine = true,
   wordBreakKeepAll = true,
+  wysiwygCodeBlockWrap = false,
   minimapEnabled = false,
   minimapScrollEl = null,
   tableDensity = 'compact',
@@ -142,6 +145,7 @@ export function EditorArea({
   const wrapColumnAttribute = columnMode ? String(wrapColumn) : undefined;
   const wrapLineAttribute = showWrapLine ? 'on' : 'off';
   const wordBreakAttribute = wordBreakKeepAll ? 'keep-all' : 'normal';
+  const codeBlockWrapAttribute = wysiwygCodeBlockWrap ? 'on' : 'off';
   const editorModeAttributes = {
     'data-focus-mode': String(focusModeEnabled),
     'data-typewriter-mode': String(typewriterModeEnabled),
@@ -351,6 +355,7 @@ export function EditorArea({
         <div
           data-testid="editor-surface-wysiwyg"
           {...editorModeAttributes}
+          data-code-block-wrap={codeBlockWrapAttribute}
           data-line-wrap={lineWrapAttribute}
           data-wrap-column={wrapColumnAttribute}
           data-wrap-line={wrapLineAttribute}
