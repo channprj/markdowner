@@ -8,8 +8,10 @@
  * re-implemented here. The endOfTextblock mock verifies our delegation and
  * decision boundary; constrained-width visual wrapping is covered live.
  */
+import { readFileSync } from 'node:fs';
+
 import StarterKit from '@tiptap/starter-kit';
-import { Editor } from '@tiptap/core';
+import { Editor, type Content } from '@tiptap/core';
 import { EditorContent } from '@tiptap/react';
 import { cleanup, render, waitFor } from '@testing-library/react';
 import { createElement } from 'react';
@@ -17,15 +19,87 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createCodeBlockExtension } from './codeBlockExtension';
 
-function buildEditor(content: string): Editor {
-  const el = document.createElement('div');
-  document.body.appendChild(el);
+const APP_STYLESHEET = readFileSync('src/styles.css', 'utf8').replace(
+  /^@import\s+[^;]+;\s*$/gm,
+  '',
+);
+const bootstrapHosts = new Set<HTMLElement>();
+const testStyleNodes = new Set<HTMLStyleElement>();
+
+function buildEditor(content: Content): Editor {
+  const bootstrapHost = document.createElement('div');
+  bootstrapHosts.add(bootstrapHost);
+  document.body.appendChild(bootstrapHost);
   return new Editor({
-    element: el,
+    element: bootstrapHost,
     extensions: [StarterKit.configure({ codeBlock: false }), createCodeBlockExtension()],
     content,
   });
 }
+
+function appendAppStylesheet(): HTMLStyleElement {
+  const style = document.createElement('style');
+  style.dataset.testAppStylesheet = '';
+  style.textContent = APP_STYLESHEET;
+  document.head.appendChild(style);
+  testStyleNodes.add(style);
+  return style;
+}
+
+function codeBlockDocument(language: string | null): Content {
+  return {
+    type: 'doc',
+    content: [
+      {
+        type: 'codeBlock',
+        attrs: { language },
+        ...(language === 'mermaid'
+          ? {}
+          : { content: [{ type: 'text', text: 'only' }] }),
+      },
+    ],
+  };
+}
+
+const CODE_BLOCK_WRAP_CASES = [
+  {
+    variant: 'ordinary',
+    language: null,
+    selector: '.code-block-view:not(.code-block-view-mermaid) > pre',
+  },
+  {
+    variant: 'Mermaid source',
+    language: 'mermaid',
+    selector: '.mermaid-source-pre',
+  },
+].flatMap((nodeVariant) =>
+  [
+    {
+      codeBlockWrap: 'off',
+      lineWrap: 'true',
+      expectedWhiteSpace: 'pre',
+      expectedOverflowWrap: 'normal',
+    },
+    {
+      codeBlockWrap: 'off',
+      lineWrap: 'false',
+      expectedWhiteSpace: 'pre',
+      expectedOverflowWrap: 'normal',
+    },
+    {
+      codeBlockWrap: 'on',
+      lineWrap: 'true',
+      expectedWhiteSpace: 'pre-wrap',
+      expectedOverflowWrap: 'anywhere',
+    },
+    {
+      codeBlockWrap: 'on',
+      lineWrap: 'false',
+      expectedWhiteSpace: 'pre-wrap',
+      expectedOverflowWrap: 'anywhere',
+    },
+  ].map((wrapState) => ({ ...nodeVariant, ...wrapState })),
+);
 
 function pressArrowDown(editor: Editor): boolean {
   return Boolean(
@@ -38,12 +112,71 @@ function pressArrowDown(editor: Editor): boolean {
 describe('code block keyboard handling', () => {
   let editor: Editor;
 
+  beforeEach(() => {
+    document
+      .querySelectorAll('style[data-tiptap-style]')
+      .forEach((style) => style.remove());
+  });
+
   afterEach(() => {
     cleanup();
-    const el = editor?.view.dom.parentElement;
     editor?.destroy();
-    el?.remove();
+    bootstrapHosts.forEach((host) => host.remove());
+    bootstrapHosts.clear();
+    testStyleNodes.forEach((style) => style.remove());
+    testStyleNodes.clear();
+    document
+      .querySelectorAll('style[data-tiptap-style]')
+      .forEach((style) => style.remove());
   });
+
+  it.each(CODE_BLOCK_WRAP_CASES)(
+    '$variant computes $expectedWhiteSpace with code wrap $codeBlockWrap and general line wrap $lineWrap',
+    async ({
+      language,
+      selector,
+      codeBlockWrap,
+      lineWrap,
+      expectedWhiteSpace,
+      expectedOverflowWrap,
+    }) => {
+      const appStyle = appendAppStylesheet();
+      editor = buildEditor(codeBlockDocument(language));
+
+      const { container } = render(
+        createElement(
+          'div',
+          {
+            className: 'editor-pane-wysiwyg',
+            'data-code-block-wrap': codeBlockWrap,
+            'data-line-wrap': lineWrap,
+          },
+          createElement(
+            'div',
+            { className: 'notion-editor-content' },
+            createElement(EditorContent, { editor }),
+          ),
+        ),
+      );
+
+      const codePre = await waitFor(() => {
+        const element = container.querySelector<HTMLElement>(selector);
+        expect(element).not.toBeNull();
+        return element!;
+      });
+      const tiptapStyle = document.head.querySelector<HTMLStyleElement>(
+        'style[data-tiptap-style]',
+      );
+      expect(tiptapStyle?.textContent).toContain('.ProseMirror pre');
+      expect(
+        Array.from(document.head.children).indexOf(tiptapStyle!),
+      ).toBeGreaterThan(Array.from(document.head.children).indexOf(appStyle));
+
+      const computedStyle = window.getComputedStyle(codePre);
+      expect(computedStyle.whiteSpace).toBe(expectedWhiteSpace);
+      expect(computedStyle.overflowWrap).toBe(expectedOverflowWrap);
+    },
+  );
 
   it('lets ordinary code content inherit white-space in the real React node view', async () => {
     editor = buildEditor('<pre><code>only</code></pre>');

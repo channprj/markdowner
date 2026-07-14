@@ -45,6 +45,22 @@ describe('editor word wrap stylesheet', () => {
 });
 
 describe('WYSIWYG code block wrapping stylesheet', () => {
+  it('keeps ordinary and Mermaid source code unwrapped when the WYSIWYG toggle is off', () => {
+    const selectors = [
+      ".editor-pane-wysiwyg[data-code-block-wrap='off'] .notion-editor-content .ProseMirror .code-block-view > pre",
+      ".editor-pane-wysiwyg[data-code-block-wrap='off'] .notion-editor-content .ProseMirror .mermaid-source-pre",
+    ];
+
+    for (const selector of selectors) {
+      const rule = ruleBody(selector);
+      expect(rule).toContain('white-space: pre;');
+      expect(rule).toContain('overflow-wrap: normal;');
+    }
+    expect(stylesheet).not.toContain(
+      ".editor-pane-preview[data-code-block-wrap='off']",
+    );
+  });
+
   it('wraps ordinary and Mermaid source code only when the WYSIWYG toggle is on', () => {
     const selectors = [
       ".editor-pane-wysiwyg[data-code-block-wrap='on'] .notion-editor-content .ProseMirror .code-block-view > pre",

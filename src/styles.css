@@ -1292,6 +1292,11 @@ section[data-minimap='on'] .editor-pane-preview {
   font-family: inherit;
   white-space: pre;
 }
+.editor-pane-wysiwyg[data-code-block-wrap='off'] .notion-editor-content .ProseMirror .code-block-view > pre,
+.editor-pane-wysiwyg[data-code-block-wrap='off'] .notion-editor-content .ProseMirror .mermaid-source-pre {
+  white-space: pre;
+  overflow-wrap: normal;
+}
 .editor-pane-wysiwyg[data-code-block-wrap='on'] .notion-editor-content .ProseMirror .code-block-view > pre,
 .editor-pane-wysiwyg[data-code-block-wrap='on'] .notion-editor-content .ProseMirror .code-block-view > pre > code,
 .editor-pane-wysiwyg[data-code-block-wrap='on'] .notion-editor-content .ProseMirror .mermaid-source-pre,
