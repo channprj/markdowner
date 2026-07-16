@@ -13,6 +13,7 @@ PRD.md
 tasks/
 .ralph-tui/
 .beads/
+.worktrees/
 docs/superpowers/
 
 
