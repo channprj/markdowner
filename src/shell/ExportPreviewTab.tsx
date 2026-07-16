@@ -1,4 +1,4 @@
-import { FileDown, RotateCcw, X } from 'lucide-react';
+import { FileDown, Minus, Plus, RotateCcw, Scan, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -17,6 +17,15 @@ import {
   type ExportStylePreset,
   type ExportTheme,
 } from '@/lib/exportDocument';
+import {
+  PREVIEW_ZOOM_MAX_PERCENT,
+  PREVIEW_ZOOM_MIN_PERCENT,
+  fitPreviewZoomPercent,
+  previewPageSize,
+  stepPreviewZoomPercent,
+  type PreviewSize,
+  type PreviewZoomDirection,
+} from '@/lib/exportPreviewZoom';
 import { cn } from '@/lib/utils';
 
 export interface ExportPreviewRequest {
@@ -164,13 +173,25 @@ export function ExportPreviewTab({
   buildPreview = buildExportHtml,
 }: ExportPreviewTabProps) {
   const idPrefix = useId();
-  const requestIdentity = `${request.format}:${request.scope}:${request.activeDocumentPath ?? ''}:${request.title}`;
+  const isPdf = request.format === 'pdf';
+  const requestIdentity = JSON.stringify([
+    request.format,
+    request.scope,
+    request.activeDocumentPath,
+    request.title,
+    request.source,
+    request.targetCount,
+  ]);
   const [draftStyle, setDraftStyle] = useState<ExportStyle>(() =>
     resolveExportStyleForTheme(initialStyle, appTheme),
   );
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewStatus, setPreviewStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [zoomMode, setZoomMode] = useState<'fit' | 'manual'>('fit');
+  const [manualZoomPercent, setManualZoomPercent] = useState(100);
+  const [previewViewport, setPreviewViewport] = useState<PreviewSize>({ width: 0, height: 0 });
   const previewRequestRef = useRef(0);
+  const previewViewportRef = useRef<HTMLDivElement>(null);
   const previousRequestIdentityRef = useRef(requestIdentity);
 
   useEffect(() => {
@@ -178,6 +199,8 @@ export function ExportPreviewTab({
     previousRequestIdentityRef.current = requestIdentity;
     if (requestChanged) {
       setDraftStyle(resolveExportStyleForTheme(initialStyle, appTheme));
+      setZoomMode('fit');
+      setManualZoomPercent(100);
       return;
     }
     setDraftStyle((current) =>
@@ -211,6 +234,30 @@ export function ExportPreviewTab({
       });
   }, [buildPreview, draftStyle, request]);
 
+  useEffect(() => {
+    if (!isPdf || typeof ResizeObserver === 'undefined') return;
+
+    const viewport = previewViewportRef.current;
+    if (!viewport) return;
+
+    const updateSize = (width: number, height: number) => {
+      if (width <= 0 || height <= 0) return;
+      setPreviewViewport((current) =>
+        current.width === width && current.height === height ? current : { width, height },
+      );
+    };
+    const measure = () => updateSize(viewport.clientWidth, viewport.clientHeight);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      updateSize(entry.contentRect.width, entry.contentRect.height);
+    });
+
+    measure();
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [isPdf]);
+
   const updateNumber = (key: NumericStyleKey, value: number) => {
     setDraftStyle((current) =>
       normalizeExportStyle({ ...current, [key]: value, preset: 'custom' }),
@@ -223,7 +270,51 @@ export function ExportPreviewTab({
   };
   const controlId = (name: string) => `${idPrefix}-${name}`;
   const formatLabel = request.format.toUpperCase();
-  const isPdf = request.format === 'pdf';
+  const pageSize = previewPageSize(draftStyle.paperSize);
+  const fitZoomPercent = fitPreviewZoomPercent(previewViewport, pageSize);
+  const zoomPercent = zoomMode === 'fit' ? fitZoomPercent : manualZoomPercent;
+  const zoomScale = zoomPercent / 100;
+  const applyManualZoom = (direction: PreviewZoomDirection) => {
+    setManualZoomPercent(stepPreviewZoomPercent(zoomPercent, direction));
+    setZoomMode('manual');
+  };
+
+  const previewContents = (
+    <>
+      {previewHtml ? (
+        <iframe
+          title={`${formatLabel} export preview`}
+          sandbox=""
+          srcDoc={previewHtml}
+          className={cn('h-full w-full border-0', !isPdf && 'min-h-[520px]')}
+          style={{ backgroundColor: draftStyle.backgroundColor }}
+        />
+      ) : null}
+      {previewStatus === 'loading' ? (
+        <div
+          className="absolute inset-x-0 top-0 h-0.5 overflow-hidden bg-muted"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="block h-full w-1/3 animate-pulse bg-foreground/70" />
+          <span className="sr-only">Updating preview…</span>
+        </div>
+      ) : null}
+      {previewStatus === 'error' ? (
+        <div
+          className="absolute inset-0 grid place-items-center bg-background p-8 text-center"
+          role="alert"
+        >
+          <div>
+            <p className="font-heading text-base font-medium">Preview unavailable</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Check document images and reopen Export Preview.
+            </p>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
 
   return (
     <section
@@ -284,8 +375,14 @@ export function ExportPreviewTab({
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(220px,auto)_minmax(0,1fr)] lg:grid-cols-[300px_minmax(0,1fr)] lg:grid-rows-1">
-        <aside className="overflow-y-auto border-b border-border bg-background px-4 py-4 lg:border-r lg:border-b-0">
+      <div
+        data-testid="export-preview-layout"
+        className="grid min-h-0 flex-1 grid-rows-[minmax(180px,2fr)_minmax(240px,3fr)] lg:grid-cols-[300px_minmax(0,1fr)] lg:grid-rows-1"
+      >
+        <aside
+          data-testid="export-preview-config"
+          className="min-h-0 overflow-y-auto border-b border-border bg-background px-4 py-4 lg:border-r lg:border-b-0"
+        >
           <div className="mb-5 border-l-2 border-foreground pl-3">
             <p className="font-heading text-sm font-medium">Config</p>
           </div>
@@ -505,44 +602,99 @@ export function ExportPreviewTab({
           </div>
         </aside>
 
-        <div className="relative min-h-0 overflow-auto bg-[radial-gradient(circle_at_1px_1px,color-mix(in_srgb,var(--border)_72%,transparent)_1px,transparent_0)] bg-[length:18px_18px] p-4 sm:p-6">
-          <div
-            className={cn(
-              'relative mx-auto overflow-hidden border border-black/10 shadow-[0_28px_90px_-36px_rgba(0,0,0,0.62)]',
-              isPdf ? 'min-h-full w-full max-w-[760px]' : 'h-full min-h-[520px] w-full max-w-[1080px]',
-            )}
-            style={{
-              backgroundColor: draftStyle.backgroundColor,
-              ...(isPdf
-                ? { aspectRatio: draftStyle.paperSize === 'A4' ? '210 / 297' : '8.5 / 11' }
-                : {}),
-            }}
-          >
-            {previewHtml ? (
-              <iframe
-                title={`${formatLabel} export preview`}
-                sandbox=""
-                srcDoc={previewHtml}
-                className="h-full min-h-[520px] w-full border-0"
-                style={{ backgroundColor: draftStyle.backgroundColor }}
-              />
-            ) : null}
-            {previewStatus === 'loading' ? (
-              <div className="absolute inset-x-0 top-0 h-0.5 overflow-hidden bg-muted" role="status" aria-live="polite">
-                <span className="block h-full w-1/3 animate-pulse bg-foreground/70" />
-                <span className="sr-only">Updating preview…</span>
+        <div
+          data-testid="export-preview-panel"
+          className="relative flex min-h-0 flex-col overflow-hidden bg-[radial-gradient(circle_at_1px_1px,color-mix(in_srgb,var(--border)_72%,transparent)_1px,transparent_0)] bg-[length:18px_18px]"
+        >
+          {isPdf ? (
+            <div className="flex shrink-0 justify-end border-b border-border/70 bg-background/90 px-3 py-2 backdrop-blur-sm">
+              <div
+                role="group"
+                aria-label="Preview zoom controls"
+                className="flex items-center rounded-lg border border-border bg-background p-0.5 shadow-sm"
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Zoom out"
+                  disabled={busy || zoomPercent <= PREVIEW_ZOOM_MIN_PERCENT}
+                  onClick={() => applyManualZoom('out')}
+                >
+                  <Minus />
+                </Button>
+                <output
+                  aria-label={`Preview zoom: ${zoomPercent}%`}
+                  aria-live="polite"
+                  className="min-w-12 px-1 text-center font-mono text-[11px] tabular-nums text-muted-foreground"
+                >
+                  {zoomPercent}%
+                </output>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Zoom in"
+                  disabled={busy || zoomPercent >= PREVIEW_ZOOM_MAX_PERCENT}
+                  onClick={() => applyManualZoom('in')}
+                >
+                  <Plus />
+                </Button>
+                <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-border" />
+                <Button
+                  type="button"
+                  variant={zoomMode === 'fit' ? 'secondary' : 'ghost'}
+                  size="xs"
+                  aria-label="Fit preview"
+                  aria-pressed={zoomMode === 'fit'}
+                  disabled={busy}
+                  onClick={() => setZoomMode('fit')}
+                >
+                  <Scan />
+                  Fit
+                </Button>
               </div>
-            ) : null}
-            {previewStatus === 'error' ? (
-              <div className="absolute inset-0 grid place-items-center bg-background p-8 text-center" role="alert">
-                <div>
-                  <p className="font-heading text-base font-medium">Preview unavailable</p>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Check document images and reopen Export Preview.
-                  </p>
+            </div>
+          ) : null}
+
+          <div
+            ref={isPdf ? previewViewportRef : undefined}
+            data-testid={isPdf ? 'pdf-preview-viewport' : undefined}
+            className="min-h-0 flex-1 overflow-auto p-4 sm:p-6"
+          >
+            {isPdf ? (
+              <div className="grid h-max min-h-full w-max min-w-full place-items-center">
+                <div
+                  data-testid="pdf-preview-wrapper"
+                  className="relative shrink-0"
+                  style={{
+                    width: pageSize.width * zoomScale,
+                    height: pageSize.height * zoomScale,
+                  }}
+                >
+                  <div
+                    data-testid="pdf-preview-page"
+                    className="relative overflow-hidden border border-black/10 shadow-[0_28px_90px_-36px_rgba(0,0,0,0.62)]"
+                    style={{
+                      width: pageSize.width,
+                      height: pageSize.height,
+                      backgroundColor: draftStyle.backgroundColor,
+                      transform: `scale(${zoomScale})`,
+                      transformOrigin: 'top left',
+                    }}
+                  >
+                    {previewContents}
+                  </div>
                 </div>
               </div>
-            ) : null}
+            ) : (
+              <div
+                className="relative mx-auto h-full min-h-[520px] w-full max-w-[1080px] overflow-hidden border border-black/10 shadow-[0_28px_90px_-36px_rgba(0,0,0,0.62)]"
+                style={{ backgroundColor: draftStyle.backgroundColor }}
+              >
+                {previewContents}
+              </div>
+            )}
           </div>
         </div>
       </div>
