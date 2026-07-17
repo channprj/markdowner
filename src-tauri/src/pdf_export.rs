@@ -103,7 +103,7 @@ mod macos {
     use objc2_foundation::{
         MainThreadMarker, NSData, NSError, NSNumber, NSObjectProtocol, NSString,
     };
-    use objc2_pdf_kit::PDFDocument;
+    use objc2_pdf_kit::{PDFDisplayBox, PDFDocument};
     use objc2_web_kit::{
         WKNavigation, WKNavigationDelegate, WKPDFConfiguration, WKWebView, WKWebViewConfiguration,
     };
@@ -196,6 +196,16 @@ mod macos {
 
     fn tick_run_loop() {
         CFRunLoop::run_in_mode(unsafe { kCFRunLoopDefaultMode }, 0.05, true);
+    }
+
+    pub(super) fn pdf_page_media_box(paper_width: f64, paper_height: f64) -> CGRect {
+        CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: CGSize {
+                width: paper_width,
+                height: paper_height,
+            },
+        }
     }
 
     fn wait_for_load(state: &Rc<RefCell<NavigationLoadState>>) -> Result<(), String> {
@@ -363,8 +373,16 @@ mod macos {
             let page_doc = unsafe { PDFDocument::initWithData(PDFDocument::alloc(), &data) }
                 .ok_or_else(|| "Could not read a generated PDF page".to_string())?;
             if let Some(page) = unsafe { page_doc.pageAtIndex(0) } {
+                let media_box = pdf_page_media_box(paper_width, paper_height);
                 let at = unsafe { combined.pageCount() };
-                unsafe { combined.insertPage_atIndex(&page, at) };
+                unsafe {
+                    // WebKit rounds its generated MediaBox down to whole points.
+                    // Restore the requested physical dimensions before combining
+                    // pages so presets and decimal custom sizes remain exact.
+                    page.setBounds_forBox(media_box, PDFDisplayBox::MediaBox);
+                    page.setBounds_forBox(media_box, PDFDisplayBox::CropBox);
+                    combined.insertPage_atIndex(&page, at);
+                }
             }
         }
 
@@ -379,6 +397,8 @@ mod macos {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    use super::macos::pdf_page_media_box;
     use super::{
         NavigationLoadState, format_pdf_export_error, navigation_load_result,
         pagination_probe_result, paper_points,
@@ -410,6 +430,14 @@ mod tests {
         let (width, height) = paper_points(25.4, 50.8).expect("valid dimensions");
         assert!((width - 72.0).abs() < 1e-9);
         assert!((height - 144.0).abs() < 1e-9);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn generated_page_media_box_preserves_fractional_paper_points() {
+        let bounds = pdf_page_media_box(595.275_590_551, 841.889_763_78);
+        assert!((bounds.size.width - 595.275_590_551).abs() < 1e-9);
+        assert!((bounds.size.height - 841.889_763_78).abs() < 1e-9);
     }
 
     #[test]
