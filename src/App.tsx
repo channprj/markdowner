@@ -125,6 +125,7 @@ import {
   type ExportStyle,
   type ExportTheme,
 } from '@/lib/exportDocument';
+import { resolvePdfPaper } from '@/lib/pdfPaper';
 import {
   applyDraftBackupsToRestoredTabs,
   buildDraftBackupEntries,
@@ -528,8 +529,21 @@ export default function App() {
   const exportAppTheme: ExportTheme =
     snapshot.theme.kind === 'BuiltInDark' ? 'dark' : 'light';
   const exportPreviewInitialStyle = useMemo(
-    () => normalizeExportStyle({ ...exportStyle, paperSize: settings.pdfPaperSize }),
-    [exportStyle, settings.pdfPaperSize],
+    () =>
+      normalizeExportStyle({
+        ...exportStyle,
+        paperSize: settings.pdfPaperSize,
+        paperOrientation: settings.pdfPaperOrientation,
+        paperWidthMm: settings.pdfPaperWidthMm,
+        paperHeightMm: settings.pdfPaperHeightMm,
+      }),
+    [
+      exportStyle,
+      settings.pdfPaperSize,
+      settings.pdfPaperOrientation,
+      settings.pdfPaperWidthMm,
+      settings.pdfPaperHeightMm,
+    ],
   );
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState<number>(readTerminalHeight());
@@ -4500,10 +4514,23 @@ export default function App() {
     const request = exportRequest;
     if (!request) return;
     const style = normalizeExportStyle(nextStyle);
+    const paper = resolvePdfPaper(style);
     setExportStyle(style);
     saveExportStyle(style);
-    if (request.format === 'pdf' && settings.pdfPaperSize !== style.paperSize) {
-      handleSettingsChange({ ...settings, pdfPaperSize: style.paperSize });
+    if (
+      request.format === 'pdf' &&
+      (settings.pdfPaperSize !== style.paperSize ||
+        settings.pdfPaperOrientation !== style.paperOrientation ||
+        settings.pdfPaperWidthMm !== style.paperWidthMm ||
+        settings.pdfPaperHeightMm !== style.paperHeightMm)
+    ) {
+      handleSettingsChange({
+        ...settings,
+        pdfPaperSize: style.paperSize,
+        pdfPaperOrientation: style.paperOrientation,
+        pdfPaperWidthMm: style.paperWidthMm,
+        pdfPaperHeightMm: style.paperHeightMm,
+      });
     }
 
     const formatLabel = request.format.toUpperCase();
@@ -4537,7 +4564,6 @@ export default function App() {
           source: request.source,
           activeDocumentPath: request.activeDocumentPath,
           forPrint: request.format === 'pdf',
-          paperSize: style.paperSize,
           style,
         });
         if (request.format === 'html') {
@@ -4546,8 +4572,8 @@ export default function App() {
           await exportPdfFile(
             selected,
             html,
-            style.paperSize,
-            style.contentPadding,
+            paper.widthMm,
+            paper.heightMm,
           );
         }
         announceShell(`Exported ${formatLabel} to ${selected}`);
@@ -4583,7 +4609,6 @@ export default function App() {
             source,
             activeDocumentPath: target.sourcePath,
             forPrint: request.format === 'pdf',
-            paperSize: style.paperSize,
             style,
           });
           return { target, html };
@@ -4602,8 +4627,8 @@ export default function App() {
           files.map(({ target, html }) => ({
             path: target.outputPath,
             html,
-            paperSize: style.paperSize,
-            pageMargin: style.contentPadding,
+            paperWidthMm: paper.widthMm,
+            paperHeightMm: paper.heightMm,
           })),
         );
       }

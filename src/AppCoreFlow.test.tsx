@@ -253,6 +253,9 @@ describe('App core Markdown editing flow', () => {
           assetFolder: 'assets',
           themeFollowSystem: false,
           pdfPaperSize: 'A4',
+          pdfPaperOrientation: 'portrait',
+          pdfPaperWidthMm: 210,
+          pdfPaperHeightMm: 297,
           diagnosticsEnabled: false,
         };
       }

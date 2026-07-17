@@ -189,6 +189,46 @@ vi.mock('@/shell/TerminalPanel', async () => {
   };
 });
 
+vi.mock('./shell/PdfPreviewPage', async () => {
+  const React = await import('react');
+  return {
+    PdfPreviewPage: ({
+      token,
+      pageIndex,
+      pageCount,
+      width,
+      height,
+      onReady,
+    }: {
+      token: string;
+      pageIndex: number;
+      pageCount: number;
+      width: number;
+      height: number;
+      onReady: (result: {
+        type: 'markdowner:pdf-preview-ready';
+        token: string;
+        pageIndex: number;
+        pageCount: number;
+        pageWidth: number;
+        pageHeight: number;
+      }) => void;
+    }) => {
+      React.useEffect(() => {
+        onReady({
+          type: 'markdowner:pdf-preview-ready',
+          token,
+          pageIndex,
+          pageCount,
+          pageWidth: width,
+          pageHeight: height,
+        });
+      }, [height, onReady, pageCount, pageIndex, token, width]);
+      return <span>Page {pageIndex + 1} / {pageCount}</span>;
+    },
+  };
+});
+
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: openDialogMock,
   save: saveDialogMock,
@@ -2577,6 +2617,8 @@ describe('App recent documents', () => {
     expect(screen.getByLabelText('Table border color')).toHaveValue('#3f3f46');
     const exportTab = screen.getByRole('tab', { name: /Export Preview/i });
     expect(exportTab).toHaveAttribute('aria-selected', 'true');
+    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'A3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Landscape' }));
     fireEvent.change(screen.getByLabelText('Body size'), { target: { value: '13' } });
 
     fireEvent.click(screen.getByRole('tab', { name: /meeting-notes\.md/i }));
@@ -2598,11 +2640,12 @@ describe('App recent documents', () => {
       });
       expect(exportPdfFileMock).toHaveBeenCalledWith(
         '/tmp/project/exports/meeting-notes.pdf',
-        expect.stringContaining('font-size: 13px'),
-        'A4',
-        32,
+        expect.stringContaining('@page { size: 420mm 297mm; }'),
+        420,
+        297,
       );
     });
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('font-size: 13px');
     expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('Meeting notes');
     expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('border-color: #3f3f46');
     expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('background: #27272a');
@@ -2778,8 +2821,8 @@ describe('App recent documents', () => {
       expect(exportPdfFileMock).toHaveBeenCalledWith(
         '/tmp/project/exports/meeting-notes.pdf',
         expect.stringContaining('src="data:image/png;base64,EMBED(/tmp/project/assets/shot.png)"'),
-        'A4',
-        32,
+        210,
+        297,
       );
     });
   });
@@ -2814,6 +2857,9 @@ describe('App recent documents', () => {
 
     expect(exportPdfFilesMock).not.toHaveBeenCalled();
     const exportButton = await screen.findByRole('button', { name: 'Export 2 PDF files' });
+    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'Custom' } });
+    fireEvent.change(screen.getByLabelText('Width'), { target: { value: '180.5' } });
+    fireEvent.change(screen.getByLabelText('Height'), { target: { value: '240.2' } });
     await waitFor(() => expect(exportButton).toBeEnabled());
     fireEvent.click(exportButton);
 
@@ -2825,18 +2871,20 @@ describe('App recent documents', () => {
       expect(exportPdfFilesMock).toHaveBeenCalledWith([
         {
           path: '/tmp/project/exports/README.pdf',
-          html: expect.stringContaining('Readme'),
-          paperSize: 'A4',
-          pageMargin: 32,
+          html: expect.stringContaining('@page { size: 180.5mm 240.2mm; }'),
+          paperWidthMm: 180.5,
+          paperHeightMm: 240.2,
         },
         {
           path: '/tmp/project/exports/docs/guide.pdf',
-          html: expect.stringContaining('Guide'),
-          paperSize: 'A4',
-          pageMargin: 32,
+          html: expect.stringContaining('@page { size: 180.5mm 240.2mm; }'),
+          paperWidthMm: 180.5,
+          paperHeightMm: 240.2,
         },
       ]);
     });
+    expect(exportPdfFilesMock.mock.calls[0]?.[0][0]?.html).toContain('Readme');
+    expect(exportPdfFilesMock.mock.calls[0]?.[0][1]?.html).toContain('Guide');
   });
 
   it('keeps a failed batch PDF export visible on the export preview surface', async () => {
@@ -7583,6 +7631,9 @@ describe('App recent documents', () => {
           assetFolder: 'assets',
           themeFollowSystem: true,
           pdfPaperSize: 'A4',
+          pdfPaperOrientation: 'portrait',
+          pdfPaperWidthMm: 210,
+          pdfPaperHeightMm: 297,
           diagnosticsEnabled: true,
           analyticsEnabled: true,
           showMinimap: true,
@@ -8014,6 +8065,9 @@ describe('App recent documents', () => {
           defaultMode: 'Wysiwyg',
           assetFolder: 'assets',
           pdfPaperSize: 'A4',
+          pdfPaperOrientation: 'portrait',
+          pdfPaperWidthMm: 210,
+          pdfPaperHeightMm: 297,
         };
       }
       return undefined;
@@ -8030,7 +8084,7 @@ describe('App recent documents', () => {
     const fontFamilyRow = within(panel).getByTestId('settings-field-font-family');
     const fontFamilyInput = within(panel).getByLabelText(/^font family$/i);
     const defaultModeToggle = within(panel).getByTestId('settings-default-mode-toggle');
-    const pdfPaperSizeToggle = within(panel).getByTestId('settings-pdf-paper-size-toggle');
+    const pdfPaperSize = within(panel).getByLabelText('Size');
 
     expect(panel).toHaveClass('flex', 'min-h-0', 'overflow-hidden');
     // The scroll container is full-width so its scrollbar sits at the window's
@@ -8041,7 +8095,7 @@ describe('App recent documents', () => {
     expect(fontFamilyRow).toHaveClass('grid', 'gap-2');
     expect(fontFamilyInput).toHaveClass('w-full', 'min-w-0');
     expect(defaultModeToggle).toHaveClass('h-auto', 'w-full', 'flex-wrap');
-    expect(pdfPaperSizeToggle).toHaveClass('h-auto', 'w-full', 'flex-wrap');
+    expect(pdfPaperSize).toHaveClass('w-full');
   });
 
   it('renders the Settings reset action inline at the bottom of the scrollable body', async () => {
@@ -8055,6 +8109,9 @@ describe('App recent documents', () => {
           defaultMode: 'Wysiwyg',
           assetFolder: 'assets',
           pdfPaperSize: 'A4',
+          pdfPaperOrientation: 'portrait',
+          pdfPaperWidthMm: 210,
+          pdfPaperHeightMm: 297,
         };
       }
       return undefined;
@@ -8697,7 +8754,7 @@ describe('App recent documents', () => {
     });
   });
 
-  it('persists PDF Paper Size changes from the Settings dialog through save_settings', async () => {
+  it('persists complete A3 landscape PDF paper settings through save_settings', async () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {
         return {
@@ -8706,6 +8763,9 @@ describe('App recent documents', () => {
           editorFontFamily: '',
           editorLineWrap: true,
           pdfPaperSize: 'A4',
+          pdfPaperOrientation: 'portrait',
+          pdfPaperWidthMm: 210,
+          pdfPaperHeightMm: 297,
         };
       }
       return undefined;
@@ -8718,13 +8778,19 @@ describe('App recent documents', () => {
     fireEvent.keyDown(window, { key: ',', metaKey: true });
 
     const dialog = await screen.findByTestId('settings-panel');
-    const letterToggle = within(dialog).getByRole('radio', { name: /letter/i });
-
-    fireEvent.click(letterToggle);
+    fireEvent.change(within(dialog).getByLabelText('Size'), {
+      target: { value: 'A3' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Landscape' }));
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('save_settings', {
-        settings: expect.objectContaining({ pdfPaperSize: 'Letter' }),
+        settings: expect.objectContaining({
+          pdfPaperSize: 'A3',
+          pdfPaperOrientation: 'landscape',
+          pdfPaperWidthMm: 210,
+          pdfPaperHeightMm: 297,
+        }),
       });
     });
   });
@@ -8968,6 +9034,9 @@ describe('App recent documents', () => {
           assetFolder: 'assets',
           themeFollowSystem: true,
           pdfPaperSize: 'A4',
+          pdfPaperOrientation: 'portrait',
+          pdfPaperWidthMm: 210,
+          pdfPaperHeightMm: 297,
           diagnosticsEnabled: true,
           analyticsEnabled: true,
           showMinimap: true,
