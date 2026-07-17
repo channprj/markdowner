@@ -344,17 +344,26 @@ describe('buildExportHtml', () => {
     expect(html).toContain('markdown-surface');
     expect(html).toContain('Hello');
     expect(html).not.toContain('@page');
+    expect(html).not.toContain('__markdownerPaginatePdf');
   });
 
-  it('adds print page rules sized to the requested paper when printing', async () => {
+  it('adds explicit Custom page dimensions and the shared paginator when printing', async () => {
     const html = await buildExportHtml({
       title: 'P',
       source: 'x',
       activeDocumentPath: null,
       forPrint: true,
-      paperSize: 'Letter',
+      paginationToken: 'export-preview-token',
+      style: {
+        ...DEFAULT_EXPORT_STYLE,
+        paperSize: 'Custom',
+        paperWidthMm: 180.5,
+        paperHeightMm: 240.2,
+      },
     });
-    expect(html).toContain('@page { size: Letter');
+    expect(html).toContain('@page { size: 180.5mm 240.2mm; }');
+    expect(html).toContain('__markdownerPaginatePdf');
+    expect(html).toContain('"token":"export-preview-token"');
   });
 
   it('injects the selected typography, colors, and spacing into the standalone document', async () => {

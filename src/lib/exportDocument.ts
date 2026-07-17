@@ -14,9 +14,12 @@ import {
 } from './sourceLineComponents';
 import {
   DEFAULT_PDF_PAPER,
+  MAX_PDF_PAGES,
   normalizePdfPaper,
+  resolvePdfPaper,
   type PdfPaper,
 } from './pdfPaper';
+import { buildPdfPaginationScript } from './pdfPagination';
 import { MARKDOWN_CONTENT_SCOPE_CLASS } from './themeScope';
 
 const MARKDOWN_EXTENSION_RE = /\.(md|markdown|mdown|mkd)$/i;
@@ -585,7 +588,7 @@ export interface ExportHtmlOptions {
   activeDocumentPath: string | null;
   /** Add print page rules + pagination-friendly layout (used by PDF export). */
   forPrint?: boolean;
-  paperSize?: 'A4' | 'Letter';
+  paginationToken?: string;
   style?: ExportStyle;
   /** Injectable for tests; defaults to the live document. */
   doc?: Document;
@@ -606,7 +609,7 @@ export async function buildExportHtml(options: ExportHtmlOptions): Promise<strin
     source,
     activeDocumentPath,
     forPrint = false,
-    paperSize = 'A4',
+    paginationToken = '',
     style: rawStyle = DEFAULT_EXPORT_STYLE,
     doc = document,
     embedImages = readImagesBase64,
@@ -614,6 +617,16 @@ export async function buildExportHtml(options: ExportHtmlOptions): Promise<strin
   const appTheme: ExportTheme =
     doc.documentElement.dataset.theme === 'BuiltInDark' ? 'dark' : 'light';
   const style = resolveExportStyleForTheme(normalizeExportStyle(rawStyle), appTheme);
+  const paper = resolvePdfPaper(style);
+  const paginationScript = forPrint
+    ? buildPdfPaginationScript({
+        token: paginationToken,
+        pageWidth: paper.widthPt,
+        pageHeight: paper.heightPt,
+        pageMargin: style.contentPadding,
+        maxPages: MAX_PDF_PAGES,
+      })
+    : '';
 
   const exportSource = normalizeRawHtmlImagesForExport(source);
   const resolveImageSrc = await buildEmbeddingImageResolver(
@@ -626,7 +639,7 @@ export async function buildExportHtml(options: ExportHtmlOptions): Promise<strin
   // For PDF the renderer paginates into paper-sized slices and applies the page
   // margins itself, so the body just fills the page width and keeps media in bounds.
   const printCss = forPrint
-    ? `@page { size: ${paperSize}; }
+    ? `@page { size: ${paper.widthMm}mm ${paper.heightMm}mm; }
 .markdowner-export { box-sizing: border-box; width: 100%; max-width: none; }
 .markdowner-export pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .markdowner-export pre code { white-space: inherit; }
@@ -689,6 +702,7 @@ ${styleCss}`;
 <div class="markdowner-export ${MARKDOWN_CONTENT_SCOPE_CLASS} markdown-surface">
 ${body}
 </div>
+${forPrint ? `<script>${paginationScript}</script>` : ''}
 </body>
 </html>`;
 }
