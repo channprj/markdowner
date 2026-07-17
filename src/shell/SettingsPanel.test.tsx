@@ -178,4 +178,53 @@ describe('SettingsPanel update section', () => {
       expect.objectContaining({ terminalStartLocation: 'workspace' }),
     );
   });
+
+  it('persists A3 size and landscape orientation', () => {
+    const onSettingsChange = vi.fn();
+    renderPanel({ onSettingsChange });
+
+    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'A3' } });
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pdfPaperSize: 'A3' }),
+    );
+
+    cleanup();
+    renderPanel({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        pdfPaperSize: 'A3',
+      },
+      onSettingsChange,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Landscape' }));
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        pdfPaperSize: 'A3',
+        pdfPaperOrientation: 'landscape',
+      }),
+    );
+  });
+
+  it('persists valid Custom dimensions', () => {
+    const onSettingsChange = vi.fn();
+    renderPanel({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        pdfPaperSize: 'Custom',
+      },
+      onSettingsChange,
+    });
+
+    fireEvent.change(screen.getByLabelText('Width'), {
+      target: { value: '180.5' },
+    });
+
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        pdfPaperSize: 'Custom',
+        pdfPaperWidthMm: 180.5,
+        pdfPaperHeightMm: 297,
+      }),
+    );
+  });
 });

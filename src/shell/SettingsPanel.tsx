@@ -57,6 +57,7 @@ import {
 } from '@/lib/settings';
 import { openExternalUrlInNewWindow } from '@/lib/desktop';
 import type { UpdateInfo } from '@/lib/updateCheck';
+import { PdfPaperControls } from './PdfPaperControls';
 
 export type { Settings } from '@/lib/settings';
 
@@ -1160,38 +1161,28 @@ export function SettingsPanel({
             </ToggleGroup>
           </div>
 
-          <div className={toggleFieldClass}>
-            <Label htmlFor="pdf-paper-size" className="text-sm">PDF Paper Size</Label>
-            <ToggleGroup
-              id="pdf-paper-size"
-              data-testid="settings-pdf-paper-size-toggle"
-              type="single"
-              value={settings.pdfPaperSize}
-              onValueChange={(value) => {
-                if (!value) return;
-                handleSettingChange('pdfPaperSize', value as Settings['pdfPaperSize']);
+          <div className="grid gap-2">
+            <p className="text-sm font-medium">PDF Paper</p>
+            <PdfPaperControls
+              idPrefix="settings-pdf-paper"
+              value={{
+                paperSize: settings.pdfPaperSize,
+                paperOrientation: settings.pdfPaperOrientation,
+                paperWidthMm: settings.pdfPaperWidthMm,
+                paperHeightMm: settings.pdfPaperHeightMm,
               }}
-              variant="outline"
-              size="sm"
-              className={toggleGroupClass}
-            >
-              <ToggleGroupItem
-                value="A4"
-                aria-label="A4"
-                title="A4 PDF paper size"
-                className={toggleItemClass}
-              >
-                A4
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="Letter"
-                aria-label="Letter"
-                title="Letter PDF paper size"
-                className={toggleItemClass}
-              >
-                Letter
-              </ToggleGroupItem>
-            </ToggleGroup>
+              disabled={false}
+              onValidityChange={() => {}}
+              onChange={(paper) =>
+                onSettingsChange({
+                  ...settings,
+                  pdfPaperSize: paper.paperSize,
+                  pdfPaperOrientation: paper.paperOrientation,
+                  pdfPaperWidthMm: paper.paperWidthMm,
+                  pdfPaperHeightMm: paper.paperHeightMm,
+                })
+              }
+            />
           </div>
 
           <div className={switchFieldClass}>
