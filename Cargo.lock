@@ -2127,7 +2127,7 @@ dependencies = [
 
 [[package]]
 name = "markdowner-desktop"
-version = "0.260717.0"
+version = "0.260717.1"
 dependencies = [
  "base64 0.22.1",
  "block2",
