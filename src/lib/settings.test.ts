@@ -82,6 +82,31 @@ describe('settings change tracking', () => {
   });
 });
 
+describe('PDF paper settings', () => {
+  it('migrates legacy PDF paper settings and rejects malformed values', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue({ pdfPaperSize: 'Letter' });
+    await expect(loadSettings()).resolves.toMatchObject({
+      pdfPaperSize: 'Letter',
+      pdfPaperOrientation: 'portrait',
+      pdfPaperWidthMm: 210,
+      pdfPaperHeightMm: 297,
+    });
+
+    invokeMock.mockResolvedValue({
+      pdfPaperSize: 'Legal',
+      pdfPaperOrientation: 'sideways',
+      pdfPaperWidthMm: Number.NaN,
+    });
+    await expect(loadSettings()).resolves.toMatchObject({
+      pdfPaperSize: 'A4',
+      pdfPaperOrientation: 'portrait',
+      pdfPaperWidthMm: 210,
+      pdfPaperHeightMm: 297,
+    });
+  });
+});
+
 describe('settings numeric display helpers', () => {
   it('normalizes editor font size with the persisted settings bounds', () => {
     expect(normalizeEditorFontSize(Number.NaN)).toBe(DEFAULT_SETTINGS.editorFontSize);

@@ -12,6 +12,11 @@ import {
   RAW_HTML_IMAGE_TITLE_PREFIX,
   createSourceLineMarkdownComponents,
 } from './sourceLineComponents';
+import {
+  DEFAULT_PDF_PAPER,
+  normalizePdfPaper,
+  type PdfPaper,
+} from './pdfPaper';
 import { MARKDOWN_CONTENT_SCOPE_CLASS } from './themeScope';
 
 const MARKDOWN_EXTENSION_RE = /\.(md|markdown|mdown|mkd)$/i;
@@ -25,7 +30,7 @@ export type ExportFontFamily = 'sans' | 'serif' | 'mono';
 export type ExportStylePreset = 'app' | 'light' | 'dark' | 'custom';
 export type ExportTheme = 'light' | 'dark';
 
-export interface ExportStyle {
+export interface ExportStyle extends PdfPaper {
   preset: ExportStylePreset;
   fontSize: number;
   fontFamily: ExportFontFamily;
@@ -41,7 +46,6 @@ export interface ExportStyle {
   lineHeight: number;
   paragraphSpacing: number;
   contentPadding: number;
-  paperSize: 'A4' | 'Letter';
 }
 
 export const DEFAULT_EXPORT_STYLE: ExportStyle = {
@@ -60,7 +64,7 @@ export const DEFAULT_EXPORT_STYLE: ExportStyle = {
   lineHeight: 1.6,
   paragraphSpacing: 8,
   contentPadding: 32,
-  paperSize: 'A4',
+  ...DEFAULT_PDF_PAPER,
 };
 
 export const DARK_EXPORT_STYLE: ExportStyle = {
@@ -129,7 +133,6 @@ export function normalizeExportStyle(value: unknown): ExportStyle {
     presetCandidate === 'custom';
   const fallbackStyle = presetCandidate === 'dark' ? DARK_EXPORT_STYLE : DEFAULT_EXPORT_STYLE;
   const fontFamily = candidate.fontFamily;
-  const paperSize = candidate.paperSize;
   const textColor = candidate.textColor;
   const backgroundColor = candidate.backgroundColor;
 
@@ -180,10 +183,7 @@ export function normalizeExportStyle(value: unknown): ExportStyle {
       0,
       72,
     ),
-    paperSize:
-      paperSize === 'A4' || paperSize === 'Letter'
-        ? paperSize
-        : DEFAULT_EXPORT_STYLE.paperSize,
+    ...normalizePdfPaper(candidate),
   };
 
   if (!hasValidPreset) {
@@ -208,7 +208,8 @@ export function applyExportStylePreset(
 
   const useDark = preset === 'dark' || (preset === 'app' && appTheme === 'dark');
   const template = useDark ? DARK_EXPORT_STYLE : DEFAULT_EXPORT_STYLE;
-  return { ...template, preset, paperSize: current.paperSize };
+  const paper = normalizePdfPaper(current);
+  return { ...template, ...paper, preset };
 }
 
 export function resolveExportStyleForTheme(

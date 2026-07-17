@@ -34,6 +34,9 @@ pub struct Settings {
     pub asset_folder: String,
     pub theme_follow_system: bool,
     pub pdf_paper_size: String,
+    pub pdf_paper_orientation: String,
+    pub pdf_paper_width_mm: f64,
+    pub pdf_paper_height_mm: f64,
     pub diagnostics_enabled: bool,
     /// Opt-in (default on) sharing of anonymous, content-free usage analytics.
     pub analytics_enabled: bool,
@@ -80,6 +83,9 @@ impl Default for Settings {
             asset_folder: "assets".to_string(),
             theme_follow_system: true,
             pdf_paper_size: "A4".to_string(),
+            pdf_paper_orientation: "portrait".to_string(),
+            pdf_paper_width_mm: 210.0,
+            pdf_paper_height_mm: 297.0,
             diagnostics_enabled: true,
             analytics_enabled: true,
             show_minimap: true,
@@ -105,6 +111,16 @@ impl Default for Settings {
 #[cfg(test)]
 mod tests {
     use super::Settings;
+
+    #[test]
+    fn legacy_pdf_paper_settings_default_orientation_and_custom_dimensions() {
+        let parsed: Settings =
+            serde_json::from_str(r#"{"pdfPaperSize":"Letter"}"#).expect("settings parse");
+        assert_eq!(parsed.pdf_paper_size, "Letter");
+        assert_eq!(parsed.pdf_paper_orientation, "portrait");
+        assert_eq!(parsed.pdf_paper_width_mm, 210.0);
+        assert_eq!(parsed.pdf_paper_height_mm, 297.0);
+    }
 
     #[test]
     fn legacy_settings_json_without_line_wrap_defaults_to_enabled() {

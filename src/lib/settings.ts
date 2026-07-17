@@ -1,5 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { ThemeKind } from './desktop';
+import {
+  DEFAULT_PDF_PAPER,
+  normalizePdfPaper,
+  type PdfPaperOrientation,
+  type PdfPaperPreset,
+} from './pdfPaper';
 import type { TerminalStartLocation } from './terminalModel';
 
 export type CodeBlockTheme =
@@ -78,7 +84,10 @@ export interface Settings {
   typewriterModeEnabled: boolean;
   assetFolder: string;
   themeFollowSystem: boolean;
-  pdfPaperSize: 'A4' | 'Letter';
+  pdfPaperSize: PdfPaperPreset;
+  pdfPaperOrientation: PdfPaperOrientation;
+  pdfPaperWidthMm: number;
+  pdfPaperHeightMm: number;
   diagnosticsEnabled: boolean;
   /** Opt-in (default on) sharing of anonymous, content-free usage analytics. */
   analyticsEnabled: boolean;
@@ -206,7 +215,10 @@ export const DEFAULT_SETTINGS: Settings = {
   typewriterModeEnabled: false,
   assetFolder: 'assets',
   themeFollowSystem: true,
-  pdfPaperSize: 'A4',
+  pdfPaperSize: DEFAULT_PDF_PAPER.paperSize,
+  pdfPaperOrientation: DEFAULT_PDF_PAPER.paperOrientation,
+  pdfPaperWidthMm: DEFAULT_PDF_PAPER.paperWidthMm,
+  pdfPaperHeightMm: DEFAULT_PDF_PAPER.paperHeightMm,
   diagnosticsEnabled: true,
   analyticsEnabled: true,
   showMinimap: true,
@@ -471,7 +483,19 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): Setting
   }
   merged.keybindingOverrides = normalizeKeybindingOverrides(merged.keybindingOverrides);
   merged.ignoreList = normalizeIgnoreList(merged.ignoreList);
-  return merged;
+  const paper = normalizePdfPaper({
+    paperSize: merged.pdfPaperSize,
+    paperOrientation: merged.pdfPaperOrientation,
+    paperWidthMm: merged.pdfPaperWidthMm,
+    paperHeightMm: merged.pdfPaperHeightMm,
+  });
+  return {
+    ...merged,
+    pdfPaperSize: paper.paperSize,
+    pdfPaperOrientation: paper.paperOrientation,
+    pdfPaperWidthMm: paper.paperWidthMm,
+    pdfPaperHeightMm: paper.paperHeightMm,
+  };
 }
 
 /**

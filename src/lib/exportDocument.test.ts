@@ -15,6 +15,7 @@ import {
   resolveExportStyleForTheme,
   saveExportStyle,
 } from './exportDocument';
+import { DEFAULT_PDF_PAPER } from './pdfPaper';
 
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (filePath: string) => `asset://${filePath}`,
@@ -69,14 +70,37 @@ describe('export styles', () => {
     });
   });
 
-  it('applies fixed presets without changing paper size', () => {
+  it('applies fixed presets without changing paper settings', () => {
+    const customPaperStyle = {
+      ...DEFAULT_EXPORT_STYLE,
+      paperSize: 'Custom' as const,
+      paperOrientation: 'portrait' as const,
+      paperWidthMm: 180.5,
+      paperHeightMm: 240.2,
+    };
     const style = applyExportStylePreset(
-      { ...DEFAULT_EXPORT_STYLE, paperSize: 'Letter' },
+      customPaperStyle,
       'dark',
       'light',
     );
 
-    expect(style).toEqual({ ...DARK_EXPORT_STYLE, preset: 'dark', paperSize: 'Letter' });
+    expect(DEFAULT_EXPORT_STYLE).toMatchObject(DEFAULT_PDF_PAPER);
+    expect(style).toMatchObject({
+      preset: 'dark',
+      paperSize: 'Custom',
+      paperOrientation: 'portrait',
+      paperWidthMm: 180.5,
+      paperHeightMm: 240.2,
+    });
+  });
+
+  it('migrates legacy paper settings to portrait defaults', () => {
+    expect(normalizeExportStyle({ paperSize: 'Letter' })).toMatchObject({
+      paperSize: 'Letter',
+      paperOrientation: 'portrait',
+      paperWidthMm: 210,
+      paperHeightMm: 297,
+    });
   });
 
   it('migrates untouched legacy styles to app and customized legacy styles to custom', () => {
