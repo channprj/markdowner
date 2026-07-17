@@ -26,7 +26,11 @@ import {
   type PreviewSize,
   type PreviewZoomDirection,
 } from '@/lib/exportPreviewZoom';
+import { resolvePdfPaper, type PdfPaper } from '@/lib/pdfPaper';
+import type { PdfPreviewReadyMessage } from '@/lib/pdfPagination';
 import { cn } from '@/lib/utils';
+import { PdfPaperControls } from './PdfPaperControls';
+import { PdfPreviewPage } from './PdfPreviewPage';
 
 export interface ExportPreviewRequest {
   format: ExportFormat;
@@ -187,10 +191,14 @@ export function ExportPreviewTab({
   );
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewStatus, setPreviewStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [paperValid, setPaperValid] = useState(true);
+  const [pageCount, setPageCount] = useState(1);
+  const [paginationToken, setPaginationToken] = useState('');
   const [zoomMode, setZoomMode] = useState<'fit' | 'manual'>('fit');
   const [manualZoomPercent, setManualZoomPercent] = useState(100);
   const [previewViewport, setPreviewViewport] = useState<PreviewSize>({ width: 0, height: 0 });
   const previewRequestRef = useRef(0);
+  const paginationTokenRef = useRef('');
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const previousRequestIdentityRef = useRef(requestIdentity);
 
@@ -199,6 +207,8 @@ export function ExportPreviewTab({
     previousRequestIdentityRef.current = requestIdentity;
     if (requestChanged) {
       setDraftStyle(resolveExportStyleForTheme(initialStyle, appTheme));
+      setPaperValid(true);
+      setPageCount(1);
       setZoomMode('fit');
       setManualZoomPercent(100);
       return;
@@ -211,7 +221,18 @@ export function ExportPreviewTab({
   }, [appTheme, initialStyle, requestIdentity]);
 
   useEffect(() => {
+    if (isPdf && !paperValid) {
+      previewRequestRef.current += 1;
+      paginationTokenRef.current = '';
+      setPreviewStatus('loading');
+      return;
+    }
     const previewRequest = ++previewRequestRef.current;
+    const token = isPdf ? `pdf-preview-${previewRequest}` : '';
+    paginationTokenRef.current = token;
+    setPaginationToken(token);
+    setPageCount(1);
+    setPreviewHtml('');
     setPreviewStatus('loading');
 
     void buildPreview({
@@ -219,20 +240,20 @@ export function ExportPreviewTab({
       source: request.source,
       activeDocumentPath: request.activeDocumentPath,
       forPrint: request.format === 'pdf',
-      paperSize: draftStyle.paperSize,
+      paginationToken: token,
       style: draftStyle,
     })
       .then((html) => {
         if (previewRequest !== previewRequestRef.current) return;
         setPreviewHtml(html);
-        setPreviewStatus('ready');
+        if (!isPdf) setPreviewStatus('ready');
       })
       .catch(() => {
         if (previewRequest !== previewRequestRef.current) return;
         setPreviewHtml('');
         setPreviewStatus('error');
       });
-  }, [buildPreview, draftStyle, request]);
+  }, [buildPreview, draftStyle, isPdf, paperValid, request]);
 
   useEffect(() => {
     if (!isPdf || typeof ResizeObserver === 'undefined') return;
@@ -270,7 +291,8 @@ export function ExportPreviewTab({
   };
   const controlId = (name: string) => `${idPrefix}-${name}`;
   const formatLabel = request.format.toUpperCase();
-  const pageSize = previewPageSize(draftStyle.paperSize);
+  const resolvedPaper = resolvePdfPaper(draftStyle);
+  const pageSize = previewPageSize(resolvedPaper);
   const fitZoomPercent = fitPreviewZoomPercent(previewViewport, pageSize);
   const zoomPercent = zoomMode === 'fit' ? fitZoomPercent : manualZoomPercent;
   const zoomScale = zoomPercent / 100;
@@ -278,21 +300,32 @@ export function ExportPreviewTab({
     setManualZoomPercent(stepPreviewZoomPercent(zoomPercent, direction));
     setZoomMode('manual');
   };
+  const updatePaper = (paper: PdfPaper) => {
+    setDraftStyle((current) =>
+      normalizeExportStyle({
+        ...current,
+        paperSize: paper.paperSize,
+        paperOrientation: paper.paperOrientation,
+        paperWidthMm: paper.paperWidthMm,
+        paperHeightMm: paper.paperHeightMm,
+      }),
+    );
+  };
+  const handlePageReady = (result: PdfPreviewReadyMessage) => {
+    if (result.token !== paginationTokenRef.current || result.pageIndex !== 0) return;
+    setPageCount(result.pageCount);
+    setPreviewStatus('ready');
+  };
+  const handlePaginationError = (token: string) => {
+    if (token !== paginationTokenRef.current) return;
+    setPreviewStatus('error');
+  };
 
-  const previewContents = (
+  const previewStatusContents = (
     <>
-      {previewHtml ? (
-        <iframe
-          title={`${formatLabel} export preview`}
-          sandbox=""
-          srcDoc={previewHtml}
-          className={cn('h-full w-full border-0', !isPdf && 'min-h-[520px]')}
-          style={{ backgroundColor: draftStyle.backgroundColor }}
-        />
-      ) : null}
       {previewStatus === 'loading' ? (
         <div
-          className="absolute inset-x-0 top-0 h-0.5 overflow-hidden bg-muted"
+          className="absolute inset-x-0 top-0 z-20 h-0.5 overflow-hidden bg-muted"
           role="status"
           aria-live="polite"
         >
@@ -302,7 +335,7 @@ export function ExportPreviewTab({
       ) : null}
       {previewStatus === 'error' ? (
         <div
-          className="absolute inset-0 grid place-items-center bg-background p-8 text-center"
+          className="absolute inset-0 z-20 grid place-items-center bg-background p-8 text-center"
           role="alert"
         >
           <div>
@@ -346,9 +379,10 @@ export function ExportPreviewTab({
             variant="ghost"
             size="sm"
             disabled={busy}
-            onClick={() =>
-              setDraftStyle(applyExportStylePreset(initialStyle, 'app', appTheme))
-            }
+            onClick={() => {
+              setPaperValid(true);
+              setDraftStyle(applyExportStylePreset(initialStyle, 'app', appTheme));
+            }}
           >
             <RotateCcw />
             Reset
@@ -360,7 +394,7 @@ export function ExportPreviewTab({
           <Button
             type="button"
             size="sm"
-            disabled={busy || previewStatus !== 'ready'}
+            disabled={busy || !paperValid || previewStatus !== 'ready'}
             onClick={() => onConfirm(normalizeExportStyle(draftStyle))}
           >
             <FileDown />
@@ -581,25 +615,14 @@ export function ExportPreviewTab({
             </fieldset>
 
             {isPdf ? (
-              <div className="grid gap-2 border-t border-border pt-4">
-                <Label htmlFor={controlId('paper-size')} className="text-xs font-medium text-foreground/85">
-                  Paper size
-                </Label>
-                <select
-                  id={controlId('paper-size')}
-                  aria-label="Paper size"
-                  value={draftStyle.paperSize}
+              <div className="border-t border-border pt-4">
+                <PdfPaperControls
+                  idPrefix={controlId('paper')}
+                  value={draftStyle}
                   disabled={busy}
-                  onChange={(event) =>
-                    setDraftStyle((current) =>
-                      normalizeExportStyle({ ...current, paperSize: event.target.value }),
-                    )
-                  }
-                  className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
-                >
-                  <option value="A4">A4 · 210 × 297 mm</option>
-                  <option value="Letter">Letter · 8.5 × 11 in</option>
-                </select>
+                  onChange={updatePaper}
+                  onValidityChange={setPaperValid}
+                />
               </div>
             ) : null}
           </div>
@@ -666,39 +689,60 @@ export function ExportPreviewTab({
             className="min-h-0 flex-1 overflow-auto p-4 sm:p-6"
           >
             {isPdf ? (
-              <div className="grid h-max min-h-full w-max min-w-full place-items-center">
-                <div
-                  data-testid="pdf-preview-wrapper"
-                  className="relative shrink-0"
-                  style={{
-                    width: pageSize.width * zoomScale,
-                    height: pageSize.height * zoomScale,
-                  }}
-                >
-                  <div
-                    data-testid="pdf-preview-page"
-                    className="relative overflow-hidden border border-black/10 shadow-[0_28px_90px_-36px_rgba(0,0,0,0.62)]"
-                    style={{
-                      width: pageSize.width,
-                      height: pageSize.height,
-                      backgroundColor: draftStyle.backgroundColor,
-                      transform: `scale(${zoomScale})`,
-                      transformOrigin: 'top left',
-                    }}
-                  >
-                    {previewContents}
-                  </div>
-                </div>
+              <div className="flex min-h-full min-w-full flex-col items-center gap-4">
+                {previewHtml
+                  ? Array.from({ length: pageCount }, (_, pageIndex) => (
+                      <div
+                        key={`${paginationToken}-${pageIndex}`}
+                        data-testid="pdf-preview-wrapper"
+                        className="relative shrink-0"
+                        style={{
+                          width: pageSize.width * zoomScale,
+                          height: pageSize.height * zoomScale,
+                        }}
+                      >
+                        <div
+                          data-testid="pdf-preview-page-scale"
+                          className="origin-top-left"
+                          style={{
+                            transform: `scale(${zoomScale})`,
+                            transformOrigin: 'top left',
+                          }}
+                        >
+                          <PdfPreviewPage
+                            html={previewHtml}
+                            token={paginationToken}
+                            pageIndex={pageIndex}
+                            pageCount={pageCount}
+                            width={pageSize.width}
+                            height={pageSize.height}
+                            backgroundColor={draftStyle.backgroundColor}
+                            onReady={handlePageReady}
+                            onError={() => handlePaginationError(paginationToken)}
+                          />
+                        </div>
+                      </div>
+                    ))
+                  : null}
               </div>
             ) : (
               <div
                 className="relative mx-auto h-full min-h-[520px] w-full max-w-[1080px] overflow-hidden border border-black/10 shadow-[0_28px_90px_-36px_rgba(0,0,0,0.62)]"
                 style={{ backgroundColor: draftStyle.backgroundColor }}
               >
-                {previewContents}
+                {previewHtml ? (
+                  <iframe
+                    title={`${formatLabel} export preview`}
+                    sandbox=""
+                    srcDoc={previewHtml}
+                    className={cn('h-full w-full border-0', 'min-h-[520px]')}
+                    style={{ backgroundColor: draftStyle.backgroundColor }}
+                  />
+                ) : null}
               </div>
             )}
           </div>
+          {previewStatusContents}
         </div>
       </div>
     </section>

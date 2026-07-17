@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  PREVIEW_PAGE_WIDTH_PX,
   PREVIEW_ZOOM_MAX_PERCENT,
   PREVIEW_ZOOM_MIN_PERCENT,
   clampPreviewZoomPercent,
@@ -11,36 +10,35 @@ import {
 } from './exportPreviewZoom';
 
 describe('exportPreviewZoom', () => {
-  it('derives A4 and Letter page heights from the 760px base width', () => {
-    expect(previewPageSize('A4')).toEqual({
-      width: PREVIEW_PAGE_WIDTH_PX,
-      height: PREVIEW_PAGE_WIDTH_PX * (297 / 210),
+  const a4 = previewPageSize({
+    widthPt: 595.275590551,
+    heightPt: 841.88976378,
+  });
+
+  it('uses resolved portrait and landscape point dimensions', () => {
+    expect(a4).toEqual({
+      width: 595.275590551,
+      height: 841.88976378,
     });
-    expect(previewPageSize('Letter')).toEqual({
-      width: PREVIEW_PAGE_WIDTH_PX,
-      height: PREVIEW_PAGE_WIDTH_PX * (11 / 8.5),
+    expect(previewPageSize({ widthPt: 841.88976378, heightPt: 595.275590551 })).toEqual({
+      width: 841.88976378,
+      height: 595.275590551,
     });
   });
 
   it.each([
-    ['width-bound', { width: 380, height: 1000 }, 50],
-    [
-      'height-bound',
-      { width: 760, height: PREVIEW_PAGE_WIDTH_PX * (297 / 210) * 0.5 },
-      50,
-    ],
-    [
-      'capped at 100%',
-      { width: 1520, height: PREVIEW_PAGE_WIDTH_PX * (297 / 210) * 2 },
-      100,
-    ],
+    ['width-bound', { width: a4.width * 0.5, height: 1000 }, 50],
+    ['height-bound', { width: 760, height: a4.height * 0.5 }, 50],
+    ['capped at 100%', { width: a4.width * 2, height: a4.height * 2 }, 100],
     ['unmeasurable width', { width: 0, height: 500 }, 100],
   ])('calculates an A4 Fit zoom for a %s viewport', (_case, viewport, expected) => {
-    expect(fitPreviewZoomPercent(viewport, previewPageSize('A4'))).toBe(expected);
+    expect(fitPreviewZoomPercent(viewport, a4)).toBe(expected);
   });
 
   it('allows Fit to shrink below the manual minimum', () => {
-    expect(fitPreviewZoomPercent({ width: 76, height: 108 }, previewPageSize('A4'))).toBe(10);
+    expect(fitPreviewZoomPercent({ width: a4.width * 0.1, height: a4.height * 0.1 }, a4)).toBe(
+      10,
+    );
   });
 
   it('rounds irregular Fit values to manual 10% steps', () => {

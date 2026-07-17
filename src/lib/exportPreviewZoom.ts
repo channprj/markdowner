@@ -1,9 +1,9 @@
-export const PREVIEW_PAGE_WIDTH_PX = 760;
+import type { ResolvedPdfPaper } from './pdfPaper';
+
 export const PREVIEW_ZOOM_MIN_PERCENT = 25;
 export const PREVIEW_ZOOM_MAX_PERCENT = 200;
 export const PREVIEW_ZOOM_STEP_PERCENT = 10;
 
-export type PreviewPaperSize = 'A4' | 'Letter';
 export type PreviewZoomDirection = 'in' | 'out';
 
 export interface PreviewSize {
@@ -11,11 +11,10 @@ export interface PreviewSize {
   height: number;
 }
 
-export function previewPageSize(paperSize: PreviewPaperSize): PreviewSize {
-  return {
-    width: PREVIEW_PAGE_WIDTH_PX,
-    height: PREVIEW_PAGE_WIDTH_PX * (paperSize === 'A4' ? 297 / 210 : 11 / 8.5),
-  };
+export function previewPageSize(
+  paper: Pick<ResolvedPdfPaper, 'widthPt' | 'heightPt'>,
+): PreviewSize {
+  return { width: paper.widthPt, height: paper.heightPt };
 }
 
 export function fitPreviewZoomPercent(viewport: PreviewSize, page: PreviewSize): number {

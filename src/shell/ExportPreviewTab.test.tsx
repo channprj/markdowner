@@ -3,7 +3,78 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_EXPORT_STYLE, type ExportHtmlOptions } from '@/lib/exportDocument';
+import { PDF_PREVIEW_READY_MESSAGE } from '@/lib/pdfPagination';
 import { ExportPreviewTab, type ExportPreviewRequest } from './ExportPreviewTab';
+
+const previewPageMockState = vi.hoisted(() => ({
+  readyPageCount: 1,
+  readyByToken: new Map<string, () => void>(),
+}));
+
+vi.mock('./PdfPreviewPage', () => ({
+  PdfPreviewPage: ({
+    token,
+    pageIndex,
+    pageCount,
+    width,
+    height,
+    onReady,
+    onError,
+  }: {
+    token: string;
+    pageIndex: number;
+    pageCount: number;
+    width: number;
+    height: number;
+    onReady: (result: {
+      type: typeof PDF_PREVIEW_READY_MESSAGE;
+      token: string;
+      pageIndex: number;
+      pageCount: number;
+      pageWidth: number;
+      pageHeight: number;
+    }) => void;
+    onError: () => void;
+  }) => {
+    const ready = (overrides: Partial<{
+      token: string;
+      pageIndex: number;
+      pageCount: number;
+    }> = {}) =>
+      onReady({
+        type: PDF_PREVIEW_READY_MESSAGE,
+        token,
+        pageIndex,
+        pageCount: previewPageMockState.readyPageCount,
+        pageWidth: width,
+        pageHeight: height,
+        ...overrides,
+      });
+    previewPageMockState.readyByToken.set(`${token}:${pageIndex}`, () => ready());
+    return (
+      <div
+        data-testid={`mock-pdf-preview-page-${pageIndex}`}
+        data-token={token}
+        data-width={width}
+        data-height={height}
+      >
+        <span>Page {pageIndex + 1} / {pageCount}</span>
+        <button type="button" onClick={() => ready()}>
+          Ready page {pageIndex + 1}
+        </button>
+        <button type="button" onClick={() => ready({ token: 'stale-token' })}>
+          Stale page {pageIndex + 1}
+        </button>
+        <button type="button" onClick={() => ready({ pageIndex: pageIndex + 1 })}>
+          Wrong page {pageIndex + 1}
+        </button>
+        <button type="button" onClick={onError}>
+          Fail page {pageIndex + 1}
+        </button>
+      </div>
+    );
+  },
+}));
 
 const HTML_REQUEST: ExportPreviewRequest = {
   format: 'html',
@@ -66,6 +137,8 @@ function renderPreview(overrides: Partial<ComponentProps<typeof ExportPreviewTab
 describe('ExportPreviewTab', () => {
   beforeEach(() => {
     resizeObserverCallback = null;
+    previewPageMockState.readyPageCount = 1;
+    previewPageMockState.readyByToken.clear();
     vi.stubGlobal('ResizeObserver', MockResizeObserver);
   });
 
@@ -118,7 +191,7 @@ describe('ExportPreviewTab', () => {
     );
   });
 
-  it('starts PDF preview in Fit with accessible controls and a fixed base page', () => {
+  it('starts PDF preview in Fit with accessible controls and resolved A4 geometry', async () => {
     renderPreview({ request: PDF_REQUEST });
 
     expect(screen.getByRole('group', { name: 'Preview zoom controls' })).toBeInTheDocument();
@@ -129,10 +202,13 @@ describe('ExportPreviewTab', () => {
       'true',
     );
     expect(screen.getByLabelText('Preview zoom: 100%')).toHaveTextContent('100%');
-    expect(screen.getByTestId('pdf-preview-page')).toHaveStyle({
-      width: '760px',
+    expect(await screen.findByTestId('pdf-preview-page-scale')).toHaveStyle({
       transform: 'scale(1)',
       transformOrigin: 'top left',
+    });
+    expect(screen.getByTestId('pdf-preview-wrapper')).toHaveStyle({
+      width: '595.2755905511812px',
+      height: '841.8897637795276px',
     });
   });
 
@@ -140,31 +216,41 @@ describe('ExportPreviewTab', () => {
     renderPreview();
 
     expect(screen.queryByRole('group', { name: 'Preview zoom controls' })).toBeNull();
-    expect(screen.queryByTestId('pdf-preview-page')).toBeNull();
+    expect(screen.queryByTestId('pdf-preview-page-scale')).toBeNull();
+    expect(screen.queryByLabelText('Size')).toBeNull();
     expect(await screen.findByTitle('HTML export preview')).toHaveClass('min-h-[520px]');
   });
 
   it('switches from Fit to manual zoom without changing the confirmed style', async () => {
     const onConfirm = vi.fn();
     renderPreview({ request: PDF_REQUEST, onConfirm });
-    await screen.findByTitle('PDF export preview');
+    await screen.findByRole('button', { name: 'Ready page 1' });
 
     resizePdfViewport(403, 600);
-    expect(screen.getByLabelText('Preview zoom: 53%')).toHaveTextContent('53%');
-    expect(screen.getByTestId('pdf-preview-page')).toHaveStyle({ transform: 'scale(0.53)' });
-    expect(screen.getByTestId('pdf-preview-wrapper')).toHaveStyle({ width: '402.8px' });
+    expect(screen.getByLabelText('Preview zoom: 67%')).toHaveTextContent('67%');
+    expect(screen.getByTestId('pdf-preview-page-scale')).toHaveStyle({
+      transform: 'scale(0.67)',
+    });
+    expect(screen.getByTestId('pdf-preview-wrapper')).toHaveStyle({
+      width: '398.8346456692914px',
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
-    expect(screen.getByLabelText('Preview zoom: 60%')).toHaveTextContent('60%');
-    expect(screen.getByTestId('pdf-preview-page')).toHaveStyle({ transform: 'scale(0.6)' });
-    expect(screen.getByTestId('pdf-preview-wrapper')).toHaveStyle({ width: '456px' });
+    expect(screen.getByLabelText('Preview zoom: 70%')).toHaveTextContent('70%');
+    expect(screen.getByTestId('pdf-preview-page-scale')).toHaveStyle({
+      transform: 'scale(0.7)',
+    });
+    expect(screen.getByTestId('pdf-preview-wrapper')).toHaveStyle({
+      width: '416.6929133858268px',
+    });
     expect(screen.getByRole('button', { name: 'Fit preview' })).toHaveAttribute(
       'aria-pressed',
       'false',
     );
 
     resizePdfViewport(304, 430);
-    expect(screen.getByLabelText('Preview zoom: 60%')).toBeInTheDocument();
+    expect(screen.getByLabelText('Preview zoom: 70%')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Ready page 1' }));
     fireEvent.click(screen.getByRole('button', { name: 'Export PDF' }));
 
     expect(onConfirm).toHaveBeenCalledWith(DEFAULT_EXPORT_STYLE);
@@ -177,24 +263,24 @@ describe('ExportPreviewTab', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
 
-    expect(screen.getByLabelText('Preview zoom: 50%')).toBeInTheDocument();
+    expect(screen.getByLabelText('Preview zoom: 60%')).toBeInTheDocument();
   });
 
   it('re-enables responsive Fit and resets Fit for a new request', async () => {
     const { rerender } = renderPreview({ request: PDF_REQUEST });
     resizePdfViewport(403, 600);
     fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
-    expect(screen.getByLabelText('Preview zoom: 60%')).toBeInTheDocument();
+    expect(screen.getByLabelText('Preview zoom: 70%')).toBeInTheDocument();
 
     resizePdfViewport(304, 430);
-    expect(screen.getByLabelText('Preview zoom: 60%')).toBeInTheDocument();
+    expect(screen.getByLabelText('Preview zoom: 70%')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Fit preview' }));
-    expect(screen.getByLabelText('Preview zoom: 40%')).toBeInTheDocument();
+    expect(screen.getByLabelText('Preview zoom: 51%')).toBeInTheDocument();
 
     resizePdfViewport(380, 600);
-    expect(screen.getByLabelText('Preview zoom: 50%')).toBeInTheDocument();
+    expect(screen.getByLabelText('Preview zoom: 63%')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
-    expect(screen.getByLabelText('Preview zoom: 60%')).toBeInTheDocument();
+    expect(screen.getByLabelText('Preview zoom: 70%')).toBeInTheDocument();
 
     rerender(
       <ExportPreviewTab
@@ -213,26 +299,26 @@ describe('ExportPreviewTab', () => {
         'aria-pressed',
         'true',
       );
-      expect(screen.getByLabelText('Preview zoom: 50%')).toBeInTheDocument();
+      expect(screen.getByLabelText('Preview zoom: 63%')).toBeInTheDocument();
     });
   });
 
   it('keeps the zoom mode while changing paper size', () => {
     renderPreview({ request: PDF_REQUEST });
-    resizePdfViewport(760, 1000);
-    expect(screen.getByLabelText('Preview zoom: 93%')).toBeInTheDocument();
+    resizePdfViewport(500, 800);
+    expect(screen.getByLabelText('Preview zoom: 83%')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Paper size'), { target: { value: 'Letter' } });
-    expect(screen.getByLabelText('Preview zoom: 100%')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'Letter' } });
+    expect(screen.getByLabelText('Preview zoom: 81%')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Fit preview' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
-    expect(screen.getByLabelText('Preview zoom: 90%')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Paper size'), { target: { value: 'A4' } });
-    expect(screen.getByLabelText('Preview zoom: 90%')).toBeInTheDocument();
+    expect(screen.getByLabelText('Preview zoom: 80%')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'A4' } });
+    expect(screen.getByLabelText('Preview zoom: 80%')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Fit preview' })).toHaveAttribute(
       'aria-pressed',
       'false',
@@ -241,8 +327,8 @@ describe('ExportPreviewTab', () => {
 
   it('disables zoom controls at manual bounds and while exporting', () => {
     const { rerender } = renderPreview({ request: PDF_REQUEST });
-    resizePdfViewport(190, 270);
-    expect(screen.getByLabelText('Preview zoom: 25%')).toBeInTheDocument();
+    resizePdfViewport(149, 210);
+    expect(screen.getByLabelText('Preview zoom: 24%')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Zoom out' })).toBeDisabled();
 
     resizePdfViewport(760, 1200);
@@ -307,7 +393,7 @@ describe('ExportPreviewTab', () => {
     expect(screen.getByLabelText('Table header background color')).toHaveValue('#f4f4f5');
   });
 
-  it('switches presets, marks manual edits Custom, and preserves paper size', () => {
+  it('switches presets, marks manual edits Custom, and preserves paper settings', () => {
     renderPreview({
       request: { ...HTML_REQUEST, format: 'pdf' },
       initialStyle: { ...DEFAULT_EXPORT_STYLE, paperSize: 'Letter' },
@@ -319,7 +405,7 @@ describe('ExportPreviewTab', () => {
     expect(screen.getByLabelText('Table border color')).toHaveValue('#3f3f46');
     fireEvent.change(screen.getByLabelText('Preset'), { target: { value: 'light' } });
     expect(screen.getByLabelText('Background color')).toHaveValue('#ffffff');
-    expect(screen.getByLabelText('Paper size')).toHaveValue('Letter');
+    expect(screen.getByLabelText('Size')).toHaveValue('Letter');
     fireEvent.change(screen.getByLabelText('Table border color'), {
       target: { value: '#123456' },
     });
@@ -328,7 +414,7 @@ describe('ExportPreviewTab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
     expect(screen.getByLabelText('Preset')).toHaveValue('app');
     expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
-    expect(screen.getByLabelText('Paper size')).toHaveValue('Letter');
+    expect(screen.getByLabelText('Size')).toHaveValue('Letter');
   });
 
   it('updates an app preset when the app theme changes', () => {
@@ -398,7 +484,7 @@ describe('ExportPreviewTab', () => {
     });
   });
 
-  it('shows paper size for PDF only and resets changed values', () => {
+  it('shows complete paper controls for PDF only and resets changed values', () => {
     const commonProps = {
       initialStyle: DEFAULT_EXPORT_STYLE,
       appTheme: 'light' as const,
@@ -408,7 +494,7 @@ describe('ExportPreviewTab', () => {
       buildPreview: previewBuilder(),
     };
     const { rerender } = render(<ExportPreviewTab {...commonProps} request={HTML_REQUEST} />);
-    expect(screen.queryByLabelText('Paper size')).toBeNull();
+    expect(screen.queryByLabelText('Size')).toBeNull();
 
     rerender(
       <ExportPreviewTab
@@ -417,12 +503,110 @@ describe('ExportPreviewTab', () => {
       />,
     );
     fireEvent.change(screen.getByLabelText('Body size'), { target: { value: '20' } });
-    expect(screen.getByLabelText('Paper size')).toHaveValue('A4');
+    const size = screen.getByLabelText('Size');
+    expect(size).toHaveValue('A4');
+    expect(
+      Array.from((size as HTMLSelectElement).options).map((option) => option.value),
+    ).toEqual(['A4', 'A3', 'A2', 'Letter', 'Custom']);
+    expect(screen.getByRole('button', { name: 'Portrait' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
     expect(screen.getByLabelText('Preset')).toHaveValue('app');
     expect(screen.getByLabelText('Body size')).toHaveValue('14');
-    expect(screen.getByLabelText('Paper size')).toHaveValue('A4');
+    expect(screen.getByLabelText('Size')).toHaveValue('A4');
+  });
+
+  it('keeps invalid Custom input visible, disables export, and pauses preview builds', async () => {
+    const buildPreview = previewBuilder();
+    renderPreview({ request: PDF_REQUEST, buildPreview });
+    await screen.findByRole('button', { name: 'Ready page 1' });
+
+    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'Custom' } });
+    await screen.findByLabelText('Width');
+    await waitFor(() => expect(buildPreview.mock.calls.length).toBeGreaterThanOrEqual(2));
+    const callsBeforeInvalidEdit = buildPreview.mock.calls.length;
+
+    fireEvent.change(screen.getByLabelText('Width'), { target: { value: '' } });
+    expect(screen.getByLabelText('Width')).toHaveValue(null);
+    expect(screen.getByRole('button', { name: 'Export PDF' })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Body size'), { target: { value: '13' } });
+    await act(async () => Promise.resolve());
+    expect(buildPreview).toHaveBeenCalledTimes(callsBeforeInvalidEdit);
+  });
+
+  it('accepts only the current first page result and renders one shared-scale page stack', async () => {
+    previewPageMockState.readyPageCount = 3;
+    renderPreview({ request: PDF_REQUEST });
+    const ready = await screen.findByRole('button', { name: 'Ready page 1' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stale page 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Wrong page 1' }));
+    expect(screen.getByText('Page 1 / 1')).toBeInTheDocument();
+
+    fireEvent.click(ready);
+    expect(screen.getByText('Page 1 / 3')).toBeInTheDocument();
+    expect(screen.getByText('Page 2 / 3')).toBeInTheDocument();
+    expect(screen.getByText('Page 3 / 3')).toBeInTheDocument();
+
+    resizePdfViewport(403, 600);
+    for (const sheet of screen.getAllByTestId('pdf-preview-page-scale')) {
+      expect(sheet).toHaveStyle({ transform: 'scale(0.67)' });
+    }
+  });
+
+  it('ignores a ready callback retained by an older preview token', async () => {
+    renderPreview({ request: PDF_REQUEST });
+    const firstPage = await screen.findByTestId('mock-pdf-preview-page-0');
+    const staleToken = firstPage.dataset.token!;
+    const staleReady = previewPageMockState.readyByToken.get(`${staleToken}:0`)!;
+
+    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'A3' } });
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-pdf-preview-page-0').dataset.token).not.toBe(
+        staleToken,
+      );
+    });
+
+    previewPageMockState.readyPageCount = 3;
+    act(() => staleReady());
+
+    expect(screen.getByText('Page 1 / 1')).toBeInTheDocument();
+    expect(screen.queryByText('Page 2 / 3')).toBeNull();
+  });
+
+  it('shows Preview unavailable when a current page reports pagination failure', async () => {
+    renderPreview({ request: PDF_REQUEST });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Fail page 1' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Preview unavailable');
+    expect(screen.getByRole('button', { name: 'Export PDF' })).toBeDisabled();
+  });
+
+  it('updates sheet geometry for A3 landscape and explicit Custom dimensions', async () => {
+    renderPreview({ request: PDF_REQUEST });
+    await screen.findByTestId('mock-pdf-preview-page-0');
+
+    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'A3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Landscape' }));
+    await waitFor(() => {
+      const sheet = screen.getByTestId('mock-pdf-preview-page-0');
+      expect(Number(sheet.dataset.width)).toBeCloseTo(1190.5511811023623, 8);
+      expect(Number(sheet.dataset.height)).toBeCloseTo(841.8897637795276, 8);
+    });
+
+    fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'Custom' } });
+    fireEvent.change(screen.getByLabelText('Width'), { target: { value: '180.5' } });
+    fireEvent.change(screen.getByLabelText('Height'), { target: { value: '240.2' } });
+    await waitFor(() => {
+      const sheet = screen.getByTestId('mock-pdf-preview-page-0');
+      expect(Number(sheet.dataset.width)).toBeCloseTo(511.65354330708664, 8);
+      expect(Number(sheet.dataset.height)).toBeCloseTo(680.8818897637797, 8);
+    });
   });
 
   it('cancels without confirming and locks actions while exporting', () => {
