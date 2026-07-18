@@ -17,6 +17,8 @@ vi.mock('./PdfPreviewPage', () => ({
     pageIndex,
     width,
     height,
+    pageInsets,
+    pageFurniture,
     onReady,
     onError,
   }: {
@@ -24,6 +26,19 @@ vi.mock('./PdfPreviewPage', () => ({
     pageIndex: number;
     width: number;
     height: number;
+    pageInsets: {
+      top: number;
+      right: number;
+      bottom: number;
+      left: number;
+    };
+    pageFurniture: {
+      headerText: string;
+      footerText: string;
+      pageNumbersEnabled: boolean;
+      pageNumberPosition: string;
+      pageNumberTemplate: string;
+    };
     onReady: (result: {
       type: typeof PDF_PREVIEW_READY_MESSAGE;
       token: string;
@@ -55,6 +70,12 @@ vi.mock('./PdfPreviewPage', () => ({
         data-token={token}
         data-width={width}
         data-height={height}
+        data-page-insets={JSON.stringify(pageInsets)}
+        data-header-text={pageFurniture.headerText}
+        data-footer-text={pageFurniture.footerText}
+        data-page-numbers={String(pageFurniture.pageNumbersEnabled)}
+        data-page-number-position={pageFurniture.pageNumberPosition}
+        data-page-number-template={pageFurniture.pageNumberTemplate}
       >
         <button type="button" onClick={() => ready()}>
           Ready page {pageIndex + 1}
@@ -436,6 +457,137 @@ describe('ExportPreviewTab', () => {
         contentPaddingLeft: 40,
       }),
     );
+  });
+
+  it('shows page furniture only for PDF and rebuilds with repeated text', async () => {
+    const html = renderPreview();
+    expect(screen.queryByLabelText('Header text (optional)')).toBeNull();
+    html.unmount();
+
+    const buildPreview = previewBuilder();
+    renderPreview({ request: PDF_REQUEST, buildPreview });
+    fireEvent.change(screen.getByLabelText('Header text (optional)'), {
+      target: { value: 'Project Atlas' },
+    });
+    fireEvent.change(screen.getByLabelText('Footer text (optional)'), {
+      target: { value: 'Confidential' },
+    });
+
+    await waitFor(() => {
+      expect(buildPreview).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          style: expect.objectContaining({
+            headerText: 'Project Atlas',
+            footerText: 'Confidential',
+          }),
+        }),
+      );
+    });
+    expect(await screen.findByTestId('mock-pdf-preview-page-0')).toHaveAttribute(
+      'data-header-text',
+      'Project Atlas',
+    );
+    expect(screen.getByTestId('mock-pdf-preview-page-0')).toHaveAttribute(
+      'data-footer-text',
+      'Confidential',
+    );
+  });
+
+  it('enables bottom-center 1/12 page numbers by default', async () => {
+    const buildPreview = previewBuilder();
+    renderPreview({ request: PDF_REQUEST, buildPreview });
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Page numbers' }));
+
+    expect(screen.getByLabelText('Page number format')).toHaveValue('page-total');
+    expect(screen.getByLabelText('Page number position')).toHaveValue(
+      'bottom-center',
+    );
+    expect(screen.getByText('Preview · 1/12')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(buildPreview).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          style: expect.objectContaining({
+            pageNumbersEnabled: true,
+            pageNumberPosition: 'bottom-center',
+            pageNumberFormat: 'page-total',
+          }),
+        }),
+      );
+    });
+    expect(await screen.findByTestId('mock-pdf-preview-page-0')).toHaveAttribute(
+      'data-page-number-template',
+      '{page}/{pages}',
+    );
+  });
+
+  it('keeps an invalid Custom page template raw and pauses PDF preview', async () => {
+    const buildPreview = previewBuilder();
+    renderPreview({ request: PDF_REQUEST, buildPreview });
+    fireEvent.click(screen.getByRole('switch', { name: 'Page numbers' }));
+    fireEvent.change(screen.getByLabelText('Page number format'), {
+      target: { value: 'custom' },
+    });
+    await waitFor(() =>
+      expect(buildPreview).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          style: expect.objectContaining({ pageNumberFormat: 'custom' }),
+        }),
+      ),
+    );
+    const callsBeforeInvalidEdit = buildPreview.mock.calls.length;
+
+    fireEvent.change(screen.getByLabelText('Custom page number template'), {
+      target: { value: '{pages}' },
+    });
+
+    expect(screen.getByLabelText('Custom page number template')).toHaveValue(
+      '{pages}',
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Include {page} in the template.',
+    );
+    expect(screen.getByRole('button', { name: 'Export PDF' })).toBeDisabled();
+    await act(async () => Promise.resolve());
+    expect(buildPreview).toHaveBeenCalledTimes(callsBeforeInvalidEdit);
+
+    fireEvent.change(screen.getByLabelText('Custom page number template'), {
+      target: { value: 'Page {page} of {pages}' },
+    });
+    await waitFor(() =>
+      expect(buildPreview.mock.calls.length).toBeGreaterThan(
+        callsBeforeInvalidEdit,
+      ),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Ready page 1' }));
+    expect(screen.getByRole('button', { name: 'Export PDF' })).toBeEnabled();
+  });
+
+  it('rejects page geometry that leaves no horizontal content area', async () => {
+    const buildPreview = previewBuilder();
+    renderPreview({ request: PDF_REQUEST, buildPreview });
+    fireEvent.change(screen.getByLabelText('Size'), {
+      target: { value: 'Custom' },
+    });
+    fireEvent.change(await screen.findByLabelText('Width'), {
+      target: { value: '25.4' },
+    });
+    fireEvent.change(screen.getByLabelText('Height'), {
+      target: { value: '25.4' },
+    });
+    await waitFor(() => expect(buildPreview.mock.calls.length).toBeGreaterThan(1));
+    const callsBeforeInvalidEdit = buildPreview.mock.calls.length;
+
+    fireEvent.change(screen.getByLabelText('All sides padding'), {
+      target: { value: '72' },
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Left and right padding leave no room for content.',
+    );
+    expect(screen.getByRole('button', { name: 'Export PDF' })).toBeDisabled();
+    await act(async () => Promise.resolve());
+    expect(buildPreview).toHaveBeenCalledTimes(callsBeforeInvalidEdit);
   });
 
   it('switches presets, marks manual edits Custom, and preserves paper settings', () => {

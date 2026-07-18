@@ -27,8 +27,11 @@ import {
   type PreviewZoomDirection,
 } from '@/lib/exportPreviewZoom';
 import {
+  pageNumberTemplateForFormat,
   resolvePdfPageFurniture,
   resolvePdfPageInsets,
+  validatePageNumberTemplate,
+  validatePdfPageGeometry,
 } from '@/lib/exportPageLayout';
 import { resolvePdfPaper, type PdfPaper } from '@/lib/pdfPaper';
 import type { PdfPreviewReadyMessage } from '@/lib/pdfPagination';
@@ -39,6 +42,7 @@ import {
   ExportRangeControl,
 } from './ExportControlPrimitives';
 import { PdfPaperControls } from './PdfPaperControls';
+import { PdfPageFurnitureControls } from './PdfPageFurnitureControls';
 import { PdfPreviewPage } from './PdfPreviewPage';
 
 export interface ExportPreviewRequest {
@@ -122,6 +126,27 @@ export function ExportPreviewTab({
   const paginationTokenRef = useRef('');
   const previewViewportRef = useRef<HTMLDivElement>(null);
   const previousRequestIdentityRef = useRef(requestIdentity);
+  const resolvedPaper = resolvePdfPaper(draftStyle);
+  const pageSize = previewPageSize(resolvedPaper);
+  const activePageNumberTemplate = pageNumberTemplateForFormat(
+    draftStyle.pageNumberFormat,
+    draftStyle.pageNumberTemplate,
+  );
+  const templateValidation = draftStyle.pageNumbersEnabled
+    ? validatePageNumberTemplate(activePageNumberTemplate)
+    : ({ valid: true } as const);
+  const geometryValidation = validatePdfPageGeometry(
+    pageSize.width,
+    pageSize.height,
+    draftStyle,
+  );
+  const pageLayoutValid =
+    !isPdf || (templateValidation.valid && geometryValidation.valid);
+  const pageLayoutError = !templateValidation.valid
+    ? templateValidation.message
+    : !geometryValidation.valid
+      ? geometryValidation.message
+      : null;
 
   useEffect(() => {
     const requestChanged = previousRequestIdentityRef.current !== requestIdentity;
@@ -142,9 +167,10 @@ export function ExportPreviewTab({
   }, [appTheme, initialStyle, requestIdentity]);
 
   useEffect(() => {
-    if (isPdf && !paperValid) {
+    if (isPdf && (!paperValid || !pageLayoutValid)) {
       previewRequestRef.current += 1;
       paginationTokenRef.current = '';
+      setPreviewHtml('');
       setPreviewStatus('loading');
       return;
     }
@@ -174,7 +200,14 @@ export function ExportPreviewTab({
         setPreviewHtml('');
         setPreviewStatus('error');
       });
-  }, [buildPreview, draftStyle, isPdf, paperValid, request]);
+  }, [
+    buildPreview,
+    draftStyle,
+    isPdf,
+    pageLayoutValid,
+    paperValid,
+    request,
+  ]);
 
   useEffect(() => {
     if (!isPdf || typeof ResizeObserver === 'undefined') return;
@@ -220,8 +253,6 @@ export function ExportPreviewTab({
   };
   const controlId = (name: string) => `${idPrefix}-${name}`;
   const formatLabel = request.format.toUpperCase();
-  const resolvedPaper = resolvePdfPaper(draftStyle);
-  const pageSize = previewPageSize(resolvedPaper);
   const pageInsets = resolvePdfPageInsets(draftStyle);
   const pageFurniture = resolvePdfPageFurniture(
     draftStyle,
@@ -329,7 +360,12 @@ export function ExportPreviewTab({
           <Button
             type="button"
             size="sm"
-            disabled={busy || !paperValid || previewStatus !== 'ready'}
+            disabled={
+              busy ||
+              !paperValid ||
+              !pageLayoutValid ||
+              previewStatus !== 'ready'
+            }
             onClick={() => onConfirm(normalizeExportStyle(draftStyle))}
           >
             <FileDown />
@@ -544,15 +580,25 @@ export function ExportPreviewTab({
             </fieldset>
 
             {isPdf ? (
-              <div className="border-t border-border pt-4">
-                <PdfPaperControls
-                  idPrefix={controlId('paper')}
+              <>
+                <div className="border-t border-border pt-4">
+                  <PdfPaperControls
+                    idPrefix={controlId('paper')}
+                    value={draftStyle}
+                    disabled={busy}
+                    onChange={updatePaper}
+                    onValidityChange={setPaperValid}
+                  />
+                </div>
+                <PdfPageFurnitureControls
                   value={draftStyle}
                   disabled={busy}
-                  onChange={updatePaper}
-                  onValidityChange={setPaperValid}
+                  errorMessage={pageLayoutError}
+                  onChange={(layout) =>
+                    setDraftStyle((current) => ({ ...current, ...layout }))
+                  }
                 />
-              </div>
+              </>
             ) : null}
           </div>
         </aside>
