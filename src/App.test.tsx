@@ -2636,6 +2636,38 @@ describe('App recent documents', () => {
     fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'A3' } });
     fireEvent.click(screen.getByRole('button', { name: 'Landscape' }));
     fireEvent.change(screen.getByLabelText('Body size'), { target: { value: '13' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Per side' }));
+    fireEvent.change(screen.getByLabelText('Top padding'), {
+      target: { value: '10' },
+    });
+    fireEvent.change(screen.getByLabelText('Right padding'), {
+      target: { value: '20' },
+    });
+    fireEvent.change(screen.getByLabelText('Bottom padding'), {
+      target: { value: '30' },
+    });
+    fireEvent.change(screen.getByLabelText('Left padding'), {
+      target: { value: '40' },
+    });
+    fireEvent.change(screen.getByLabelText('Header text (optional)'), {
+      target: { value: 'Project Atlas' },
+    });
+    fireEvent.change(screen.getByLabelText('Header alignment'), {
+      target: { value: 'left' },
+    });
+    fireEvent.change(screen.getByLabelText('Footer text (optional)'), {
+      target: { value: 'Confidential' },
+    });
+    fireEvent.change(screen.getByLabelText('Footer alignment'), {
+      target: { value: 'right' },
+    });
+    fireEvent.click(screen.getByRole('switch', { name: 'Page numbers' }));
+    fireEvent.change(screen.getByLabelText('Page number format'), {
+      target: { value: 'page-label-of-total' },
+    });
+    fireEvent.change(screen.getByLabelText('Page number position'), {
+      target: { value: 'top-right' },
+    });
     fireEvent.change(screen.getByLabelText('Code block theme'), {
       target: { value: 'flexoki-dark' },
     });
@@ -2676,6 +2708,27 @@ describe('App recent documents', () => {
     );
     expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('color: #fbcfe8');
     expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('background: #500724');
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain(
+      '"pageInsets":{"top":10,"right":20,"bottom":30,"left":40}',
+    );
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain(
+      '"headerText":"Project Atlas"',
+    );
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain(
+      '"headerAlignment":"left"',
+    );
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain(
+      '"footerText":"Confidential"',
+    );
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain(
+      '"footerAlignment":"right"',
+    );
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain(
+      '"pageNumberPosition":"top-right"',
+    );
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain(
+      '"pageNumberTemplate":"Page {page} of {pages}"',
+    );
     await waitFor(() => {
       expect(screen.queryByRole('tab', { name: /Export Preview/i })).not.toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /meeting-notes\.md/i })).toHaveAttribute(
@@ -2691,6 +2744,17 @@ describe('App recent documents', () => {
     expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
     expect(screen.getByLabelText('Code block theme')).toHaveValue('flexoki-dark');
     expect(screen.getByLabelText('Inline code preset')).toHaveValue('rose');
+    expect(screen.getByRole('button', { name: 'Per side' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByLabelText('Left padding')).toHaveValue('40');
+    expect(screen.getByLabelText('Header text (optional)')).toHaveValue(
+      'Project Atlas',
+    );
+    expect(screen.getByLabelText('Page number format')).toHaveValue(
+      'page-label-of-total',
+    );
   });
 
   it('keeps the Export Preview tab open when the native save dialog is cancelled', async () => {
@@ -2889,6 +2953,29 @@ describe('App recent documents', () => {
     fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'Custom' } });
     fireEvent.change(screen.getByLabelText('Width'), { target: { value: '180.5' } });
     fireEvent.change(screen.getByLabelText('Height'), { target: { value: '240.2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Per side' }));
+    fireEvent.change(screen.getByLabelText('Top padding'), {
+      target: { value: '12' },
+    });
+    fireEvent.change(screen.getByLabelText('Right padding'), {
+      target: { value: '18' },
+    });
+    fireEvent.change(screen.getByLabelText('Bottom padding'), {
+      target: { value: '24' },
+    });
+    fireEvent.change(screen.getByLabelText('Left padding'), {
+      target: { value: '30' },
+    });
+    fireEvent.change(screen.getByLabelText('Header text (optional)'), {
+      target: { value: 'Workspace export' },
+    });
+    fireEvent.click(screen.getByRole('switch', { name: 'Page numbers' }));
+    fireEvent.change(screen.getByLabelText('Code block theme'), {
+      target: { value: 'monokai-light' },
+    });
+    fireEvent.change(screen.getByLabelText('Inline code preset'), {
+      target: { value: 'blue' },
+    });
     await waitFor(() => expect(exportButton).toBeEnabled());
     fireEvent.click(exportButton);
 
@@ -2914,6 +3001,17 @@ describe('App recent documents', () => {
     });
     expect(exportPdfFilesMock.mock.calls[0]?.[0][0]?.html).toContain('Readme');
     expect(exportPdfFilesMock.mock.calls[0]?.[0][1]?.html).toContain('Guide');
+    for (const file of exportPdfFilesMock.mock.calls[0]?.[0] ?? []) {
+      expect(file.html).toContain(
+        '"pageInsets":{"top":12,"right":18,"bottom":24,"left":30}',
+      );
+      expect(file.html).toContain('"headerText":"Workspace export"');
+      expect(file.html).toContain('"pageNumbersEnabled":true');
+      expect(file.html).toContain('"pageNumberTemplate":"{page}/{pages}"');
+      expect(file.html).toContain('data-cb-theme="monokai-light"');
+      expect(file.html).toContain('color: #bfdbfe');
+      expect(file.html).toContain('background: #172554');
+    }
   });
 
   it('keeps a failed batch PDF export visible on the export preview surface', async () => {

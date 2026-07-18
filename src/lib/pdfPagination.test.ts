@@ -199,6 +199,52 @@ describe('PDF pagination runtime', () => {
     expect(script).toContain('markdowner:pdf-preview-error');
   });
 
+  it('executes the serialized paginator with page furniture intact', async () => {
+    document.body.innerHTML =
+      '<main class="markdowner-export"><p id="runtime-content"></p></main>';
+    const content = document.querySelector('#runtime-content') as HTMLElement;
+    vi.spyOn(content, 'getBoundingClientRect').mockReturnValue(rect(54, 20));
+    const config = {
+      token: 'runtime-token',
+      pageWidth: 160,
+      pageHeight: 200,
+      pageInsets: { top: 32, right: 32, bottom: 32, left: 32 },
+      pageFurniture: {
+        headerText: 'Runtime header',
+        headerAlignment: 'center' as const,
+        footerText: '',
+        footerAlignment: 'center' as const,
+        pageNumbersEnabled: true,
+        pageNumberPosition: 'bottom-center' as const,
+        pageNumberTemplate: '{page}/{pages}',
+        textColor: '#202124',
+        fontFamily: 'system-ui, sans-serif',
+      },
+      maxPages: 100,
+    };
+
+    window.eval(buildPdfPaginationScript(config));
+    const runtimeWindow = window as typeof window & {
+      __markdownerPaginatePdf: () => Promise<{
+        totalHeight: number;
+        pageCount: number;
+      }>;
+      __markdownerPdfPaginationStatus: string;
+    };
+    const result = await runtimeWindow.__markdownerPaginatePdf();
+
+    expect(result.pageCount).toBe(1);
+    expect(runtimeWindow.__markdownerPdfPaginationStatus).toBe('ready');
+    expect(
+      document.querySelector('[data-markdowner-pdf-decoration="page"]')
+        ?.textContent,
+    ).toContain('Runtime header');
+    expect(
+      document.querySelector('[data-markdowner-pdf-decoration="page"]')
+        ?.textContent,
+    ).toContain('1/1');
+  });
+
   it('accepts only token-scoped, finite ready messages within the page cap', () => {
     const valid = {
       type: PDF_PREVIEW_READY_MESSAGE,

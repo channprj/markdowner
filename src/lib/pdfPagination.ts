@@ -42,10 +42,26 @@ export interface PdfPreviewReadyMessage {
   pageHeight: number;
 }
 
+export interface PdfPaginationHelpers {
+  formatPageNumber: typeof formatPageNumber;
+  pageDecorationBandHeights: typeof pageDecorationBandHeights;
+  validatePdfPageGeometry: typeof validatePdfPageGeometry;
+}
+
 export function paginatePdfDocument(
   doc: Document,
   options: PdfPaginationOptions,
+  helpers: PdfPaginationHelpers = {
+    formatPageNumber,
+    pageDecorationBandHeights,
+    validatePdfPageGeometry,
+  },
 ): PdfPaginationResult {
+  const {
+    formatPageNumber: formatNumber,
+    pageDecorationBandHeights: decorationBandHeights,
+    validatePdfPageGeometry: validateGeometry,
+  } = helpers;
   const pageWidth = Number(options.pageWidth);
   const pageHeight = Number(options.pageHeight);
   const pageInsets = {
@@ -59,7 +75,7 @@ export function paginatePdfDocument(
   if (!pageFurniture || !Number.isFinite(maxPages) || maxPages < 1) {
     throw new Error('Invalid PDF pagination geometry.');
   }
-  const geometry = validatePdfPageGeometry(pageWidth, pageHeight, {
+  const geometry = validateGeometry(pageWidth, pageHeight, {
     contentPaddingTop: pageInsets.top,
     contentPaddingRight: pageInsets.right,
     contentPaddingBottom: pageInsets.bottom,
@@ -72,7 +88,7 @@ export function paginatePdfDocument(
     pageNumberPosition: pageFurniture.pageNumberPosition,
   });
   if (!geometry.valid) throw new Error(geometry.message);
-  const bands = pageDecorationBandHeights(pageFurniture);
+  const bands = decorationBandHeights(pageFurniture);
   const effectiveTop = pageInsets.top + bands.top;
   const effectiveBottom = pageInsets.bottom + bands.bottom;
 
@@ -236,7 +252,7 @@ export function paginatePdfDocument(
       appendText(
         numberBand === 'top' ? topCells : bottomCells,
         numberAlignment,
-        formatPageNumber(
+        formatNumber(
           pageFurniture.pageNumberTemplate,
           pageIndex + 1,
           pageCount,
@@ -261,6 +277,11 @@ export function buildPdfPaginationScript(config: PdfPaginationRuntimeConfig): st
   var formatPageNumber = ${formatNumber};
   var pageDecorationBandHeights = ${decorationBands};
   var validatePdfPageGeometry = ${validateGeometry};
+  var paginationHelpers = {
+    formatPageNumber: formatPageNumber,
+    pageDecorationBandHeights: pageDecorationBandHeights,
+    validatePdfPageGeometry: validatePdfPageGeometry
+  };
   var paginate = ${paginator};
   var running = null;
   function waitForAssets() {
@@ -285,7 +306,7 @@ export function buildPdfPaginationScript(config: PdfPaginationRuntimeConfig): st
           pageInsets: config.pageInsets,
           pageFurniture: config.pageFurniture,
           maxPages: config.maxPages
-        });
+        }, paginationHelpers);
         window.__markdownerPdfPaginationResult = result;
         window.__markdownerPdfPaginationStatus = "ready";
         return result;

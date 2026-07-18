@@ -463,6 +463,35 @@ describe('buildExportHtml', () => {
     expect(html).not.toContain('data-cb-theme="one-dark"');
   });
 
+  it('keeps layout and code styles in HTML without PDF furniture runtime', async () => {
+    const html = await buildExportHtml({
+      title: 'HTML styles',
+      source: '`inline`\n\n```ts\nconst n = 1\n```',
+      activeDocumentPath: null,
+      style: {
+        ...DEFAULT_EXPORT_STYLE,
+        preset: 'light',
+        contentPaddingMode: 'individual',
+        contentPaddingTop: 10,
+        contentPaddingRight: 20,
+        contentPaddingBottom: 30,
+        contentPaddingLeft: 40,
+        headerText: 'PDF only',
+        pageNumbersEnabled: true,
+        codeBlockTheme: 'monokai-dark',
+        inlineCodePreset: 'green',
+      },
+    });
+
+    expect(html).toContain('padding: 10px 20px 30px 40px');
+    expect(html).toContain('data-cb-theme="monokai-dark"');
+    expect(html).toContain('color: #166534');
+    expect(html).toContain('background: #dcfce7');
+    expect(html).not.toContain('__markdownerPaginatePdf');
+    expect(html).not.toContain('"pageInsets"');
+    expect(html).not.toContain('data-markdowner-pdf-decoration');
+  });
+
   it('injects the selected typography, colors, and spacing into the standalone document', async () => {
     const html = await buildExportHtml({
       title: 'Styled',
