@@ -15,6 +15,8 @@ import {
 import {
   DEFAULT_EXPORT_PAGE_LAYOUT,
   normalizeExportPageLayout,
+  resolvePdfPageFurniture,
+  resolvePdfPageInsets,
   type ExportPageLayout,
 } from './exportPageLayout';
 import {
@@ -112,6 +114,10 @@ const EXPORT_FONT_STACKS: Record<ExportFontFamily, string> = {
   serif: 'ui-serif, Georgia, Cambria, "Times New Roman", serif',
   mono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
 };
+
+export function resolveExportFontStack(fontFamily: ExportFontFamily): string {
+  return EXPORT_FONT_STACKS[fontFamily];
+}
 
 function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
   const numeric = typeof value === 'number' ? value : Number(value);
@@ -623,12 +629,19 @@ export async function buildExportHtml(options: ExportHtmlOptions): Promise<strin
     doc.documentElement.dataset.theme === 'BuiltInDark' ? 'dark' : 'light';
   const style = resolveExportStyleForTheme(normalizeExportStyle(rawStyle), appTheme);
   const paper = resolvePdfPaper(style);
+  const pageInsets = resolvePdfPageInsets(style);
+  const pageFurniture = resolvePdfPageFurniture(
+    style,
+    style.textColor,
+    resolveExportFontStack(style.fontFamily),
+  );
   const paginationScript = forPrint
     ? buildPdfPaginationScript({
         token: paginationToken,
         pageWidth: paper.widthPt,
         pageHeight: paper.heightPt,
-        pageMargin: style.contentPaddingTop,
+        pageInsets,
+        pageFurniture,
         maxPages: MAX_PDF_PAGES,
       })
     : '';
@@ -662,7 +675,7 @@ img, svg, video { max-width: 100%; height: auto; }`
   padding: ${style.contentPaddingTop}px ${style.contentPaddingRight}px ${style.contentPaddingBottom}px ${style.contentPaddingLeft}px;
   color: ${style.textColor};
   background: ${style.backgroundColor};
-  font-family: ${EXPORT_FONT_STACKS[style.fontFamily]};
+  font-family: ${resolveExportFontStack(style.fontFamily)};
   font-size: ${style.fontSize}px;
   line-height: ${style.lineHeight};
 }

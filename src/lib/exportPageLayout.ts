@@ -57,6 +57,19 @@ export interface PageDecorationBandHeights {
   bottom: number;
 }
 
+export interface PdfPageGeometry {
+  contentPaddingTop: number;
+  contentPaddingRight: number;
+  contentPaddingBottom: number;
+  contentPaddingLeft: number;
+  headerText: string;
+  headerAlignment: PageTextAlignment;
+  footerText: string;
+  footerAlignment: PageTextAlignment;
+  pageNumbersEnabled: boolean;
+  pageNumberPosition: PageNumberPosition;
+}
+
 export type PageNumberTemplateValidation =
   | { valid: true }
   | { valid: false; message: string };
@@ -247,19 +260,9 @@ export function formatPageNumber(
     .join(String(page));
 }
 
-function pageNumberSlot(
-  position: PageNumberPosition,
-): { band: 'top' | 'bottom'; alignment: PageTextAlignment } {
-  const [band, alignment] = position.split('-') as [
-    'top' | 'bottom',
-    PageTextAlignment,
-  ];
-  return { band, alignment };
-}
-
 export function pageDecorationBandHeights(
   layout: Pick<
-    ExportPageLayout,
+    PdfPageGeometry,
     | 'headerText'
     | 'headerAlignment'
     | 'footerText'
@@ -273,19 +276,21 @@ export function pageDecorationBandHeights(
   const contentGap = 6;
   const headerVisible = layout.headerText.trim().length > 0;
   const footerVisible = layout.footerText.trim().length > 0;
-  const numberSlot = layout.pageNumbersEnabled
-    ? pageNumberSlot(layout.pageNumberPosition)
-    : null;
-  const topVisible = headerVisible || numberSlot?.band === 'top';
-  const bottomVisible = footerVisible || numberSlot?.band === 'bottom';
+  const numberParts = layout.pageNumbersEnabled
+    ? layout.pageNumberPosition.split('-')
+    : [];
+  const numberBand = numberParts[0];
+  const numberAlignment = numberParts[1];
+  const topVisible = headerVisible || numberBand === 'top';
+  const bottomVisible = footerVisible || numberBand === 'bottom';
   const topCollision =
     headerVisible &&
-    numberSlot?.band === 'top' &&
-    numberSlot.alignment === layout.headerAlignment;
+    numberBand === 'top' &&
+    numberAlignment === layout.headerAlignment;
   const bottomCollision =
     footerVisible &&
-    numberSlot?.band === 'bottom' &&
-    numberSlot.alignment === layout.footerAlignment;
+    numberBand === 'bottom' &&
+    numberAlignment === layout.footerAlignment;
   const bandHeight = (visible: boolean, collision: boolean) =>
     visible ? lineHeight + contentGap + (collision ? lineHeight + stackGap : 0) : 0;
 
@@ -298,7 +303,7 @@ export function pageDecorationBandHeights(
 export function validatePdfPageGeometry(
   pageWidth: number,
   pageHeight: number,
-  layout: ExportPageLayout,
+  layout: PdfPageGeometry,
 ): PdfPageGeometryValidation {
   if (
     !Number.isFinite(pageWidth) ||
@@ -307,6 +312,18 @@ export function validatePdfPageGeometry(
     pageHeight <= 0
   ) {
     return { valid: false, message: 'PDF paper dimensions must be positive.' };
+  }
+  if (
+    !Number.isFinite(layout.contentPaddingTop) ||
+    layout.contentPaddingTop < 0 ||
+    !Number.isFinite(layout.contentPaddingRight) ||
+    layout.contentPaddingRight < 0 ||
+    !Number.isFinite(layout.contentPaddingBottom) ||
+    layout.contentPaddingBottom < 0 ||
+    !Number.isFinite(layout.contentPaddingLeft) ||
+    layout.contentPaddingLeft < 0
+  ) {
+    return { valid: false, message: 'PDF content padding must be non-negative.' };
   }
   const horizontalSpace =
     pageWidth - layout.contentPaddingLeft - layout.contentPaddingRight;

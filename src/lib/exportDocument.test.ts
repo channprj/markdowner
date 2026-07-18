@@ -396,11 +396,24 @@ describe('buildExportHtml', () => {
         paperSize: 'Custom',
         paperWidthMm: 180.5,
         paperHeightMm: 240.2,
+        contentPaddingMode: 'individual',
+        contentPaddingTop: 20,
+        contentPaddingRight: 24,
+        contentPaddingBottom: 28,
+        contentPaddingLeft: 32,
+        headerText: 'Project Atlas',
+        headerAlignment: 'left',
+        pageNumbersEnabled: true,
       },
     });
     expect(html).toContain('@page { size: 180.5mm 240.2mm; }');
     expect(html).toContain('__markdownerPaginatePdf');
     expect(html).toContain('"token":"export-preview-token"');
+    expect(html).toContain(
+      '"pageInsets":{"top":20,"right":24,"bottom":28,"left":32}',
+    );
+    expect(html).toContain('"headerText":"Project Atlas"');
+    expect(html).toContain('"pageNumberTemplate":"{page}/{pages}"');
   });
 
   it('injects the selected typography, colors, and spacing into the standalone document', async () => {

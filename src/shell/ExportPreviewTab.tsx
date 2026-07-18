@@ -9,6 +9,7 @@ import {
   applyExportStylePreset,
   buildExportHtml,
   normalizeExportStyle,
+  resolveExportFontStack,
   resolveExportStyleForTheme,
   type ExportFormat,
   type ExportHtmlOptions,
@@ -26,6 +27,10 @@ import {
   type PreviewSize,
   type PreviewZoomDirection,
 } from '@/lib/exportPreviewZoom';
+import {
+  resolvePdfPageFurniture,
+  resolvePdfPageInsets,
+} from '@/lib/exportPageLayout';
 import { resolvePdfPaper, type PdfPaper } from '@/lib/pdfPaper';
 import type { PdfPreviewReadyMessage } from '@/lib/pdfPagination';
 import { cn } from '@/lib/utils';
@@ -305,6 +310,12 @@ export function ExportPreviewTab({
   const formatLabel = request.format.toUpperCase();
   const resolvedPaper = resolvePdfPaper(draftStyle);
   const pageSize = previewPageSize(resolvedPaper);
+  const pageInsets = resolvePdfPageInsets(draftStyle);
+  const pageFurniture = resolvePdfPageFurniture(
+    draftStyle,
+    draftStyle.textColor,
+    resolveExportFontStack(draftStyle.fontFamily),
+  );
   const fitZoomPercent = fitPreviewZoomPercent(previewViewport, pageSize);
   const zoomPercent = zoomMode === 'fit' ? fitZoomPercent : manualZoomPercent;
   const zoomScale = zoomPercent / 100;
@@ -730,7 +741,8 @@ export function ExportPreviewTab({
                               pageIndex={pageIndex}
                               width={pageSize.width}
                               height={pageSize.height}
-                              pageMargin={draftStyle.contentPaddingTop}
+                              pageInsets={pageInsets}
+                              pageFurniture={pageFurniture}
                               backgroundColor={draftStyle.backgroundColor}
                               onReady={handlePageReady}
                               onError={() => handlePaginationError(paginationToken)}

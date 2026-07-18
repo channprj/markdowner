@@ -5,6 +5,7 @@ import {
   paginatePdfDocument,
   type PdfPreviewReadyMessage,
 } from '@/lib/pdfPagination';
+import type { PdfPageFurniture, PdfPageInsets } from '@/lib/exportPageLayout';
 import { MAX_PDF_PAGES } from '@/lib/pdfPaper';
 
 export interface PdfPreviewPageProps {
@@ -13,7 +14,8 @@ export interface PdfPreviewPageProps {
   pageIndex: number;
   width: number;
   height: number;
-  pageMargin: number;
+  pageInsets: PdfPageInsets;
+  pageFurniture: PdfPageFurniture;
   backgroundColor: string;
   onReady: (result: PdfPreviewReadyMessage) => void;
   onError: () => void;
@@ -59,7 +61,8 @@ export function PdfPreviewPage({
   pageIndex,
   width,
   height,
-  pageMargin,
+  pageInsets,
+  pageFurniture,
   backgroundColor,
   onReady,
   onError,
@@ -90,8 +93,10 @@ export function PdfPreviewPage({
           return;
         }
         const result = paginatePdfDocument(frameDocument, {
+          pageWidth: width,
           pageHeight: height,
-          pageMargin,
+          pageInsets,
+          pageFurniture,
           maxPages: MAX_PDF_PAGES,
         });
         const container =

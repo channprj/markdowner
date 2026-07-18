@@ -15,7 +15,18 @@ function renderPage() {
       pageIndex={1}
       width={595.2755905511812}
       height={841.8897637795276}
-      pageMargin={32}
+      pageInsets={{ top: 32, right: 36, bottom: 40, left: 44 }}
+      pageFurniture={{
+        headerText: 'Project Atlas',
+        headerAlignment: 'left',
+        footerText: '',
+        footerAlignment: 'center',
+        pageNumbersEnabled: true,
+        pageNumberPosition: 'bottom-center',
+        pageNumberTemplate: '{page}/{pages}',
+        textColor: '#202124',
+        fontFamily: 'system-ui, sans-serif',
+      }}
       backgroundColor="#ffffff"
       onReady={onReady}
       onError={onError}
@@ -73,6 +84,14 @@ describe('PdfPreviewPage', () => {
     expect(frameDocument.documentElement).toHaveStyle({
       overflow: 'hidden',
     });
+    expect(
+      frameDocument.querySelectorAll('[data-markdowner-pdf-decoration="page"]'),
+    ).toHaveLength(3);
+    expect(
+      frameDocument.querySelector(
+        '[data-markdowner-pdf-decoration="page"]:nth-of-type(3)',
+      )?.textContent,
+    ).toContain('3/3');
     expect(onError).not.toHaveBeenCalled();
     expect(frame).toHaveAttribute('sandbox', 'allow-same-origin');
     expect(frame.getAttribute('sandbox')).not.toContain('allow-scripts');
