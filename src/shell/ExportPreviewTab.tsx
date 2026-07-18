@@ -420,18 +420,14 @@ export function ExportPreviewTab({
           data-testid="export-preview-config"
           className="min-h-0 overflow-y-auto border-b border-border bg-background px-4 py-4 lg:border-r lg:border-b-0"
         >
-          <div className="mb-5 border-l-2 border-foreground pl-3">
-            <p className="font-heading text-sm font-medium">Config</p>
-          </div>
-
           <div className="grid gap-5">
             <div className="grid gap-2">
-              <Label htmlFor={controlId('preset')} className="text-xs font-medium text-foreground/85">
-                Preset
+              <Label htmlFor={controlId('theme')} className="text-xs font-medium text-foreground/85">
+                Theme
               </Label>
               <select
-                id={controlId('preset')}
-                aria-label="Preset"
+                id={controlId('theme')}
+                aria-label="Theme"
                 value={draftStyle.preset}
                 disabled={busy}
                 onChange={(event) =>

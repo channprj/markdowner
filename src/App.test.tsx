@@ -2612,7 +2612,7 @@ describe('App recent documents', () => {
     expect(exportPdfFileMock).not.toHaveBeenCalled();
     expect(await screen.findByRole('heading', { name: 'Export Preview' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Preset')).toHaveValue('app');
+    expect(screen.getByLabelText('Theme')).toHaveValue('app');
     expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
     expect(screen.getByLabelText('Table border color')).toHaveValue('#3f3f46');
     const exportTab = screen.getByRole('tab', { name: /Export Preview/i });
@@ -2659,7 +2659,7 @@ describe('App recent documents', () => {
 
     const reopenedMenu = await openAppMenu();
     fireEvent.click(within(reopenedMenu).getByRole('menuitem', { name: /^export to pdf…$/i }));
-    expect(await screen.findByLabelText('Preset')).toHaveValue('custom');
+    expect(await screen.findByLabelText('Theme')).toHaveValue('custom');
     expect(await screen.findByLabelText('Body size')).toHaveValue('13');
     expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
   });

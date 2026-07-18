@@ -152,24 +152,24 @@ describe('ExportPreviewTab', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('puts Preset first under Config and removes the verbose description', () => {
+  it('puts Theme first without a Config heading or verbose description', () => {
     renderPreview();
 
-    expect(screen.getByText('Config')).toBeInTheDocument();
+    expect(screen.queryByText('Config')).not.toBeInTheDocument();
     expect(screen.queryByText('Artifact controls')).not.toBeInTheDocument();
     expect(
       screen.queryByText(
         'Every value below is applied to both this preview and the exported file.',
       ),
     ).not.toBeInTheDocument();
-    const preset = screen.getByLabelText('Preset');
+    const theme = screen.getByLabelText('Theme');
     const bodySize = screen.getByLabelText('Body size');
     expect(
-      preset.compareDocumentPosition(bodySize) & Node.DOCUMENT_POSITION_FOLLOWING,
+      theme.compareDocumentPosition(bodySize) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
-  it('bounds the narrow Config row and guarantees Preview height', () => {
+  it('bounds the narrow settings column and guarantees Preview height', () => {
     renderPreview({ request: PDF_REQUEST });
 
     expect(screen.getByTestId('export-preview-layout')).toHaveClass(
@@ -400,26 +400,26 @@ describe('ExportPreviewTab', () => {
       appTheme: 'dark',
     });
 
-    expect(screen.getByLabelText('Preset')).toHaveValue('app');
+    expect(screen.getByLabelText('Theme')).toHaveValue('app');
     expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
     expect(screen.getByLabelText('Table border color')).toHaveValue('#3f3f46');
-    fireEvent.change(screen.getByLabelText('Preset'), { target: { value: 'light' } });
+    fireEvent.change(screen.getByLabelText('Theme'), { target: { value: 'light' } });
     expect(screen.getByLabelText('Background color')).toHaveValue('#ffffff');
     expect(screen.getByLabelText('Size')).toHaveValue('Letter');
     fireEvent.change(screen.getByLabelText('Table border color'), {
       target: { value: '#123456' },
     });
-    expect(screen.getByLabelText('Preset')).toHaveValue('custom');
+    expect(screen.getByLabelText('Theme')).toHaveValue('custom');
     expect(screen.getByLabelText('Table border color')).toHaveValue('#123456');
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
-    expect(screen.getByLabelText('Preset')).toHaveValue('app');
+    expect(screen.getByLabelText('Theme')).toHaveValue('app');
     expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
     expect(screen.getByLabelText('Size')).toHaveValue('Letter');
   });
 
   it('updates an app preset when the app theme changes', () => {
     const { rerender } = renderPreview({ appTheme: 'dark' });
-    expect(screen.getByLabelText('Preset')).toHaveValue('app');
+    expect(screen.getByLabelText('Theme')).toHaveValue('app');
     expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
 
     rerender(
@@ -434,7 +434,7 @@ describe('ExportPreviewTab', () => {
       />,
     );
 
-    expect(screen.getByLabelText('Preset')).toHaveValue('app');
+    expect(screen.getByLabelText('Theme')).toHaveValue('app');
     expect(screen.getByLabelText('Background color')).toHaveValue('#ffffff');
     expect(screen.getByLabelText('Table border color')).toHaveValue('#d4d4d8');
   });
@@ -457,7 +457,7 @@ describe('ExportPreviewTab', () => {
       />,
     );
 
-    expect(screen.getByLabelText('Preset')).toHaveValue('custom');
+    expect(screen.getByLabelText('Theme')).toHaveValue('custom');
     expect(screen.getByLabelText('Background color')).toHaveValue('#123456');
   });
 
@@ -514,7 +514,7 @@ describe('ExportPreviewTab', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
-    expect(screen.getByLabelText('Preset')).toHaveValue('app');
+    expect(screen.getByLabelText('Theme')).toHaveValue('app');
     expect(screen.getByLabelText('Body size')).toHaveValue('14');
     expect(screen.getByLabelText('Size')).toHaveValue('A4');
   });
@@ -643,7 +643,7 @@ describe('ExportPreviewTab', () => {
     expect(screen.getByRole('button', { name: 'Exporting…' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
     expect(screen.getByLabelText('Body size')).toBeDisabled();
-    expect(screen.getByLabelText('Preset')).toBeDisabled();
+    expect(screen.getByLabelText('Theme')).toBeDisabled();
   });
 
   it('reports a preview failure without confirming an export', async () => {
