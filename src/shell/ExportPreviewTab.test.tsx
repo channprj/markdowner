@@ -143,6 +143,7 @@ function renderPreview(overrides: Partial<ComponentProps<typeof ExportPreviewTab
       request={HTML_REQUEST}
       initialStyle={DEFAULT_EXPORT_STYLE}
       appTheme="light"
+      appCodeBlockTheme="one-dark"
       busy={false}
       onCancel={() => {}}
       onConfirm={() => {}}
@@ -308,6 +309,7 @@ describe('ExportPreviewTab', () => {
         request={{ ...PDF_REQUEST, title: 'notes-2', source: '# Notes 2' }}
         initialStyle={DEFAULT_EXPORT_STYLE}
         appTheme="light"
+        appCodeBlockTheme="one-dark"
         busy={false}
         onCancel={() => {}}
         onConfirm={() => {}}
@@ -364,6 +366,7 @@ describe('ExportPreviewTab', () => {
         request={PDF_REQUEST}
         initialStyle={DEFAULT_EXPORT_STYLE}
         appTheme="light"
+        appCodeBlockTheme="one-dark"
         busy
         onCancel={() => {}}
         onConfirm={() => {}}
@@ -393,7 +396,7 @@ describe('ExportPreviewTab', () => {
     );
   });
 
-  it('exposes typography, spacing, inline code, and keyboard-key controls', () => {
+  it('exposes typography, spacing, code styles, and keyboard-key controls', () => {
     renderPreview();
 
     expect(screen.getByLabelText('Body size')).toHaveValue('14');
@@ -405,8 +408,10 @@ describe('ExportPreviewTab', () => {
     expect(screen.getByLabelText('Line height')).toHaveAttribute('max', '2.2');
     expect(screen.getByLabelText('Paragraph spacing')).toHaveValue('8');
     expect(screen.getByLabelText('All sides padding')).toHaveValue('32');
-    expect(screen.getByLabelText('Inline code text color')).toHaveValue('#7c2d12');
-    expect(screen.getByLabelText('Inline code background color')).toHaveValue('#ffedd5');
+    expect(screen.getByLabelText('Code block theme')).toHaveValue('app');
+    expect(screen.getByLabelText('Inline code preset')).toHaveValue('amber');
+    expect(screen.queryByLabelText('Inline code text color')).toBeNull();
+    expect(screen.queryByLabelText('Inline code background color')).toBeNull();
     expect(screen.getByLabelText('Keyboard key text color')).toHaveValue('#334155');
     expect(screen.getByLabelText('Keyboard key background color')).toHaveValue('#e2e8f0');
     expect(screen.getByLabelText('Table border color')).toHaveValue('#d4d4d8');
@@ -624,6 +629,7 @@ describe('ExportPreviewTab', () => {
         request={HTML_REQUEST}
         initialStyle={DEFAULT_EXPORT_STYLE}
         appTheme="light"
+        appCodeBlockTheme="one-dark"
         busy={false}
         onCancel={() => {}}
         onConfirm={() => {}}
@@ -647,6 +653,7 @@ describe('ExportPreviewTab', () => {
         request={HTML_REQUEST}
         initialStyle={DEFAULT_EXPORT_STYLE}
         appTheme="light"
+        appCodeBlockTheme="one-dark"
         busy={false}
         onCancel={() => {}}
         onConfirm={() => {}}
@@ -669,6 +676,9 @@ describe('ExportPreviewTab', () => {
   it('updates inline-code color in the live preview', async () => {
     renderPreview();
 
+    fireEvent.change(screen.getByLabelText('Inline code preset'), {
+      target: { value: 'custom' },
+    });
     fireEvent.change(screen.getByLabelText('Inline code text color'), {
       target: { value: '#314158' },
     });
@@ -681,10 +691,126 @@ describe('ExportPreviewTab', () => {
     });
   });
 
+  it('passes fixed code and inline presets through preview and confirmation', async () => {
+    const buildPreview = previewBuilder();
+    const onConfirm = vi.fn();
+    renderPreview({ buildPreview, onConfirm });
+
+    fireEvent.change(screen.getByLabelText('Code block theme'), {
+      target: { value: 'github-light' },
+    });
+    fireEvent.change(screen.getByLabelText('Inline code preset'), {
+      target: { value: 'blue' },
+    });
+
+    await waitFor(() => {
+      expect(buildPreview).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          style: expect.objectContaining({
+            codeBlockTheme: 'github-light',
+            inlineCodePreset: 'blue',
+            inlineCodeTextColor: '#1e3a8a',
+            inlineCodeBackgroundColor: '#e8eefc',
+          }),
+        }),
+      );
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Export HTML' }));
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        codeBlockTheme: 'github-light',
+        inlineCodePreset: 'blue',
+        inlineCodeTextColor: '#1e3a8a',
+        inlineCodeBackgroundColor: '#e8eefc',
+      }),
+    );
+  });
+
+  it('rebuilds Match app code on app-theme changes and labels the resolved theme', async () => {
+    const buildPreview = previewBuilder();
+    const { rerender } = renderPreview({
+      buildPreview,
+      appCodeBlockTheme: 'one-dark',
+    });
+    expect(
+      (screen.getByLabelText('Code block theme') as HTMLSelectElement).options[0]
+        ?.textContent,
+    ).toContain('One Dark');
+    await waitFor(() => expect(buildPreview).toHaveBeenCalled());
+    const callsBeforeThemeChange = buildPreview.mock.calls.length;
+
+    rerender(
+      <ExportPreviewTab
+        request={HTML_REQUEST}
+        initialStyle={DEFAULT_EXPORT_STYLE}
+        appTheme="light"
+        appCodeBlockTheme="github-light"
+        busy={false}
+        onCancel={() => {}}
+        onConfirm={() => {}}
+        buildPreview={buildPreview}
+      />,
+    );
+
+    expect(
+      (screen.getByLabelText('Code block theme') as HTMLSelectElement).options[0]
+        ?.textContent,
+    ).toContain('GitHub Light');
+    await waitFor(() =>
+      expect(buildPreview.mock.calls.length).toBeGreaterThan(
+        callsBeforeThemeChange,
+      ),
+    );
+  });
+
+  it('resets code styles while preserving current page layout', () => {
+    renderPreview({ request: PDF_REQUEST });
+    fireEvent.change(screen.getByLabelText('Code block theme'), {
+      target: { value: 'ayu-dark' },
+    });
+    fireEvent.change(screen.getByLabelText('Inline code preset'), {
+      target: { value: 'green' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Per side' }));
+    fireEvent.change(screen.getByLabelText('Left padding'), {
+      target: { value: '40' },
+    });
+    fireEvent.change(screen.getByLabelText('Size'), {
+      target: { value: 'Letter' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+
+    expect(screen.getByLabelText('Code block theme')).toHaveValue('app');
+    expect(screen.getByLabelText('Inline code preset')).toHaveValue('amber');
+    expect(screen.getByRole('button', { name: 'Per side' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByLabelText('Left padding')).toHaveValue('40');
+    expect(screen.getByLabelText('Size')).toHaveValue('Letter');
+  });
+
+  it('disables code selectors and Custom colors while exporting', () => {
+    renderPreview({
+      initialStyle: {
+        ...DEFAULT_EXPORT_STYLE,
+        inlineCodePreset: 'custom',
+      },
+      busy: true,
+    });
+
+    expect(screen.getByLabelText('Code block theme')).toBeDisabled();
+    expect(screen.getByLabelText('Inline code preset')).toBeDisabled();
+    expect(screen.getByLabelText('Inline code text color')).toBeDisabled();
+    expect(screen.getByLabelText('Inline code background color')).toBeDisabled();
+  });
+
   it('shows complete paper controls for PDF only and resets changed values', () => {
     const commonProps = {
       initialStyle: DEFAULT_EXPORT_STYLE,
       appTheme: 'light' as const,
+      appCodeBlockTheme: 'one-dark' as const,
       busy: false,
       onCancel: vi.fn(),
       onConfirm: vi.fn(),
@@ -831,6 +957,7 @@ describe('ExportPreviewTab', () => {
         request={HTML_REQUEST}
         initialStyle={DEFAULT_EXPORT_STYLE}
         appTheme="light"
+        appCodeBlockTheme="one-dark"
         busy
         onCancel={onCancel}
         onConfirm={onConfirm}

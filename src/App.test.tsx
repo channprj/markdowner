@@ -2591,6 +2591,16 @@ describe('App recent documents', () => {
   });
 
   it('previews and styles the active document before exporting to a PDF path', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          codeBlockHighlight: true,
+          codeBlockTheme: 'github-light',
+          codeBlockThemeSync: false,
+        };
+      }
+      return undefined;
+    });
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'meeting-notes.md',
@@ -2615,11 +2625,23 @@ describe('App recent documents', () => {
     expect(screen.getByLabelText('Theme')).toHaveValue('app');
     expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
     expect(screen.getByLabelText('Table border color')).toHaveValue('#3f3f46');
+    expect(screen.getByLabelText('Code block theme')).toHaveValue('app');
+    expect(screen.getByLabelText('Inline code preset')).toHaveValue('amber');
+    expect(
+      (screen.getByLabelText('Code block theme') as HTMLSelectElement).options[0]
+        ?.textContent,
+    ).toContain('GitHub Light');
     const exportTab = screen.getByRole('tab', { name: /Export Preview/i });
     expect(exportTab).toHaveAttribute('aria-selected', 'true');
     fireEvent.change(screen.getByLabelText('Size'), { target: { value: 'A3' } });
     fireEvent.click(screen.getByRole('button', { name: 'Landscape' }));
     fireEvent.change(screen.getByLabelText('Body size'), { target: { value: '13' } });
+    fireEvent.change(screen.getByLabelText('Code block theme'), {
+      target: { value: 'flexoki-dark' },
+    });
+    fireEvent.change(screen.getByLabelText('Inline code preset'), {
+      target: { value: 'rose' },
+    });
 
     fireEvent.click(screen.getByRole('tab', { name: /meeting-notes\.md/i }));
     await waitFor(() => {
@@ -2649,6 +2671,11 @@ describe('App recent documents', () => {
     expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('Meeting notes');
     expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('border-color: #3f3f46');
     expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('background: #27272a');
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain(
+      'data-cb-theme="flexoki-dark"',
+    );
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('color: #fbcfe8');
+    expect(exportPdfFileMock.mock.calls[0]?.[1]).toContain('background: #500724');
     await waitFor(() => {
       expect(screen.queryByRole('tab', { name: /Export Preview/i })).not.toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /meeting-notes\.md/i })).toHaveAttribute(
@@ -2662,6 +2689,8 @@ describe('App recent documents', () => {
     expect(await screen.findByLabelText('Theme')).toHaveValue('custom');
     expect(await screen.findByLabelText('Body size')).toHaveValue('13');
     expect(screen.getByLabelText('Background color')).toHaveValue('#18181b');
+    expect(screen.getByLabelText('Code block theme')).toHaveValue('flexoki-dark');
+    expect(screen.getByLabelText('Inline code preset')).toHaveValue('rose');
   });
 
   it('keeps the Export Preview tab open when the native save dialog is cancelled', async () => {

@@ -36,7 +36,9 @@ import {
 import { resolvePdfPaper, type PdfPaper } from '@/lib/pdfPaper';
 import type { PdfPreviewReadyMessage } from '@/lib/pdfPagination';
 import { cn } from '@/lib/utils';
+import type { CodeBlockTheme } from '@/lib/settings';
 import { ContentPaddingControls } from './ContentPaddingControls';
+import { ExportCodeStyleControls } from './ExportCodeStyleControls';
 import {
   ExportColorControl,
   ExportRangeControl,
@@ -58,6 +60,7 @@ export interface ExportPreviewTabProps {
   request: ExportPreviewRequest;
   initialStyle: ExportStyle;
   appTheme: ExportTheme;
+  appCodeBlockTheme: CodeBlockTheme;
   busy: boolean;
   errorMessage?: string | null;
   onCancel: () => void;
@@ -69,8 +72,6 @@ type NumericStyleKey = 'fontSize' | 'lineHeight' | 'paragraphSpacing';
 type ColorStyleKey =
   | 'textColor'
   | 'backgroundColor'
-  | 'inlineCodeTextColor'
-  | 'inlineCodeBackgroundColor'
   | 'kbdTextColor'
   | 'kbdBackgroundColor'
   | 'tableBorderColor'
@@ -95,6 +96,7 @@ export function ExportPreviewTab({
   request,
   initialStyle,
   appTheme,
+  appCodeBlockTheme,
   busy,
   errorMessage = null,
   onCancel,
@@ -202,6 +204,7 @@ export function ExportPreviewTab({
       });
   }, [
     buildPreview,
+    appCodeBlockTheme,
     draftStyle,
     isPdf,
     pageLayoutValid,
@@ -240,15 +243,7 @@ export function ExportPreviewTab({
   };
   const updateColor = (key: ColorStyleKey, value: string) => {
     setDraftStyle((current) =>
-      normalizeExportStyle({
-        ...current,
-        [key]: value,
-        ...(key === 'inlineCodeTextColor' ||
-        key === 'inlineCodeBackgroundColor'
-          ? { inlineCodePreset: 'custom' as const }
-          : {}),
-        preset: 'custom',
-      }),
+      normalizeExportStyle({ ...current, [key]: value, preset: 'custom' }),
     );
   };
   const controlId = (name: string) => `${idPrefix}-${name}`;
@@ -347,7 +342,17 @@ export function ExportPreviewTab({
             disabled={busy}
             onClick={() => {
               setPaperValid(true);
-              setDraftStyle(applyExportStylePreset(initialStyle, 'app', appTheme));
+              setDraftStyle((current) =>
+                applyExportStylePreset(
+                  {
+                    ...current,
+                    codeBlockTheme: 'app',
+                    inlineCodePreset: 'amber',
+                  },
+                  'app',
+                  appTheme,
+                ),
+              );
             }}
           >
             <RotateCcw />
@@ -535,27 +540,17 @@ export function ExportPreviewTab({
               }
             />
 
-            <fieldset className="grid gap-3 border-t border-border pt-4">
-              <legend className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                Inline code
-              </legend>
-              <div className="grid grid-cols-2 gap-3">
-                <ExportColorControl
-                  id={controlId('inline-code-text-color')}
-                  label="Inline code text color"
-                  value={draftStyle.inlineCodeTextColor}
-                  disabled={busy}
-                  onChange={(value) => updateColor('inlineCodeTextColor', value)}
-                />
-                <ExportColorControl
-                  id={controlId('inline-code-background-color')}
-                  label="Inline code background color"
-                  value={draftStyle.inlineCodeBackgroundColor}
-                  disabled={busy}
-                  onChange={(value) => updateColor('inlineCodeBackgroundColor', value)}
-                />
-              </div>
-            </fieldset>
+            <ExportCodeStyleControls
+              value={draftStyle}
+              appCodeBlockTheme={appCodeBlockTheme}
+              appTheme={appTheme}
+              disabled={busy}
+              onChange={(patch) =>
+                setDraftStyle((current) =>
+                  normalizeExportStyle({ ...current, ...patch }),
+                )
+              }
+            />
 
             <fieldset className="grid gap-3 border-t border-border pt-4">
               <legend className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">

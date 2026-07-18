@@ -6220,6 +6220,7 @@ export default function App() {
             request={exportRequest}
             initialStyle={exportPreviewInitialStyle}
             appTheme={exportAppTheme}
+            appCodeBlockTheme={effectiveCodeBlockTheme}
             busy={busy}
             errorMessage={exportError}
             onCancel={() => void handleCloseTab(EXPORT_PREVIEW_TAB_ID)}
