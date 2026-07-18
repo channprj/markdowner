@@ -722,6 +722,7 @@ export function ExportPreviewTab({
                               pageIndex={pageIndex}
                               width={pageSize.width}
                               height={pageSize.height}
+                              pageMargin={draftStyle.contentPadding}
                               backgroundColor={draftStyle.backgroundColor}
                               onReady={handlePageReady}
                               onError={() => handlePaginationError(paginationToken)}

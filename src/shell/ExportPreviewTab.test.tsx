@@ -542,15 +542,18 @@ describe('ExportPreviewTab', () => {
     previewPageMockState.readyPageCount = 3;
     renderPreview({ request: PDF_REQUEST });
     const ready = await screen.findByRole('button', { name: 'Ready page 1' });
+    const exportButton = screen.getByRole('button', { name: 'Export PDF' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Stale page 1' }));
     fireEvent.click(screen.getByRole('button', { name: 'Wrong page 1' }));
     expect(screen.getByText('Page 1 / 1')).toBeInTheDocument();
+    expect(exportButton).toBeDisabled();
 
     fireEvent.click(ready);
     expect(screen.getByText('Page 1 / 3')).toBeInTheDocument();
     expect(screen.getByText('Page 2 / 3')).toBeInTheDocument();
     expect(screen.getByText('Page 3 / 3')).toBeInTheDocument();
+    expect(exportButton).toBeEnabled();
 
     resizePdfViewport(403, 600);
     for (const sheet of screen.getAllByTestId('pdf-preview-page-scale')) {

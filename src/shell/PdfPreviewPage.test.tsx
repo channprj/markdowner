@@ -1,10 +1,7 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  PDF_PREVIEW_CONFIG_MESSAGE,
-  PDF_PREVIEW_READY_MESSAGE,
-} from '@/lib/pdfPagination';
+import { PDF_PREVIEW_READY_MESSAGE } from '@/lib/pdfPagination';
 
 import { PdfPreviewPage } from './PdfPreviewPage';
 
@@ -18,87 +15,116 @@ function renderPage() {
       pageIndex={1}
       width={595.2755905511812}
       height={841.8897637795276}
+      pageMargin={32}
       backgroundColor="#ffffff"
       onReady={onReady}
       onError={onError}
     />,
   );
   const frame = screen.getByTitle('PDF preview page 2') as HTMLIFrameElement;
+  Object.defineProperty(frame, 'clientWidth', {
+    configurable: true,
+    value: 595,
+  });
+  Object.defineProperty(frame, 'clientHeight', {
+    configurable: true,
+    value: 842,
+  });
+  Object.defineProperty(frame.contentDocument!.documentElement, 'clientWidth', {
+    configurable: true,
+    value: 595,
+  });
   return { frame, onReady, onError };
-}
-
-function readyMessage(overrides: Record<string, unknown> = {}) {
-  return {
-    type: PDF_PREVIEW_READY_MESSAGE,
-    token: 'preview-7',
-    pageIndex: 1,
-    pageCount: 3,
-    pageWidth: 595.2755905511812,
-    pageHeight: 841.8897637795276,
-    ...overrides,
-  };
 }
 
 describe('PdfPreviewPage', () => {
   afterEach(() => cleanup());
 
-  it('posts its page configuration after load and renders a sandboxed page', () => {
-    const { frame } = renderPage();
-    const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
+  it('paginates the loaded document directly without allowing iframe scripts', async () => {
+    const { frame, onReady, onError } = renderPage();
+    const frameDocument = frame.contentDocument!;
+    frameDocument.body.innerHTML =
+      '<main class="markdowner-export"><p>First page</p><p>More content</p></main>';
+    Object.defineProperty(frameDocument.body, 'scrollHeight', {
+      configurable: true,
+      value: 1_700,
+    });
+    Object.defineProperty(frameDocument.documentElement, 'scrollHeight', {
+      configurable: true,
+      value: 1_700,
+    });
 
     fireEvent.load(frame);
 
-    expect(postMessage).toHaveBeenCalledWith(
-      {
-        type: PDF_PREVIEW_CONFIG_MESSAGE,
+    await waitFor(() =>
+      expect(onReady).toHaveBeenCalledWith({
+        type: PDF_PREVIEW_READY_MESSAGE,
         token: 'preview-7',
         pageIndex: 1,
-      },
-      '*',
+        pageCount: 3,
+        pageWidth: 595.2755905511812,
+        pageHeight: 841.8897637795276,
+      }),
     );
-    expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
+    expect(frameDocument.querySelector('.markdowner-export')).toHaveStyle({
+      transform: 'translateY(-841.8897637795276px)',
+      transformOrigin: 'top left',
+    });
+    expect(frameDocument.documentElement).toHaveStyle({
+      overflow: 'hidden',
+    });
+    expect(onError).not.toHaveBeenCalled();
+    expect(frame).toHaveAttribute('sandbox', 'allow-same-origin');
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-scripts');
   });
 
-  it('accepts a ready message only from its own frame and current token', () => {
+  it('waits for the iframe to receive its layout width before measuring pagination', async () => {
     const { frame, onReady, onError } = renderPage();
+    const frameDocument = frame.contentDocument!;
+    frameDocument.body.innerHTML =
+      '<main class="markdowner-export"><p>First page</p><p>More content</p></main>';
+    let layoutReady = false;
+    Object.defineProperty(frame, 'clientWidth', {
+      configurable: true,
+      get: () => (layoutReady ? 595 : 0),
+    });
+    Object.defineProperty(frame, 'clientHeight', {
+      configurable: true,
+      get: () => (layoutReady ? 842 : 0),
+    });
+    Object.defineProperty(frameDocument.documentElement, 'clientWidth', {
+      configurable: true,
+      get: () => (layoutReady ? 595 : 0),
+    });
+    Object.defineProperty(frameDocument.body, 'scrollHeight', {
+      configurable: true,
+      get: () => (layoutReady ? 1_700 : 400_000),
+    });
+    Object.defineProperty(frameDocument.documentElement, 'scrollHeight', {
+      configurable: true,
+      get: () => (layoutReady ? 1_700 : 400_000),
+    });
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      layoutReady = true;
+      callback(0);
+      return 1;
+    });
 
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: readyMessage(),
-        source: frame.contentWindow,
-      }),
-    );
-    expect(onReady).toHaveBeenCalledWith(readyMessage());
+    fireEvent.load(frame);
 
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: readyMessage({ token: 'stale-token' }),
-        source: frame.contentWindow,
+    await waitFor(() => expect(onReady).toHaveBeenCalled());
+    expect(onReady).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        pageCount: 3,
       }),
     );
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: readyMessage(),
-        source: window,
-      }),
-    );
-    expect(onReady).toHaveBeenCalledTimes(1);
     expect(onError).not.toHaveBeenCalled();
   });
 
-  it('reports malformed current results and iframe failures', () => {
-    const { frame, onReady, onError } = renderPage();
-
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: readyMessage({ pageCount: 101 }),
-        source: frame.contentWindow,
-      }),
-    );
-    expect(onReady).not.toHaveBeenCalled();
-    expect(onError).toHaveBeenCalledTimes(1);
+  it('reports iframe failures', () => {
+    const { frame, onError } = renderPage();
 
     fireEvent.error(frame);
-    expect(onError).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 });
