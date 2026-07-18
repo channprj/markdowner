@@ -13,6 +13,11 @@ import {
   createSourceLineMarkdownComponents,
 } from './sourceLineComponents';
 import {
+  DEFAULT_EXPORT_PAGE_LAYOUT,
+  normalizeExportPageLayout,
+  type ExportPageLayout,
+} from './exportPageLayout';
+import {
   DEFAULT_PDF_PAPER,
   MAX_PDF_PAGES,
   normalizePdfPaper,
@@ -33,7 +38,7 @@ export type ExportFontFamily = 'sans' | 'serif' | 'mono';
 export type ExportStylePreset = 'app' | 'light' | 'dark' | 'custom';
 export type ExportTheme = 'light' | 'dark';
 
-export interface ExportStyle extends PdfPaper {
+export interface ExportStyle extends PdfPaper, ExportPageLayout {
   preset: ExportStylePreset;
   fontSize: number;
   fontFamily: ExportFontFamily;
@@ -48,7 +53,6 @@ export interface ExportStyle extends PdfPaper {
   tableHeaderBackgroundColor: string;
   lineHeight: number;
   paragraphSpacing: number;
-  contentPadding: number;
 }
 
 export const DEFAULT_EXPORT_STYLE: ExportStyle = {
@@ -66,7 +70,7 @@ export const DEFAULT_EXPORT_STYLE: ExportStyle = {
   tableHeaderBackgroundColor: '#f4f4f5',
   lineHeight: 1.6,
   paragraphSpacing: 8,
-  contentPadding: 32,
+  ...DEFAULT_EXPORT_PAGE_LAYOUT,
   ...DEFAULT_PDF_PAPER,
 };
 
@@ -95,7 +99,10 @@ const LEGACY_APPEARANCE_KEYS = [
   'kbdBackgroundColor',
   'lineHeight',
   'paragraphSpacing',
-  'contentPadding',
+  'contentPaddingTop',
+  'contentPaddingRight',
+  'contentPaddingBottom',
+  'contentPaddingLeft',
 ] as const satisfies readonly (keyof ExportStyle)[];
 
 type ExportStyleStorage = Pick<Storage, 'getItem' | 'setItem'>;
@@ -180,12 +187,7 @@ export function normalizeExportStyle(value: unknown): ExportStyle {
       0,
       32,
     ),
-    contentPadding: clampNumber(
-      candidate.contentPadding,
-      DEFAULT_EXPORT_STYLE.contentPadding,
-      0,
-      72,
-    ),
+    ...normalizeExportPageLayout(candidate),
     ...normalizePdfPaper(candidate),
   };
 
@@ -194,7 +196,9 @@ export function normalizeExportStyle(value: unknown): ExportStyle {
       (key) =>
         Object.prototype.hasOwnProperty.call(candidate, key) &&
         normalized[key] !== DEFAULT_EXPORT_STYLE[key],
-    );
+    ) ||
+      (Object.prototype.hasOwnProperty.call(candidate, 'contentPadding') &&
+        normalized.contentPaddingTop !== DEFAULT_EXPORT_STYLE.contentPaddingTop);
     normalized.preset = hasLegacyCustomization ? 'custom' : 'app';
   }
 
@@ -211,8 +215,9 @@ export function applyExportStylePreset(
 
   const useDark = preset === 'dark' || (preset === 'app' && appTheme === 'dark');
   const template = useDark ? DARK_EXPORT_STYLE : DEFAULT_EXPORT_STYLE;
+  const pageLayout = normalizeExportPageLayout(current);
   const paper = normalizePdfPaper(current);
-  return { ...template, ...paper, preset };
+  return { ...template, ...pageLayout, ...paper, preset };
 }
 
 export function resolveExportStyleForTheme(
@@ -623,7 +628,7 @@ export async function buildExportHtml(options: ExportHtmlOptions): Promise<strin
         token: paginationToken,
         pageWidth: paper.widthPt,
         pageHeight: paper.heightPt,
-        pageMargin: style.contentPadding,
+        pageMargin: style.contentPaddingTop,
         maxPages: MAX_PDF_PAGES,
       })
     : '';
@@ -654,7 +659,7 @@ img, svg, video { max-width: 100%; height: auto; }`
   --muted: ${style.tableHeaderBackgroundColor};
   box-sizing: border-box;
   min-height: 100vh;
-  padding: ${style.contentPadding}px;
+  padding: ${style.contentPaddingTop}px ${style.contentPaddingRight}px ${style.contentPaddingBottom}px ${style.contentPaddingLeft}px;
   color: ${style.textColor};
   background: ${style.backgroundColor};
   font-family: ${EXPORT_FONT_STACKS[style.fontFamily]};

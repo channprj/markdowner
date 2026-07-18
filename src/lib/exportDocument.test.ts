@@ -103,6 +103,40 @@ describe('export styles', () => {
     });
   });
 
+  it('migrates scalar padding and persists the complete page layout', () => {
+    expect(normalizeExportStyle({ contentPadding: 18 })).toMatchObject({
+      contentPaddingMode: 'all',
+      contentPaddingTop: 18,
+      contentPaddingRight: 18,
+      contentPaddingBottom: 18,
+      contentPaddingLeft: 18,
+      headerText: '',
+      footerText: '',
+      pageNumbersEnabled: false,
+    });
+  });
+
+  it('preserves page layout while applying a color Theme', () => {
+    const styled = applyExportStylePreset(
+      {
+        ...DEFAULT_EXPORT_STYLE,
+        headerText: 'Project Atlas',
+        pageNumbersEnabled: true,
+        contentPaddingMode: 'individual',
+        contentPaddingLeft: 48,
+      },
+      'dark',
+      'light',
+    );
+    expect(styled).toMatchObject({
+      preset: 'dark',
+      headerText: 'Project Atlas',
+      pageNumbersEnabled: true,
+      contentPaddingMode: 'individual',
+      contentPaddingLeft: 48,
+    });
+  });
+
   it('migrates untouched legacy styles to app and customized legacy styles to custom', () => {
     const {
       preset: _preset,
@@ -191,7 +225,10 @@ describe('export styles', () => {
       backgroundColor: '#fefefe',
       lineHeight: 0.8,
       paragraphSpacing: 0,
-      contentPadding: 72,
+      contentPaddingTop: 72,
+      contentPaddingRight: 72,
+      contentPaddingBottom: 72,
+      contentPaddingLeft: 72,
     });
   });
 
@@ -380,7 +417,11 @@ describe('buildExportHtml', () => {
         backgroundColor: '#fffaf0',
         lineHeight: 1.7,
         paragraphSpacing: 10,
-        contentPadding: 36,
+        contentPaddingMode: 'all',
+        contentPaddingTop: 36,
+        contentPaddingRight: 36,
+        contentPaddingBottom: 36,
+        contentPaddingLeft: 36,
         inlineCodeTextColor: '#314158',
         inlineCodeBackgroundColor: '#e8eef5',
         kbdTextColor: '#4a3520',
@@ -401,6 +442,24 @@ describe('buildExportHtml', () => {
     expect(html).toContain('.markdowner-export kbd');
     expect(html).toContain('color: #4a3520');
     expect(html).toContain('background: #f1e6d2');
+  });
+
+  it('injects independent HTML padding values', async () => {
+    const html = await buildExportHtml({
+      title: 'Insets',
+      source: 'Body',
+      activeDocumentPath: null,
+      style: {
+        ...DEFAULT_EXPORT_STYLE,
+        contentPaddingMode: 'individual',
+        contentPaddingTop: 10,
+        contentPaddingRight: 20,
+        contentPaddingBottom: 30,
+        contentPaddingLeft: 40,
+      },
+    });
+
+    expect(html).toContain('padding: 10px 20px 30px 40px');
   });
 
   it('uses one dark palette for the page and table when the app preset follows dark', async () => {

@@ -52,7 +52,7 @@ export interface ExportPreviewTabProps {
   buildPreview?: (options: ExportHtmlOptions) => Promise<string>;
 }
 
-type NumericStyleKey = 'fontSize' | 'lineHeight' | 'paragraphSpacing' | 'contentPadding';
+type NumericStyleKey = 'fontSize' | 'lineHeight' | 'paragraphSpacing';
 type ColorStyleKey =
   | 'textColor'
   | 'backgroundColor'
@@ -287,6 +287,18 @@ export function ExportPreviewTab({
   const updateColor = (key: ColorStyleKey, value: string) => {
     setDraftStyle((current) =>
       normalizeExportStyle({ ...current, [key]: value, preset: 'custom' }),
+    );
+  };
+  const updateUniformPadding = (value: number) => {
+    setDraftStyle((current) =>
+      normalizeExportStyle({
+        ...current,
+        contentPaddingMode: 'all',
+        contentPaddingTop: value,
+        contentPaddingRight: value,
+        contentPaddingBottom: value,
+        contentPaddingLeft: value,
+      }),
     );
   };
   const controlId = (name: string) => `${idPrefix}-${name}`;
@@ -557,13 +569,13 @@ export function ExportPreviewTab({
             <RangeControl
               id={controlId('content-padding')}
               label="Content padding"
-              value={draftStyle.contentPadding}
+              value={draftStyle.contentPaddingTop}
               min={0}
               max={72}
               step={2}
               suffix=" px"
               disabled={busy}
-              onChange={(value) => updateNumber('contentPadding', value)}
+              onChange={updateUniformPadding}
             />
 
             <fieldset className="grid gap-3 border-t border-border pt-4">
@@ -718,7 +730,7 @@ export function ExportPreviewTab({
                               pageIndex={pageIndex}
                               width={pageSize.width}
                               height={pageSize.height}
-                              pageMargin={draftStyle.contentPadding}
+                              pageMargin={draftStyle.contentPaddingTop}
                               backgroundColor={draftStyle.backgroundColor}
                               onReady={handlePageReady}
                               onError={() => handlePaginationError(paginationToken)}
