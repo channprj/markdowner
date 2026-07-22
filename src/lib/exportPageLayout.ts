@@ -118,6 +118,15 @@ const PAGE_NUMBER_FORMATS = new Set<PageNumberFormat>([
   'dash-page',
   'custom',
 ]);
+const PAGE_NUMBER_FORMAT_TEMPLATES = {
+  'page-total': '{page}/{pages}',
+  'page-total-spaced': '{page} / {pages}',
+  'page-of-total': '{page} of {pages}',
+  'page-only': '{page}',
+  'page-label': 'Page {page}',
+  'page-label-of-total': 'Page {page} of {pages}',
+  'dash-page': '– {page} –',
+} as const satisfies Record<Exclude<PageNumberFormat, 'custom'>, string>;
 
 function clampPadding(value: unknown, fallback: number): number {
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -236,16 +245,9 @@ export function pageNumberTemplateForFormat(
   format: PageNumberFormat,
   customTemplate: string,
 ): string {
-  const templates: Record<Exclude<PageNumberFormat, 'custom'>, string> = {
-    'page-total': '{page}/{pages}',
-    'page-total-spaced': '{page} / {pages}',
-    'page-of-total': '{page} of {pages}',
-    'page-only': '{page}',
-    'page-label': 'Page {page}',
-    'page-label-of-total': 'Page {page} of {pages}',
-    'dash-page': '– {page} –',
-  };
-  return format === 'custom' ? customTemplate : templates[format];
+  return format === 'custom'
+    ? customTemplate
+    : PAGE_NUMBER_FORMAT_TEMPLATES[format];
 }
 
 export function formatPageNumber(

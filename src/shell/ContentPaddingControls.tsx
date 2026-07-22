@@ -1,7 +1,11 @@
 import { useId } from 'react';
 
 import { Button } from '@/components/ui/button';
-import type { ExportPageLayout } from '@/lib/exportPageLayout';
+import {
+  CONTENT_PADDING_MAX,
+  CONTENT_PADDING_MIN,
+  type ExportPageLayout,
+} from '@/lib/exportPageLayout';
 
 import { ExportRangeControl } from './ExportControlPrimitives';
 
@@ -83,8 +87,8 @@ export function ContentPaddingControls({
           id={`${id}-all`}
           label="All sides padding"
           value={value.contentPaddingTop}
-          min={0}
-          max={72}
+          min={CONTENT_PADDING_MIN}
+          max={CONTENT_PADDING_MAX}
           step={2}
           suffix=" px"
           disabled={disabled}
@@ -105,8 +109,8 @@ export function ContentPaddingControls({
             id={`${id}-top`}
             label="Top padding"
             value={value.contentPaddingTop}
-            min={0}
-            max={72}
+            min={CONTENT_PADDING_MIN}
+            max={CONTENT_PADDING_MAX}
             step={2}
             suffix=" px"
             disabled={disabled}
@@ -116,8 +120,8 @@ export function ContentPaddingControls({
             id={`${id}-right`}
             label="Right padding"
             value={value.contentPaddingRight}
-            min={0}
-            max={72}
+            min={CONTENT_PADDING_MIN}
+            max={CONTENT_PADDING_MAX}
             step={2}
             suffix=" px"
             disabled={disabled}
@@ -127,8 +131,8 @@ export function ContentPaddingControls({
             id={`${id}-bottom`}
             label="Bottom padding"
             value={value.contentPaddingBottom}
-            min={0}
-            max={72}
+            min={CONTENT_PADDING_MIN}
+            max={CONTENT_PADDING_MAX}
             step={2}
             suffix=" px"
             disabled={disabled}
@@ -138,8 +142,8 @@ export function ContentPaddingControls({
             id={`${id}-left`}
             label="Left padding"
             value={value.contentPaddingLeft}
-            min={0}
-            max={72}
+            min={CONTENT_PADDING_MIN}
+            max={CONTENT_PADDING_MAX}
             step={2}
             suffix=" px"
             disabled={disabled}

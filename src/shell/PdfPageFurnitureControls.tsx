@@ -4,6 +4,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
+  PAGE_FURNITURE_TEXT_MAX_LENGTH,
+  PAGE_NUMBER_TEMPLATE_MAX_LENGTH,
   formatPageNumber,
   pageNumberTemplateForFormat,
   type ExportPageLayout,
@@ -88,10 +90,16 @@ export function PdfPageFurnitureControls({
           id={`${id}-header`}
           aria-label="Header text (optional)"
           value={value.headerText}
-          maxLength={120}
+          maxLength={PAGE_FURNITURE_TEXT_MAX_LENGTH}
           disabled={disabled}
           onChange={(event) =>
-            onChange({ ...value, headerText: event.target.value.slice(0, 120) })
+            onChange({
+              ...value,
+              headerText: event.target.value.slice(
+                0,
+                PAGE_FURNITURE_TEXT_MAX_LENGTH,
+              ),
+            })
           }
           placeholder="Shown on every page"
           className="h-8"
@@ -134,10 +142,16 @@ export function PdfPageFurnitureControls({
           id={`${id}-footer`}
           aria-label="Footer text (optional)"
           value={value.footerText}
-          maxLength={120}
+          maxLength={PAGE_FURNITURE_TEXT_MAX_LENGTH}
           disabled={disabled}
           onChange={(event) =>
-            onChange({ ...value, footerText: event.target.value.slice(0, 120) })
+            onChange({
+              ...value,
+              footerText: event.target.value.slice(
+                0,
+                PAGE_FURNITURE_TEXT_MAX_LENGTH,
+              ),
+            })
           }
           placeholder="Shown on every page"
           className="h-8"
@@ -260,7 +274,7 @@ export function PdfPageFurnitureControls({
                 aria-describedby={errorMessage ? errorId : undefined}
                 aria-invalid={Boolean(errorMessage)}
                 value={value.pageNumberTemplate}
-                maxLength={80}
+                maxLength={PAGE_NUMBER_TEMPLATE_MAX_LENGTH}
                 disabled={disabled}
                 onChange={(event) =>
                   onChange({ ...value, pageNumberTemplate: event.target.value })
