@@ -500,10 +500,10 @@ fn contains_disallowed_z_index_value(stylesheet: &str) -> Option<i32> {
 
         if cursor > value_start {
             let value = stylesheet[value_start..cursor].trim();
-            if let Ok(z_index) = value.parse::<i32>() {
-                if z_index > MAX_THEME_Z_INDEX {
-                    return Some(z_index);
-                }
+            if let Ok(z_index) = value.parse::<i32>()
+                && z_index > MAX_THEME_Z_INDEX
+            {
+                return Some(z_index);
             }
         }
 

@@ -366,13 +366,13 @@ impl EditorRuntime {
         let source = active_document.source().to_string();
         let backing_path = active_document.backing_path().map(Path::to_path_buf);
 
-        if let Some(backing_path) = backing_path {
-            if self.active_document_has_external_modifications()? {
-                return self.fail(RuntimeError::new(format!(
-                    "Could not save document '{}' because it has changed on disk",
-                    backing_path.display()
-                )));
-            }
+        if let Some(backing_path) = backing_path
+            && self.active_document_has_external_modifications()?
+        {
+            return self.fail(RuntimeError::new(format!(
+                "Could not save document '{}' because it has changed on disk",
+                backing_path.display()
+            )));
         }
 
         if let Err(error) = write_document_source(path, &source) {
@@ -680,7 +680,7 @@ impl EditorRuntime {
             Ok(source) => source,
             Err(error) => {
                 self.workspace.set_last_error(error.to_string());
-                return Err(error.into());
+                return Err(error);
             }
         };
 

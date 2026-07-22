@@ -176,11 +176,11 @@ pub fn terminal_start(
             }
         }
 
-        if let Ok(mut sessions) = sessions.lock() {
-            if let Some(mut session) = sessions.remove(&id) {
-                let _ = session.child.kill();
-                let _ = session.child.wait();
-            }
+        if let Ok(mut sessions) = sessions.lock()
+            && let Some(mut session) = sessions.remove(&id)
+        {
+            let _ = session.child.kill();
+            let _ = session.child.wait();
         }
         emit_terminal_exit(&thread_app_handle, id);
     });

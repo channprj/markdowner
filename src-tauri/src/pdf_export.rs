@@ -53,15 +53,15 @@ fn pagination_probe_result(value: f64) -> Option<Result<f64, String>> {
 }
 
 fn ensure_parent_dir(path: &Path) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent).map_err(|error| {
-                format!(
-                    "Could not create export directory '{}': {error}",
-                    parent.display()
-                )
-            })?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "Could not create export directory '{}': {error}",
+                parent.display()
+            )
+        })?;
     }
     Ok(())
 }
@@ -116,6 +116,7 @@ mod macos {
     const LOAD_TIMEOUT: Duration = Duration::from_secs(10);
     const JS_TIMEOUT: Duration = Duration::from_secs(10);
     const PDF_TIMEOUT: Duration = Duration::from_secs(20);
+    type PdfDataSlot = Rc<RefCell<Option<Result<Retained<NSData>, String>>>>;
     const PAGINATION_PROBE_JS: &str = r#"(function () {
   if (window.__markdownerPdfPaginationStatus === "error") return -1;
   var result = window.__markdownerPdfPaginationResult;
@@ -278,8 +279,7 @@ mod macos {
         webview: &WKWebView,
         rect: CGRect,
     ) -> Result<Retained<NSData>, String> {
-        let slot: Rc<RefCell<Option<Result<Retained<NSData>, String>>>> =
-            Rc::new(RefCell::new(None));
+        let slot: PdfDataSlot = Rc::new(RefCell::new(None));
         let sink = slot.clone();
         let completion = RcBlock::new(move |data: *mut NSData, error: *mut NSError| {
             let result = if !error.is_null() {

@@ -41,22 +41,12 @@ enum ReleaseGate {
     V1_0,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct SessionExpectations {
     restore_recent_documents: bool,
     restored_mode: Option<EditorMode>,
     restored_theme_kind: Option<ThemeKind>,
-}
-
-impl Default for SessionExpectations {
-    fn default() -> Self {
-        Self {
-            restore_recent_documents: false,
-            restored_mode: None,
-            restored_theme_kind: None,
-        }
-    }
 }
 
 #[test]

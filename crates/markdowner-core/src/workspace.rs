@@ -519,12 +519,11 @@ impl WorkspaceState {
             .open_documents
             .iter()
             .position(|document| document.path() == path.as_path())
+            && existing_index != active_index
         {
-            if existing_index != active_index {
-                self.open_documents.remove(existing_index);
-                if existing_index < active_index {
-                    active_index -= 1;
-                }
+            self.open_documents.remove(existing_index);
+            if existing_index < active_index {
+                active_index -= 1;
             }
         }
 

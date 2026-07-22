@@ -1417,12 +1417,12 @@ fn handle_cli_wait_connection(app_handle: AppHandle, stream: UnixStream) {
 #[tauri::command]
 fn complete_cli_wait(path: String, pending: State<'_, PendingCliWaits>) {
     let key = cli_wait_key(Path::new(&path));
-    if let Ok(mut map) = pending.0.lock() {
-        if let Some(streams) = map.remove(&key) {
-            for mut stream in streams {
-                let _ = stream.write_all(b"done\n");
-                let _ = stream.shutdown(std::net::Shutdown::Both);
-            }
+    if let Ok(mut map) = pending.0.lock()
+        && let Some(streams) = map.remove(&key)
+    {
+        for mut stream in streams {
+            let _ = stream.write_all(b"done\n");
+            let _ = stream.shutdown(std::net::Shutdown::Both);
         }
     }
 }
@@ -2212,19 +2212,19 @@ pub fn run() {
                     .iter()
                     .filter_map(|url| url.to_file_path().ok())
                     .collect::<Vec<_>>();
-                if !paths.is_empty() {
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let state = app_handle.state::<DesktopAppState>();
-                        if let Ok(mut backend) = state.0.lock() {
-                            let snapshots = open_startup_paths_with_snapshots(&mut backend, &paths)
-                                .unwrap_or_else(|_| vec![backend.snapshot()]);
-                            for snapshot in snapshots {
-                                let _ = window.emit("markdowner://update-snapshot", snapshot);
-                            }
+                if !paths.is_empty()
+                    && let Some(window) = app_handle.get_webview_window("main")
+                {
+                    let state = app_handle.state::<DesktopAppState>();
+                    if let Ok(mut backend) = state.0.lock() {
+                        let snapshots = open_startup_paths_with_snapshots(&mut backend, &paths)
+                            .unwrap_or_else(|_| vec![backend.snapshot()]);
+                        for snapshot in snapshots {
+                            let _ = window.emit("markdowner://update-snapshot", snapshot);
                         }
-                        let _ = window.show();
-                        let _ = window.set_focus();
                     }
+                    let _ = window.show();
+                    let _ = window.set_focus();
                 }
             }
             // macOS: clicking the dock icon while the only window is hidden
@@ -2448,10 +2448,10 @@ mod tests {
         // the directory. On any sane dev/CI box `sh -l -c` yields a PATH
         // containing /usr/bin, so probe with a path we know the login shell
         // reports rather than asserting a fixed directory.
-        if let Some(shell_path) = login_shell_path_value() {
-            if let Some(first) = std::env::split_paths(&shell_path).next() {
-                assert!(path_value_contains_dir(&shell_path, &first));
-            }
+        if let Some(shell_path) = login_shell_path_value()
+            && let Some(first) = std::env::split_paths(&shell_path).next()
+        {
+            assert!(path_value_contains_dir(&shell_path, &first));
         }
     }
 
@@ -3074,7 +3074,7 @@ mod tests {
         fs::write(&document_path, "# Launched\n\nOpened from the shell.").unwrap();
         let mut backend = DesktopBackend::new(Some(session_path));
 
-        open_startup_paths(&mut backend, &[document_path.clone()]).unwrap();
+        open_startup_paths(&mut backend, std::slice::from_ref(&document_path)).unwrap();
 
         let snapshot = backend.snapshot();
         assert_eq!(
@@ -3151,7 +3151,7 @@ mod tests {
         let document_path = temp.path().join("startup-race.md");
         fs::write(&document_path, "# Startup race").unwrap();
         let mut backend = DesktopBackend::new(Some(session_path));
-        open_startup_paths(&mut backend, &[document_path.clone()]).unwrap();
+        open_startup_paths(&mut backend, std::slice::from_ref(&document_path)).unwrap();
 
         backend.save_open_tabs(&[], None, &HashMap::new()).unwrap();
 
