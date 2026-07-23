@@ -5,6 +5,7 @@ import {
   buildPdfPaginationScript,
   isPdfPreviewReadyMessage,
   paginatePdfDocument,
+  planPdfLineBreaks,
 } from './pdfPagination';
 
 function rect(top: number, height: number): DOMRect {
@@ -55,7 +56,28 @@ describe('paginatePdfDocument', () => {
     expect(result.pageCount).toBeGreaterThanOrEqual(2);
   });
 
-  it('leaves a block taller than the usable page in normal flow', () => {
+  it('moves a fitting block out of a later page top inset', () => {
+    document.body.innerHTML =
+      '<main class="markdowner-export"><p id="inside-top-inset"></p></main>';
+    const block = document.querySelector('#inside-top-inset') as HTMLElement;
+    vi.spyOn(block, 'getBoundingClientRect').mockReturnValue(rect(205, 20));
+
+    paginatePdfDocument(document, {
+      pageWidth: 160,
+      pageHeight: 200,
+      pageInsets,
+      pageFurniture,
+      maxPages: 100,
+    });
+
+    expect(block.style.marginTop).toBe('17px');
+  });
+
+  it('never adds a whole-block top margin to a block taller than the usable page', () => {
+    // Blocks taller than a page are split between their own line boxes (via
+    // injected spacers), not nudged whole — a whole-block push would leave the
+    // overflow to be sliced mid-line. With no measurable lines here (jsdom has
+    // no layout) the split is a no-op, so the original margin must be untouched.
     document.body.innerHTML =
       '<main class="markdowner-export"><pre id="oversized" style="margin-top:4px"></pre></main>';
     const oversized = document.querySelector('#oversized') as HTMLElement;
@@ -70,6 +92,148 @@ describe('paginatePdfDocument', () => {
     });
 
     expect(oversized.style.marginTop).toBe('4px');
+  });
+
+  it('splits direct text in a tall block that also has block children', () => {
+    document.body.innerHTML = `
+      <main class="markdowner-export">
+        <div id="mixed">Leading text<div id="nested"></div></div>
+      </main>
+    `;
+    const mixed = document.querySelector('#mixed') as HTMLElement;
+    const nested = document.querySelector('#nested') as HTMLElement;
+    vi.spyOn(mixed, 'getBoundingClientRect').mockReturnValue(rect(10, 300));
+    vi.spyOn(nested, 'getBoundingClientRect').mockReturnValue(rect(20, 20));
+    vi.spyOn(document, 'createRange').mockImplementation(
+      () =>
+        ({
+          selectNodeContents: vi.fn(),
+          setStart: vi.fn(),
+          setEnd: vi.fn(),
+          getClientRects: () => [rect(160, 20)],
+        }) as unknown as Range,
+    );
+
+    paginatePdfDocument(document, {
+      pageWidth: 160,
+      pageHeight: 200,
+      pageInsets,
+      pageFurniture,
+      maxPages: 100,
+    });
+
+    expect(
+      mixed.querySelector(':scope > span[data-markdowner-pdf-spacer]'),
+    ).not.toBeNull();
+  });
+
+  it('keeps rows in a tall table whole at page boundaries', () => {
+    document.body.innerHTML = `
+      <main class="markdowner-export">
+        <table id="table">
+          <tbody>
+            <tr id="row-1"><td>First row</td></tr>
+            <tr id="row-2"><td>Crossing row</td></tr>
+          </tbody>
+        </table>
+      </main>
+    `;
+    const table = document.querySelector('#table') as HTMLTableElement;
+    const firstRow = document.querySelector('#row-1') as HTMLTableRowElement;
+    const crossingRow = document.querySelector('#row-2') as HTMLTableRowElement;
+    vi.spyOn(table, 'getBoundingClientRect').mockReturnValue(rect(10, 260));
+    vi.spyOn(firstRow, 'getBoundingClientRect').mockReturnValue(rect(20, 120));
+    vi.spyOn(crossingRow, 'getBoundingClientRect').mockReturnValue(rect(140, 80));
+
+    paginatePdfDocument(document, {
+      pageWidth: 160,
+      pageHeight: 200,
+      pageInsets,
+      pageFurniture,
+      maxPages: 100,
+    });
+
+    const spacer = document.querySelector<HTMLTableRowElement>(
+      'tr[data-markdowner-pdf-spacer]',
+    );
+    expect(spacer).not.toBeNull();
+    expect(spacer?.nextElementSibling).toBe(crossingRow);
+  });
+
+  it('splits an oversized table cell between its own line boxes', () => {
+    document.body.innerHTML = `
+      <main class="markdowner-export">
+        <table id="table">
+          <tbody>
+            <tr id="oversized-row"><td>Tall cell content</td></tr>
+          </tbody>
+        </table>
+      </main>
+    `;
+    const table = document.querySelector('#table') as HTMLTableElement;
+    const row = document.querySelector('#oversized-row') as HTMLTableRowElement;
+    vi.spyOn(table, 'getBoundingClientRect').mockReturnValue(rect(10, 300));
+    vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(rect(20, 300));
+    vi.spyOn(document, 'createRange').mockImplementation(
+      () =>
+        ({
+          selectNodeContents: vi.fn(),
+          getClientRects: () => [rect(160, 20)],
+        }) as unknown as Range,
+    );
+
+    paginatePdfDocument(document, {
+      pageWidth: 160,
+      pageHeight: 200,
+      pageInsets,
+      pageFurniture,
+      maxPages: 100,
+    });
+
+    expect(
+      document.querySelector('td > span[data-markdowner-pdf-spacer]'),
+    ).not.toBeNull();
+  });
+
+  it('keeps table rows whole when paginating an iframe document', () => {
+    document.body.innerHTML = '<iframe></iframe>';
+    const frame = document.querySelector('iframe') as HTMLIFrameElement;
+    const frameDocument = frame.contentDocument as Document;
+    frameDocument.body.innerHTML = `
+      <main class="markdowner-export">
+        <table id="table">
+          <tbody>
+            <tr id="row-1"><td>First row</td></tr>
+            <tr id="row-2"><td>Crossing row</td></tr>
+          </tbody>
+        </table>
+      </main>
+    `;
+    const table = frameDocument.querySelector('#table') as HTMLTableElement;
+    const firstRow = frameDocument.querySelector('#row-1') as HTMLTableRowElement;
+    const crossingRow = frameDocument.querySelector('#row-2') as HTMLTableRowElement;
+    vi.spyOn(table, 'getBoundingClientRect').mockReturnValue(rect(10, 260));
+    vi.spyOn(firstRow, 'getBoundingClientRect').mockReturnValue(rect(20, 120));
+    vi.spyOn(crossingRow, 'getBoundingClientRect').mockReturnValue(rect(140, 80));
+    vi.spyOn(frameDocument, 'createRange').mockImplementation(
+      () =>
+        ({
+          selectNodeContents: vi.fn(),
+          getClientRects: () => [],
+        }) as unknown as Range,
+    );
+
+    paginatePdfDocument(frameDocument, {
+      pageWidth: 160,
+      pageHeight: 200,
+      pageInsets,
+      pageFurniture,
+      maxPages: 100,
+    });
+
+    expect(
+      frameDocument.querySelector('tr[data-markdowner-pdf-spacer]'),
+    ).not.toBeNull();
   });
 
   it('restores original margins before rerunning pagination', () => {
@@ -263,5 +427,68 @@ describe('PDF pagination runtime', () => {
     );
     expect(isPdfPreviewReadyMessage({ ...valid, pageCount: 101 }, 'preview-token')).toBe(false);
     expect(isPdfPreviewReadyMessage({ ...valid, extra: true }, 'preview-token')).toBe(false);
+  });
+});
+
+describe('planPdfLineBreaks', () => {
+  // usable region per page is [pageStart + 10, pageStart + 90) for these values.
+  const geometry = {
+    pageHeight: 100,
+    effectiveTop: 10,
+    effectiveBottom: 10,
+    usablePageHeight: 80,
+  };
+
+  it('leaves lines that stay inside a page untouched', () => {
+    expect(
+      planPdfLineBreaks(
+        [
+          { top: 10, bottom: 20 },
+          { top: 20, bottom: 30 },
+        ],
+        geometry,
+      ),
+    ).toEqual([]);
+  });
+
+  it('nudges a line that straddles a page boundary to the next content top', () => {
+    // The second line ends at 95, past page 0's usable bottom (90); it must drop
+    // to page 1's content top (110), i.e. move down by 25.
+    expect(
+      planPdfLineBreaks(
+        [
+          { top: 10, bottom: 20 },
+          { top: 85, bottom: 95 },
+        ],
+        geometry,
+      ),
+    ).toEqual([{ index: 1, delta: 25 }]);
+  });
+
+  it('nudges a line out of a later page top inset', () => {
+    expect(planPdfLineBreaks([{ top: 105, bottom: 115 }], geometry)).toEqual([
+      { index: 0, delta: 5 },
+    ]);
+  });
+
+  it('accumulates earlier shifts when planning later boundaries', () => {
+    // Line 0 shifts everything below it by 25; line 1 then lands at 190–200,
+    // straddling page 1's boundary, so it needs a further 20px nudge.
+    expect(
+      planPdfLineBreaks(
+        [
+          { top: 85, bottom: 95 },
+          { top: 165, bottom: 175 },
+        ],
+        geometry,
+      ),
+    ).toEqual([
+      { index: 0, delta: 25 },
+      { index: 1, delta: 20 },
+    ]);
+  });
+
+  it('cannot rescue a single line taller than the usable page', () => {
+    expect(planPdfLineBreaks([{ top: 50, bottom: 200 }], geometry)).toEqual([]);
   });
 });
