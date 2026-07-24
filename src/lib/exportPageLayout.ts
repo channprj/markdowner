@@ -306,6 +306,7 @@ export function validatePdfPageGeometry(
   pageWidth: number,
   pageHeight: number,
   layout: PdfPageGeometry,
+  decorationBandHeights: typeof pageDecorationBandHeights = pageDecorationBandHeights,
 ): PdfPageGeometryValidation {
   if (
     !Number.isFinite(pageWidth) ||
@@ -335,7 +336,7 @@ export function validatePdfPageGeometry(
       message: 'Left and right padding leave no room for content.',
     };
   }
-  const bands = pageDecorationBandHeights(layout);
+  const bands = decorationBandHeights(layout);
   const verticalSpace =
     pageHeight -
     layout.contentPaddingTop -

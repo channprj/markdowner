@@ -140,18 +140,23 @@ export function paginatePdfDocument(
   if (!pageFurniture || !Number.isFinite(maxPages) || maxPages < 1) {
     throw new Error('Invalid PDF pagination geometry.');
   }
-  const geometry = validateGeometry(pageWidth, pageHeight, {
-    contentPaddingTop: pageInsets.top,
-    contentPaddingRight: pageInsets.right,
-    contentPaddingBottom: pageInsets.bottom,
-    contentPaddingLeft: pageInsets.left,
-    headerText: pageFurniture.headerText,
-    headerAlignment: pageFurniture.headerAlignment,
-    footerText: pageFurniture.footerText,
-    footerAlignment: pageFurniture.footerAlignment,
-    pageNumbersEnabled: pageFurniture.pageNumbersEnabled,
-    pageNumberPosition: pageFurniture.pageNumberPosition,
-  });
+  const geometry = validateGeometry(
+    pageWidth,
+    pageHeight,
+    {
+      contentPaddingTop: pageInsets.top,
+      contentPaddingRight: pageInsets.right,
+      contentPaddingBottom: pageInsets.bottom,
+      contentPaddingLeft: pageInsets.left,
+      headerText: pageFurniture.headerText,
+      headerAlignment: pageFurniture.headerAlignment,
+      footerText: pageFurniture.footerText,
+      footerAlignment: pageFurniture.footerAlignment,
+      pageNumbersEnabled: pageFurniture.pageNumbersEnabled,
+      pageNumberPosition: pageFurniture.pageNumberPosition,
+    },
+    decorationBandHeights,
+  );
   if (!geometry.valid) throw new Error(geometry.message);
   const bands = decorationBandHeights(pageFurniture);
   const effectiveTop = pageInsets.top + bands.top;
