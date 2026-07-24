@@ -3768,7 +3768,7 @@ describe('App recent documents', () => {
     const intervalCallbacks: Array<{ handler: TimerHandler; timeout: number | undefined }> = [];
     const setIntervalSpy = vi.spyOn(window, 'setInterval').mockImplementation((handler, timeout) => {
       intervalCallbacks.push({ handler, timeout: Number(timeout) });
-      return 1 as unknown as number;
+      return 1 as unknown as ReturnType<typeof setInterval>;
     });
     const hasFocusSpy = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     hasActiveDocumentExternalChangesMock.mockResolvedValue(true);
