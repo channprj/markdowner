@@ -2345,9 +2345,18 @@ fn canonical_safe_directory(path: &Path, require_current_owner: bool) -> Option<
         #[cfg(unix)]
         {
             let effective_user = unsafe { libc::geteuid() };
+            let owner = metadata.uid();
+            let mode = metadata.mode();
+            let owner_is_trusted = owner == 0 || owner == effective_user;
+            // Homebrew commonly keeps its user-owned prefix group-writable (775).
+            // Trust that account-owned installation without weakening root-owned
+            // ancestry or accepting a directory writable by every local user.
+            // HOME remains stricter because it anchors copied credential files.
+            let writable_by_untrusted_user = mode & 0o002 != 0
+                || (mode & 0o020 != 0 && (require_current_owner || owner != effective_user));
             if (index == 0 && require_current_owner && metadata.uid() != effective_user)
-                || (metadata.uid() != 0 && metadata.uid() != effective_user)
-                || metadata.mode() & 0o022 != 0
+                || !owner_is_trusted
+                || writable_by_untrusted_user
             {
                 return None;
             }
@@ -6370,6 +6379,25 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn inherited_path_accepts_a_user_owned_group_writable_directory() {
+        let root = tempdir().unwrap();
+        let homebrew_bin = root.path().join("homebrew-bin");
+        fs::create_dir(&homebrew_bin).unwrap();
+        fs::set_permissions(&homebrew_bin, fs::Permissions::from_mode(0o775)).unwrap();
+        let inherited =
+            BTreeMap::from([(OsString::from("PATH"), homebrew_bin.as_os_str().to_owned())]);
+
+        let environment =
+            controlled_environment(inherited, &[], Path::new("/private/owned-agent-dir")).unwrap();
+
+        assert_eq!(
+            env::split_paths(environment.get(OsStr::new("PATH")).unwrap()).collect::<Vec<_>>(),
+            vec![homebrew_bin.canonicalize().unwrap()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn inherited_path_without_any_safe_directory_fails_closed() {
         let root = tempdir().unwrap();
         let unsafe_writable = root.path().join("writable-bin");
@@ -6415,6 +6443,24 @@ mod tests {
         fs::create_dir(&home).unwrap();
         fs::set_permissions(&writable_parent, fs::Permissions::from_mode(0o777)).unwrap();
         fs::set_permissions(&home, fs::Permissions::from_mode(0o700)).unwrap();
+        let inherited = BTreeMap::from([
+            (OsString::from("HOME"), home.as_os_str().to_owned()),
+            (OsString::from("PATH"), OsString::from("/usr/bin:/bin")),
+        ]);
+
+        let error = controlled_environment(inherited, &[], Path::new("/private/owned-agent-dir"))
+            .unwrap_err();
+
+        assert_eq!(error.code, "invalid_environment");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inherited_home_rejects_a_group_writable_user_owned_home() {
+        let root = tempdir().unwrap();
+        let home = root.path().join("home");
+        fs::create_dir(&home).unwrap();
+        fs::set_permissions(&home, fs::Permissions::from_mode(0o770)).unwrap();
         let inherited = BTreeMap::from([
             (OsString::from("HOME"), home.as_os_str().to_owned()),
             (OsString::from("PATH"), OsString::from("/usr/bin:/bin")),

@@ -2570,6 +2570,23 @@ Usage: opencode debug config
 
     #[test]
     #[cfg(unix)]
+    fn executable_proof_accepts_a_read_only_leaf_below_a_user_owned_group_writable_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempdir().unwrap();
+        let homebrew_bin = temp.path().join("homebrew-bin");
+        fs::create_dir(&homebrew_bin).unwrap();
+        fs::set_permissions(&homebrew_bin, fs::Permissions::from_mode(0o775)).unwrap();
+        let executable = homebrew_bin.join("claude");
+        create_executable_bytes(&executable, b"native-fake");
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+
+        ExecutableProof::capture(&executable.canonicalize().unwrap())
+            .expect("a read-only executable in a user-owned Homebrew-style directory is trusted");
+    }
+
+    #[test]
+    #[cfg(unix)]
     fn executable_leaf_policy_rejects_owners_other_than_root_or_the_effective_user() {
         let effective_uid = unsafe { libc::geteuid() };
         let unrelated_owner = [1, 2, u32::MAX]
