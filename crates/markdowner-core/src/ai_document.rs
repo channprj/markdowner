@@ -127,15 +127,6 @@ impl AiDocumentEnvelope {
                 end: source.len(),
             };
             let (_, full_protected) = segment_source(&source, full_scope, &revision_hash, policy)?;
-            if full_protected.iter().any(|token| {
-                boundary_splits_range(scope.start, token.range)
-                    || boundary_splits_range(scope.end, token.range)
-            }) {
-                return Err(ValidationError::single(
-                    ValidationIssueCode::InvalidRange,
-                    "Selection boundaries cannot split a protected Markdown element.",
-                ));
-            }
             segment_selection_from_full_protection(
                 &source,
                 scope,
@@ -162,6 +153,18 @@ impl AiDocumentEnvelope {
             start: 0,
             end: self.source.len(),
         })
+    }
+
+    pub fn selection_has_editable_bytes(&self) -> bool {
+        let Some(selection) = self.selection else {
+            return false;
+        };
+        let protected_bytes = self
+            .protected
+            .iter()
+            .map(|token| token.range.end.saturating_sub(token.range.start))
+            .sum::<usize>();
+        selection.end.saturating_sub(selection.start) > protected_bytes
     }
 
     pub fn reconstruct_original(&self) -> Result<String, ValidationError> {
@@ -1191,7 +1194,10 @@ fn validate_restored_protected_context(
                     .checked_add(binding.range.end)
                     .ok_or_else(fixed_identifier_error)?,
             };
-            Ok(((token.range.start, token.range.end), expected))
+            Ok((
+                (token.range.start, token.range.end),
+                (expected, binding.token_index),
+            ))
         })
         .collect::<Result<HashMap<_, _>, ValidationError>>()?;
     let full_context = envelope
@@ -1209,19 +1215,43 @@ fn validate_restored_protected_context(
     let length_delta = proposed.len() as i128 - envelope.source.len() as i128;
     let mut expected_by_token = Vec::with_capacity(context.protected.len());
     for token in &context.protected {
-        let expected = selected_expected
-            .get(&(token.range.start, token.range.end))
-            .copied()
-            .or_else(|| {
-                let scope = envelope.selection?;
-                if token.range.end <= scope.start {
-                    Some(token.range)
-                } else if token.range.start >= scope.end {
-                    shift_byte_range(token.range, length_delta)
-                } else {
-                    None
+        let expected = if let Some(scope) = envelope.selection {
+            if token.range.end <= scope.start {
+                Some(token.range)
+            } else if token.range.start >= scope.end {
+                shift_byte_range(token.range, length_delta)
+            } else {
+                let clipped = ByteRange {
+                    start: token.range.start.max(scope.start),
+                    end: token.range.end.min(scope.end),
+                };
+                let (restored, fragment_index) = selected_expected
+                    .get(&(clipped.start, clipped.end))
+                    .copied()
+                    .ok_or_else(fixed_identifier_error)?;
+                let fragment = &envelope.protected[fragment_index];
+                if fragment.kind != token.kind
+                    || fragment.original != envelope.source[clipped.start..clipped.end]
+                {
+                    return Err(fixed_identifier_error());
                 }
-            });
+                let start = if token.range.start < scope.start {
+                    token.range.start
+                } else {
+                    restored.start
+                };
+                let end = if token.range.end > scope.end {
+                    usize::try_from(token.range.end as i128 + length_delta).ok()
+                } else {
+                    Some(restored.end)
+                };
+                end.map(|end| ByteRange { start, end })
+            }
+        } else {
+            selected_expected
+                .get(&(token.range.start, token.range.end))
+                .map(|(range, _)| *range)
+        };
         expected_by_token.push(expected);
     }
 
@@ -2603,11 +2633,14 @@ fn segment_selection_from_full_protection(
     validate_document_complexity(&source[scope.start..scope.end])?;
     let ranges = full_protected
         .iter()
-        .filter(|token| scope.start <= token.range.start && token.range.end <= scope.end)
-        .map(|token| LocalProtectedRange {
-            start: token.range.start - scope.start,
-            end: token.range.end - scope.start,
-            kind: token.kind,
+        .filter_map(|token| {
+            let start = token.range.start.max(scope.start);
+            let end = token.range.end.min(scope.end);
+            (start < end).then(|| LocalProtectedRange {
+                start: start - scope.start,
+                end: end - scope.start,
+                kind: token.kind,
+            })
         })
         .collect::<Vec<_>>();
     let mut segments = Vec::with_capacity(1);

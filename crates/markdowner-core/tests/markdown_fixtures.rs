@@ -16,6 +16,24 @@ use markdowner_core::{
 use serde::Deserialize;
 use tempfile::tempdir;
 
+fn assert_fully_protected_selection(
+    document_id: impl Into<String>,
+    source: &str,
+    selection: ByteRange,
+    expected_kind: ProtectedKind,
+) {
+    let envelope = AiDocumentEnvelope::new(document_id, source, Some(selection))
+        .expect("protected intersections must preserve the exact selection");
+    assert_eq!(envelope.scope(), selection);
+    assert!(!envelope.selection_has_editable_bytes());
+    assert_eq!(envelope.reconstruct_original().unwrap(), source);
+    assert!(envelope.protected.iter().any(|token| {
+        token.kind == expected_kind
+            && token.range == selection
+            && token.original == source[selection.start..selection.end]
+    }));
+}
+
 #[derive(Debug, Deserialize)]
 struct FixtureSpec {
     id: String,
@@ -414,42 +432,40 @@ fn full_replacement_rejects_broken_fence_and_table_structure() {
 }
 
 #[test]
-fn selection_envelopes_reject_boundaries_inside_protected_markdown() {
+fn selection_envelopes_clip_protection_at_exact_user_boundaries() {
     let fenced = "Before\n\n```rust\nprivate_code();\n```\nAfter\n";
     let code_start = fenced.find("private_code").unwrap();
-    let error = AiDocumentEnvelope::new(
+    let selection = ByteRange {
+        start: code_start,
+        end: code_start + "private_code".len(),
+    };
+    let envelope = AiDocumentEnvelope::new(
         "selection-fence",
         fenced,
-        Some(ByteRange {
-            start: code_start,
-            end: code_start + "private_code".len(),
-        }),
+        Some(selection),
     )
-    .unwrap_err();
-    assert!(
-        error
-            .issues
-            .iter()
-            .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
-    );
+    .unwrap();
+    assert_eq!(envelope.scope(), selection);
+    assert_eq!(envelope.protected.len(), 1);
+    assert_eq!(envelope.protected[0].range, selection);
+    assert_eq!(envelope.protected[0].original, "private_code");
 
     let linked = "Read [docs](/private/destination) safely.\n";
     let destination_start = linked.find("private").unwrap();
-    let error = AiDocumentEnvelope::new(
+    let selection = ByteRange {
+        start: destination_start,
+        end: destination_start + "private".len(),
+    };
+    let envelope = AiDocumentEnvelope::new(
         "selection-link",
         linked,
-        Some(ByteRange {
-            start: destination_start,
-            end: destination_start + "private".len(),
-        }),
+        Some(selection),
     )
-    .unwrap_err();
-    assert!(
-        error
-            .issues
-            .iter()
-            .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
-    );
+    .unwrap();
+    assert_eq!(envelope.scope(), selection);
+    assert_eq!(envelope.protected.len(), 1);
+    assert_eq!(envelope.protected[0].range, selection);
+    assert_eq!(envelope.protected[0].original, "private");
 }
 
 #[test]
@@ -664,20 +680,14 @@ fn multiline_inline_link_title_layouts_keep_destinations_protected() {
         .unwrap_err();
 
         let start = source.find("https://safe.test").unwrap();
-        let error = AiDocumentEnvelope::new(
+        assert_fully_protected_selection(
             format!("multiline-link-title-selection-{index}"),
             source,
-            Some(ByteRange {
+            ByteRange {
                 start,
                 end: start + "https://safe.test".len(),
-            }),
-        )
-        .unwrap_err();
-        assert!(
-            error
-                .issues
-                .iter()
-                .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
+            },
+            ProtectedKind::LinkDestination,
         );
     }
 }
@@ -711,20 +721,14 @@ fn multiline_inline_code_is_one_protected_span_for_document_and_selection() {
     assert_eq!(inline_code.original, "`private\ncode`");
 
     let private_start = source.find("private").unwrap();
-    let error = AiDocumentEnvelope::new(
+    assert_fully_protected_selection(
         "multiline-code-interior",
         source,
-        Some(ByteRange {
+        ByteRange {
             start: private_start,
             end: private_start + "private".len(),
-        }),
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .issues
-            .iter()
-            .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
+        },
+        ProtectedKind::InlineCode,
     );
 
     let selection =
@@ -1182,20 +1186,14 @@ fn nested_container_fences_and_markers_are_protected_for_full_and_selection_edit
         .expect("nested list fence must be one protected block");
     assert_eq!(block.original, "    ~~~rust\n    private();\n    ~~~\n");
     let private_start = fenced.find("private").unwrap();
-    let error = AiDocumentEnvelope::new(
+    assert_fully_protected_selection(
         "nested-list-fence-selection",
         fenced,
-        Some(ByteRange {
+        ByteRange {
             start: private_start,
             end: private_start + "private".len(),
-        }),
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .issues
-            .iter()
-            .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
+        },
+        ProtectedKind::BlockCode,
     );
 
     let markers = concat!(
@@ -1243,20 +1241,14 @@ fn same_line_list_fences_and_recursive_markers_remain_structural() {
         .expect("same-line list fence must be one protected block");
     assert_eq!(block.original, "- ```rust\n  private();\n  ```\n");
     let private_start = fenced.find("private").unwrap();
-    let error = AiDocumentEnvelope::new(
+    assert_fully_protected_selection(
         "same-line-list-fence-selection",
         fenced,
-        Some(ByteRange {
+        ByteRange {
             start: private_start,
             end: private_start + "private".len(),
-        }),
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .issues
-            .iter()
-            .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
+        },
+        ProtectedKind::BlockCode,
     );
 
     for (index, (source, marker_start, marker)) in [
@@ -1371,20 +1363,14 @@ fn quoted_html_tags_and_multiline_comments_are_fully_protected() {
     assert_eq!(html, vec!["<a title=\"x > y\">", "</a>", "<!-- a >\nb -->"]);
 
     let attribute_start = source.find("y\"").unwrap();
-    let error = AiDocumentEnvelope::new(
+    assert_fully_protected_selection(
         "raw-html-selection",
         source,
-        Some(ByteRange {
+        ByteRange {
             start: attribute_start,
             end: attribute_start + 1,
-        }),
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .issues
-            .iter()
-            .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
+        },
+        ProtectedKind::HtmlTag,
     );
 }
 
@@ -1421,20 +1407,14 @@ fn commonmark_processing_declaration_and_cdata_html_are_fully_protected() {
         .unwrap_err();
 
         let interior = token.range.start + 2;
-        let error = AiDocumentEnvelope::new(
+        assert_fully_protected_selection(
             format!("raw-html-form-selection-{index}"),
             source,
-            Some(ByteRange {
+            ByteRange {
                 start: interior,
                 end: interior + 1,
-            }),
-        )
-        .unwrap_err();
-        assert!(
-            error
-                .issues
-                .iter()
-                .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
+            },
+            ProtectedKind::HtmlTag,
         );
     }
 }
@@ -1539,20 +1519,14 @@ fn next_line_reference_destinations_are_protected() {
     .unwrap_err();
 
     let destination_start = source.find("https://safe.test/path").unwrap();
-    let error = AiDocumentEnvelope::new(
+    assert_fully_protected_selection(
         "multiline-reference-destination-selection",
         source,
-        Some(ByteRange {
+        ByteRange {
             start: destination_start,
             end: destination_start + "https://safe.test/path".len(),
-        }),
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .issues
-            .iter()
-            .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
+        },
+        ProtectedKind::LinkDestination,
     );
 }
 
@@ -1674,20 +1648,14 @@ fn multiline_and_container_reference_definitions_protect_destinations() {
         .unwrap_err();
 
         let destination_start = source.find("https://safe.test/path").unwrap();
-        let error = AiDocumentEnvelope::new(
+        assert_fully_protected_selection(
             format!("reference-definition-selection-{index}"),
             source,
-            Some(ByteRange {
+            ByteRange {
                 start: destination_start,
                 end: destination_start + "https://safe.test/path".len(),
-            }),
-        )
-        .unwrap_err();
-        assert!(
-            error
-                .issues
-                .iter()
-                .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
+            },
+            ProtectedKind::LinkDestination,
         );
     }
 }
@@ -1777,20 +1745,14 @@ fn multiline_inline_link_labels_keep_destinations_protected() {
         token.kind == ProtectedKind::LinkDestination && token.original.contains("https://safe.test")
     }));
     let destination_start = source.find("https://").unwrap();
-    let error = AiDocumentEnvelope::new(
+    assert_fully_protected_selection(
         "multiline-link-selection",
         source,
-        Some(ByteRange {
+        ByteRange {
             start: destination_start,
             end: destination_start + "https://safe.test/path".len(),
-        }),
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .issues
-            .iter()
-            .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
+        },
+        ProtectedKind::LinkDestination,
     );
 }
 
@@ -1821,20 +1783,14 @@ fn multiline_reference_usage_identifiers_are_protected() {
     )
     .unwrap_err();
     let safe_start = source.find("safe\nid").unwrap();
-    let error = AiDocumentEnvelope::new(
+    assert_fully_protected_selection(
         "multiline-reference-id-selection",
         source,
-        Some(ByteRange {
+        ByteRange {
             start: safe_start,
             end: safe_start + "safe".len(),
-        }),
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .issues
-            .iter()
-            .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
+        },
+        ProtectedKind::Identifier,
     );
     assert_eq!(identifier.original, "[safe\nid]");
 }
@@ -1957,20 +1913,14 @@ fn escaped_backticks_do_not_steal_real_code_span_openers() {
         .expect("the real code span after escaped prose must stay protected");
     assert_eq!(inline_code.original, "`code`");
     let code_start = source.find("code").unwrap();
-    let error = AiDocumentEnvelope::new(
+    assert_fully_protected_selection(
         "escaped-code-opener-selection",
         source,
-        Some(ByteRange {
+        ByteRange {
             start: code_start,
             end: code_start + "code".len(),
-        }),
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .issues
-            .iter()
-            .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
+        },
+        ProtectedKind::InlineCode,
     );
 
     let escaped_only = "\\`editable\\`\n";
@@ -2011,20 +1961,14 @@ fn unmatched_html_tag_openers_are_scanned_in_linear_time() {
 fn an_unclosed_html_candidate_fail_closes_over_later_tag_like_content() {
     let source = "<a title=\"oops <b>safe</b>";
     let safe_start = source.find("safe").unwrap();
-    let error = AiDocumentEnvelope::new(
+    assert_fully_protected_selection(
         "unclosed-html-selection",
         source,
-        Some(ByteRange {
+        ByteRange {
             start: safe_start,
             end: safe_start + "safe".len(),
-        }),
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .issues
-            .iter()
-            .any(|issue| issue.code == ValidationIssueCode::InvalidRange)
+        },
+        ProtectedKind::HtmlTag,
     );
 }
 

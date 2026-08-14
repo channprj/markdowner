@@ -969,6 +969,23 @@ pub fn ai_discard_result(state: State<'_, AiState>, request_id: String) {
     }
 }
 
+fn prepare_run_envelope(request: &AiRunRequest) -> Result<AiDocumentEnvelope, AiError> {
+    let envelope = AiDocumentEnvelope::with_policy(
+        &request.document_id,
+        &request.source,
+        request.selection,
+        protection_policy_for_task(request.task),
+    )
+    .map_err(|error| AiError::new("invalid_document", error.to_string()))?;
+    if request.selection.is_some() && !envelope.selection_has_editable_bytes() {
+        return Err(AiError::new(
+            "selection_not_editable",
+            "The selection contains only protected Markdown and cannot be changed.",
+        ));
+    }
+    Ok(envelope)
+}
+
 #[tauri::command]
 pub async fn ai_run(
     app: AppHandle,
@@ -977,13 +994,7 @@ pub async fn ai_run(
     on_event: Channel<AiStreamEvent>,
 ) -> Result<AiRunResult, AiError> {
     validate_run_request(&request)?;
-    let envelope = AiDocumentEnvelope::with_policy(
-        &request.document_id,
-        &request.source,
-        request.selection,
-        protection_policy_for_task(request.task),
-    )
-    .map_err(|error| AiError::new("invalid_document", error.to_string()))?;
+    let envelope = prepare_run_envelope(&request)?;
     if request.resume {
         prepare_translation_resume(&state, &request, &envelope)?;
     }
@@ -1935,8 +1946,8 @@ mod tests {
         AiRunRequest, AiState, CatalogCache, RequestScheduler, SchemaFailure,
         classify_schema_error,
         openrouter::{AiModel, AiModelPricing, AiTask, SUMMARY_PROMPT_VERSION},
-        prepare_translation_resume, record_history_start, translation_retry_subdivision,
-        validate_provider_result, validate_run_request,
+        prepare_run_envelope, prepare_translation_resume, record_history_start,
+        translation_retry_subdivision, validate_provider_result, validate_run_request,
     };
     use markdowner_core::ai_document::{AiDocumentEnvelope, ByteRange};
 
@@ -1989,6 +2000,26 @@ mod tests {
         assert_eq!(
             validate_run_request(&invalid_language).unwrap_err().code,
             "invalid_summary_language"
+        );
+    }
+
+    #[test]
+    fn selected_ai_request_rejects_fully_protected_markdown_before_execution() {
+        let source = "Read [docs](/private/path) safely.\n";
+        let request = AiRunRequest {
+            source: source.to_string(),
+            selection: Some(ByteRange { start: 13, end: 25 }),
+            task: AiTask::Custom,
+            instruction: Some("Rewrite this selection.".to_string()),
+            ..summary_run_request()
+        };
+
+        let error = prepare_run_envelope(&request).unwrap_err();
+
+        assert_eq!(error.code, "selection_not_editable");
+        assert_eq!(
+            error.message,
+            "The selection contains only protected Markdown and cannot be changed."
         );
     }
 

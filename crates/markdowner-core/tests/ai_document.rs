@@ -1,8 +1,9 @@
 use markdowner_core::ai_document::{
     AI_SCHEMA_VERSION, AiDocumentEnvelope, ByteRange, OperationKind, PrdFinding, PrdOperation,
-    PrdResponse, ProtectionPolicy, SelectionResponse, SummaryResponse, TranslationResponse,
-    TranslationSegment, ValidationIssueCode, markdown_block_ranges, validate_prd_response,
-    validate_selection_response, validate_summary_response, validate_translation,
+    PrdResponse, ProtectedKind, ProtectionPolicy, SelectionResponse, SummaryResponse,
+    TranslationResponse, TranslationSegment, ValidationIssueCode, markdown_block_ranges,
+    validate_prd_response, validate_selection_response, validate_summary_response,
+    validate_translation,
 };
 use serde::Deserialize;
 
@@ -419,6 +420,177 @@ fn selection_replacement_validates_utf8_range_and_protected_tokens() {
             .iter()
             .any(|issue| issue.code == ValidationIssueCode::InvalidUtf8Boundary)
     );
+}
+
+#[test]
+fn selection_replacement_preserves_exact_ranges_crossing_protected_link_destinations() {
+    let source = "Read [docs](/private/path) safely.\n";
+    let cases = [
+        (
+            "crossing-start",
+            ByteRange { start: 13, end: 35 },
+            "private/path",
+            ByteRange { start: 13, end: 25 },
+            "Read [docs](/private/path) carefully.\n",
+            ("safely", "carefully"),
+        ),
+        (
+            "crossing-end",
+            ByteRange { start: 0, end: 20 },
+            "/private",
+            ByteRange { start: 12, end: 20 },
+            "Open [docs](/private/path) safely.\n",
+            ("Read", "Open"),
+        ),
+    ];
+
+    for (
+        document_id,
+        selection,
+        protected_fragment,
+        protected_range,
+        expected,
+        (needle, replacement),
+    ) in cases
+    {
+        let envelope = AiDocumentEnvelope::new(document_id, source, Some(selection))
+            .expect("a protected-token intersection must not expand or reject the selection");
+        assert_eq!(envelope.scope(), selection);
+        let clipped = envelope
+            .protected
+            .iter()
+            .find(|token| token.kind == ProtectedKind::LinkDestination)
+            .expect("the intersecting link destination must stay protected");
+        assert_eq!(clipped.range, protected_range);
+        assert_eq!(clipped.original, protected_fragment);
+
+        let masked = envelope
+            .segments
+            .iter()
+            .map(|segment| segment.text.as_str())
+            .collect::<String>();
+        let replacement_text = masked.replace(needle, replacement);
+        let validated = validate_selection_response(
+            &envelope,
+            SelectionResponse {
+                schema_version: AI_SCHEMA_VERSION,
+                replacement_text,
+                warnings: Vec::new(),
+            },
+        )
+        .expect("editable bytes may change around the protected fragment");
+
+        assert_eq!(validated.operations[0].source_range, selection);
+        assert_eq!(validated.proposed_markdown, expected);
+    }
+}
+
+#[test]
+fn selection_replacement_rejects_bytes_inserted_inside_a_crossing_protected_token() {
+    let source = "Read [docs](/private/path) safely.\n";
+    let selection = ByteRange { start: 13, end: 35 };
+    let envelope = AiDocumentEnvelope::new("crossing-injection", source, Some(selection))
+        .expect("selection envelope");
+    let masked = envelope
+        .segments
+        .iter()
+        .map(|segment| segment.text.as_str())
+        .collect::<String>();
+
+    let error = validate_selection_response(
+        &envelope,
+        SelectionResponse {
+            schema_version: AI_SCHEMA_VERSION,
+            replacement_text: format!("injected{masked}"),
+            warnings: Vec::new(),
+        },
+    )
+    .expect_err("the unchanged outside prefix and protected fragment must remain contiguous");
+
+    assert!(
+        error
+            .issues
+            .iter()
+            .any(|issue| issue.code == ValidationIssueCode::MarkdownStructureChanged)
+    );
+}
+
+#[test]
+fn selection_replacement_rejects_missing_duplicated_and_reordered_clipped_tokens() {
+    let source = "Read [a](/one) and [b](/two) safely.\n";
+    let envelope = AiDocumentEnvelope::new(
+        "crossing-token-sequence",
+        source,
+        Some(ByteRange { start: 10, end: 26 }),
+    )
+    .expect("selection envelope");
+    let masked = envelope
+        .segments
+        .iter()
+        .map(|segment| segment.text.as_str())
+        .collect::<String>();
+    let destinations = envelope
+        .protected
+        .iter()
+        .filter(|token| token.kind == ProtectedKind::LinkDestination)
+        .collect::<Vec<_>>();
+    assert_eq!(destinations.len(), 2);
+
+    let reordered = masked
+        .replace(&destinations[0].placeholder, "__FIRST_CLIPPED_TOKEN__")
+        .replace(&destinations[1].placeholder, &destinations[0].placeholder)
+        .replace("__FIRST_CLIPPED_TOKEN__", &destinations[1].placeholder);
+    let cases = [
+        (
+            masked.replace(&destinations[0].placeholder, ""),
+            ValidationIssueCode::ProtectedTokenMissing,
+        ),
+        (
+            format!("{masked}{}", destinations[0].placeholder),
+            ValidationIssueCode::ProtectedTokenChanged,
+        ),
+        (reordered, ValidationIssueCode::ProtectedTokenReordered),
+    ];
+
+    for (replacement_text, expected_code) in cases {
+        let error = validate_selection_response(
+            &envelope,
+            SelectionResponse {
+                schema_version: AI_SCHEMA_VERSION,
+                replacement_text,
+                warnings: Vec::new(),
+            },
+        )
+        .expect_err("protected token sequence changes must fail closed");
+        assert!(
+            error
+                .issues
+                .iter()
+                .any(|issue| issue.code == expected_code),
+            "missing {expected_code:?} in {:?}",
+            error.issues
+        );
+    }
+}
+
+#[test]
+fn selection_editability_excludes_clipped_protected_bytes() {
+    let source = "Read [docs](/private/path) safely.\n";
+    let protected_only = AiDocumentEnvelope::new(
+        "protected-only",
+        source,
+        Some(ByteRange { start: 13, end: 25 }),
+    )
+    .expect("protected selection envelope");
+    let mixed = AiDocumentEnvelope::new(
+        "mixed-selection",
+        source,
+        Some(ByteRange { start: 13, end: 35 }),
+    )
+    .expect("mixed selection envelope");
+
+    assert!(!protected_only.selection_has_editable_bytes());
+    assert!(mixed.selection_has_editable_bytes());
 }
 
 #[test]

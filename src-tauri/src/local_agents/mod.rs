@@ -959,6 +959,14 @@ fn validate_document_complexity(request: &LocalAgentRunRequest) -> Result<(), Lo
     if envelope.protected.len() > MAX_PROTECTED_TOKENS {
         return Err(document_too_complex_error());
     }
+    if request.target == LocalAgentTargetKind::Selection
+        && !envelope.selection_has_editable_bytes()
+    {
+        return Err(LocalAgentError::run(
+            "selection_not_editable",
+            "The selection contains only protected Markdown and cannot be changed.",
+        ));
+    }
     if request.target == LocalAgentTargetKind::Insert {
         let cursor = request.cursor.unwrap_or_default();
         if envelope
@@ -1572,7 +1580,7 @@ mod tests {
     }
 
     #[test]
-    fn request_validation_rejects_selection_boundaries_inside_protected_markdown() {
+    fn request_validation_rejects_fully_protected_selection_without_rejecting_its_boundaries() {
         let mut request = fixture_request(LocalAgentTargetKind::Selection);
         request.source = "Before\n\n```rust\nprivate_code();\n```\nAfter\n".to_string();
         let start = request.source.find("private_code").unwrap();
@@ -1581,7 +1589,13 @@ mod tests {
             end: start + "private_code".len(),
         });
 
-        assert_error_code(&request, "invalid_range");
+        assert_error_code(&request, "selection_not_editable");
+
+        request.selection = Some(ByteRange {
+            start,
+            end: request.source.find("After").unwrap() + "After".len(),
+        });
+        assert!(validate_request(&request).is_ok());
     }
 
     #[test]
