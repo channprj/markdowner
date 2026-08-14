@@ -161,8 +161,8 @@ describe('LocalAgentSettings', () => {
     expect(screen.getAllByTestId('local-agent-status-row')[0]).toHaveTextContent('Version 2.1.0');
     expect(screen.getByText('This version is not supported.')).toBeInTheDocument();
     expect(screen.getByText('claude (Homebrew)')).toBeInTheDocument();
-    expect(screen.getByText('Source Automatic')).toBeInTheDocument();
-    expect(screen.getByText('Source Manual')).toBeInTheDocument();
+    expect(screen.getByText('Automatic')).toBeInTheDocument();
+    expect(screen.getByText('Manual path')).toBeInTheDocument();
     expect(screen.queryByText('/opt/homebrew/bin/claude')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('switch', { name: 'Allow local agent processing' }));
@@ -197,7 +197,7 @@ describe('LocalAgentSettings', () => {
     expect(screen.getAllByTestId('local-agent-status-row')).toHaveLength(3);
   });
 
-  it('updates one path at a time and supports Browse, cancel, Reset, and exact refresh input', async () => {
+  it('persists trimmed paths on blur or Enter and refreshes Browse and Reset immediately', async () => {
     const onExecutablePathsChange = vi.fn();
     const listStatuses = vi.fn().mockResolvedValue(statuses);
     const selectExecutable = vi
@@ -219,38 +219,68 @@ describe('LocalAgentSettings', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('Codex executable path'), {
-      target: { value: '/new/codex' },
+    const codexInput = screen.getByLabelText('Codex executable path');
+    fireEvent.blur(codexInput);
+    expect(onExecutablePathsChange).not.toHaveBeenCalled();
+    expect(listStatuses).not.toHaveBeenCalled();
+
+    fireEvent.change(codexInput, {
+      target: { value: '  /new/codex  ' },
     });
-    expect(onExecutablePathsChange).toHaveBeenCalledWith({
+    expect(onExecutablePathsChange).not.toHaveBeenCalled();
+
+    fireEvent.blur(codexInput);
+    const blurredPaths = {
       claude: '/custom/claude',
       codex: '/new/codex',
       opencode: '/custom/opencode',
+    };
+    await waitFor(() => {
+      expect(onExecutablePathsChange).toHaveBeenCalledWith(blurredPaths);
+      expect(listStatuses).toHaveBeenCalledWith(blurredPaths);
     });
 
+    fireEvent.change(codexInput, { target: { value: '  /enter/codex  ' } });
+    fireEvent.keyDown(codexInput, { key: 'Enter' });
+    const enteredPaths = { ...blurredPaths, codex: '/enter/codex' };
+    await waitFor(() => {
+      expect(onExecutablePathsChange).toHaveBeenCalledWith(enteredPaths);
+      expect(listStatuses).toHaveBeenCalledWith(enteredPaths);
+    });
+
+    expect(screen.getAllByText('Browse…')).toHaveLength(3);
+    expect(screen.getAllByText('Reset to Auto')).toHaveLength(3);
+
     fireEvent.click(screen.getByRole('button', { name: 'Browse Claude Code executable' }));
-    await waitFor(() =>
+    const browsedPaths = {
+      ...enteredPaths,
+      claude: '/Applications/Claude/claude',
+    };
+    await waitFor(() => {
       expect(onExecutablePathsChange).toHaveBeenCalledWith({
-        ...configured,
-        claude: '/Applications/Claude/claude',
-      }),
-    );
+        ...browsedPaths,
+      });
+      expect(listStatuses).toHaveBeenCalledWith(browsedPaths);
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Browse OpenCode executable' }));
     await waitFor(() => expect(selectExecutable).toHaveBeenCalledTimes(2));
     expect(onExecutablePathsChange).not.toHaveBeenCalledWith({
-      ...configured,
+      ...browsedPaths,
       opencode: null,
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset Codex executable path' }));
-    expect(onExecutablePathsChange).toHaveBeenCalledWith({
-      claude: '/custom/claude',
+    const resetPaths = {
+      ...browsedPaths,
       codex: '',
-      opencode: '/custom/opencode',
+    };
+    await waitFor(() => {
+      expect(onExecutablePathsChange).toHaveBeenCalledWith(resetPaths);
+      expect(listStatuses).toHaveBeenCalledWith(resetPaths);
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh local agent status' }));
-    await waitFor(() => expect(listStatuses).toHaveBeenCalledWith(configured));
+    await waitFor(() => expect(listStatuses).toHaveBeenLastCalledWith(resetPaths));
   });
 });
 

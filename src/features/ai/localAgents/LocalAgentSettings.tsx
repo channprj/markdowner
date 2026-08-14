@@ -53,7 +53,10 @@ export function LocalAgentSettings({
   const [statuses, setStatuses] = useState<LocalAgentStatus[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [draftPaths, setDraftPaths] = useState(executablePaths);
   const refreshGeneration = useRef(0);
+  const executablePathsRef = useRef(executablePaths);
+  const dirtyPathsRef = useRef(new Set<LocalAgentKind>());
   const resolvedServices = { ...DEFAULT_SERVICES, ...services };
 
   useEffect(() => {
@@ -62,13 +65,24 @@ export function LocalAgentSettings({
     };
   }, []);
 
-  const refresh = async () => {
+  useEffect(() => {
+    executablePathsRef.current = executablePaths;
+    setDraftPaths((current) => ({
+      claude: dirtyPathsRef.current.has('claude') ? current.claude : executablePaths.claude,
+      codex: dirtyPathsRef.current.has('codex') ? current.codex : executablePaths.codex,
+      opencode: dirtyPathsRef.current.has('opencode')
+        ? current.opencode
+        : executablePaths.opencode,
+    }));
+  }, [executablePaths]);
+
+  const refresh = async (paths = executablePathsRef.current) => {
     const generation = refreshGeneration.current + 1;
     refreshGeneration.current = generation;
     setLoading(true);
     setError('');
     try {
-      const next = await resolvedServices.listStatuses(executablePaths);
+      const next = await resolvedServices.listStatuses(paths);
       if (refreshGeneration.current === generation) setStatuses(next);
     } catch {
       if (refreshGeneration.current === generation) {
@@ -79,14 +93,25 @@ export function LocalAgentSettings({
     }
   };
 
-  const updateExecutablePath = (kind: LocalAgentKind, path: string) => {
-    onExecutablePathsChange({ ...executablePaths, [kind]: path });
+  const persistExecutablePath = async (kind: LocalAgentKind, path: string) => {
+    const trimmed = path.trim();
+    dirtyPathsRef.current.delete(kind);
+    setDraftPaths((current) => ({ ...current, [kind]: trimmed }));
+    const nextPaths = { ...executablePathsRef.current, [kind]: trimmed };
+    executablePathsRef.current = nextPaths;
+    onExecutablePathsChange(nextPaths);
+    await refresh(nextPaths);
+  };
+
+  const commitDraftExecutablePath = (kind: LocalAgentKind, path: string) => {
+    if (!dirtyPathsRef.current.has(kind)) return;
+    void persistExecutablePath(kind, path);
   };
 
   const browse = async (kind: LocalAgentKind) => {
     try {
       const selected = await resolvedServices.selectExecutable(kind);
-      if (selected !== null) updateExecutablePath(kind, selected);
+      if (selected !== null) await persistExecutablePath(kind, selected);
     } catch {
       setError('Could not choose a local agent executable.');
     }
@@ -163,7 +188,7 @@ export function LocalAgentSettings({
                   ) : null}
                   {status?.source ? (
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Source {status.source === 'manual' ? 'Manual' : 'Automatic'}
+                      {status.source === 'manual' ? 'Manual path' : 'Automatic'}
                     </p>
                   ) : null}
                   {status?.version ? (
@@ -181,11 +206,26 @@ export function LocalAgentSettings({
               </div>
               <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
                 <Input
-                  value={executablePaths[agent.kind]}
+                  value={draftPaths[agent.kind]}
                   aria-label={`${agent.label} executable path`}
                   placeholder="Auto-detect from PATH"
                   spellCheck={false}
-                  onChange={(event) => updateExecutablePath(agent.kind, event.target.value)}
+                  onChange={(event) => {
+                    dirtyPathsRef.current.add(agent.kind);
+                    setDraftPaths((current) => ({
+                      ...current,
+                      [agent.kind]: event.target.value,
+                    }));
+                  }}
+                  onBlur={(event) =>
+                    commitDraftExecutablePath(agent.kind, event.currentTarget.value)
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      commitDraftExecutablePath(agent.kind, event.currentTarget.value);
+                    }
+                  }}
                 />
                 <Button
                   type="button"
@@ -193,16 +233,16 @@ export function LocalAgentSettings({
                   aria-label={`Browse ${agent.label} executable`}
                   onClick={() => void browse(agent.kind)}
                 >
-                  Browse
+                  Browse…
                 </Button>
                 <Button
                   type="button"
                   variant="ghost"
                   aria-label={`Reset ${agent.label} executable path`}
-                  disabled={executablePaths[agent.kind].length === 0}
-                  onClick={() => updateExecutablePath(agent.kind, '')}
+                  disabled={draftPaths[agent.kind].trim().length === 0}
+                  onClick={() => void persistExecutablePath(agent.kind, '')}
                 >
-                  Reset
+                  Reset to Auto
                 </Button>
               </div>
             </div>

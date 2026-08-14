@@ -326,9 +326,11 @@ describe('SettingsPanel update section', () => {
       onSettingsChange,
     });
 
-    fireEvent.change(screen.getByLabelText('Codex executable path'), {
+    const codexPath = screen.getByLabelText('Codex executable path');
+    fireEvent.change(codexPath, {
       target: { value: '/opt/homebrew/bin/codex' },
     });
+    fireEvent.blur(codexPath);
     expect(onSettingsChange).toHaveBeenCalledWith(
       expect.objectContaining({
         localAgentExecutablePaths: {
