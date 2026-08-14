@@ -6,6 +6,7 @@ import {
   bindingsEqual,
   captureKeyBindingFromEvent,
   findKeymapConflict,
+  formatAriaKeyShortcuts,
   formatKeyBinding,
   parseKeyBinding,
   resolveShellBindings,
@@ -31,6 +32,15 @@ describe('keymap descriptors', () => {
     expect(formatKeyBinding({ key: 'b', shift: true })).toBe('⌘⇧B');
     expect(formatKeyBinding({ key: 'f', alt: true })).toBe('⌥⌘F');
     expect(formatKeyBinding({ key: ',' })).toBe('⌘,');
+  });
+
+  it('formats rebindable commands for aria-keyshortcuts', () => {
+    expect(formatAriaKeyShortcuts({ key: 'k', shift: true })).toBe(
+      'Meta+Shift+K Control+Shift+K',
+    );
+    expect(formatAriaKeyShortcuts({ key: 'f', alt: true })).toBe(
+      'Meta+Alt+F Control+Alt+F',
+    );
   });
 
   it('binds new window to command-shift-n by default', () => {

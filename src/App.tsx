@@ -309,7 +309,11 @@ import {
   resolveInlineStylePalette,
   resolveInlineStyleTone,
 } from './lib/inlineStylePalette';
-import { formatKeyBinding, resolveShellBindings } from './lib/keymap';
+import {
+  formatAriaKeyShortcuts,
+  formatKeyBinding,
+  resolveShellBindings,
+} from './lib/keymap';
 import { loadSkillTokenNames } from './lib/skillTokens';
 import { moveTabToIndex } from './lib/tabDragReorder';
 import { moveTab } from './lib/tabs';
@@ -601,7 +605,9 @@ export default function App() {
     () => resolveShellBindings(settings.keybindingOverrides),
     [settings.keybindingOverrides],
   );
-  const aiSelectionShortcut = formatKeyBinding(shellBindings['ai.runSelection']);
+  const aiSelectionBinding = shellBindings['ai.runSelection'];
+  const aiSelectionShortcut = formatKeyBinding(aiSelectionBinding);
+  const aiSelectionAriaKeyShortcuts = formatAriaKeyShortcuts(aiSelectionBinding);
   const [aiSelectionSnapshot, setAiSelectionSnapshot] =
     useState<AiSelectionSnapshot | null>(null);
   const [aiSelectionPromptOpen, setAiSelectionPromptOpen] = useState(false);
@@ -7418,6 +7424,7 @@ export default function App() {
             skillNames={skillTokenNames}
             onAiSelection={handleWysiwygAiSelection}
             aiShortcut={aiSelectionShortcut}
+            aiAriaKeyShortcuts={aiSelectionAriaKeyShortcuts}
           />
         }
         sourceEditor={
@@ -7467,6 +7474,7 @@ export default function App() {
         <button
           type="button"
           aria-label={`AI prompt selected text (${aiSelectionShortcut})`}
+          aria-keyshortcuts={aiSelectionAriaKeyShortcuts}
           title={`Run a custom AI prompt on this selection (${aiSelectionShortcut})`}
           className="fixed z-[70] inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-popover px-2.5 text-xs font-medium text-popover-foreground shadow-lg hover:bg-accent"
           style={{

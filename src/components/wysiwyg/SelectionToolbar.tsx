@@ -20,6 +20,7 @@ interface Props {
   enabled?: boolean;
   onAiSelection?: (selection: { from: number; to: number }) => void;
   aiShortcut?: string;
+  aiAriaKeyShortcuts?: string;
 }
 
 type Position = { top: number; left: number };
@@ -47,6 +48,7 @@ export function SelectionToolbar({
   enabled = true,
   onAiSelection,
   aiShortcut,
+  aiAriaKeyShortcuts,
 }: Props) {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<Position>({ top: 0, left: 0 });
@@ -264,6 +266,7 @@ export function SelectionToolbar({
           <ToolbarButton
             label="AI actions"
             shortcut={aiShortcut}
+            ariaKeyShortcuts={aiAriaKeyShortcuts}
             active={false}
             onClick={() => {
               const selection = aiSelectionRef.current;
@@ -282,16 +285,25 @@ export function SelectionToolbar({
 interface ToolbarButtonProps {
   label: string;
   shortcut?: string;
+  ariaKeyShortcuts?: string;
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }
 
-function ToolbarButton({ label, shortcut, active, onClick, children }: ToolbarButtonProps) {
+function ToolbarButton({
+  label,
+  shortcut,
+  ariaKeyShortcuts,
+  active,
+  onClick,
+  children,
+}: ToolbarButtonProps) {
   return (
     <button
       type="button"
       aria-label={shortcut ? `${label} (${shortcut})` : label}
+      aria-keyshortcuts={ariaKeyShortcuts}
       aria-pressed={active}
       title={shortcut ? `${label} (${shortcut})` : label}
       className={cn('selection-toolbar-button', active && 'is-active')}

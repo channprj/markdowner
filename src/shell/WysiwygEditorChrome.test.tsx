@@ -42,11 +42,20 @@ vi.mock('@/components/wysiwyg/SkillTokenMenu', () => ({
 }));
 
 vi.mock('@/components/wysiwyg/SelectionToolbar', () => ({
-  SelectionToolbar: ({ enabled, aiShortcut }: { enabled?: boolean; aiShortcut?: string }) => (
+  SelectionToolbar: ({
+    enabled,
+    aiShortcut,
+    aiAriaKeyShortcuts,
+  }: {
+    enabled?: boolean;
+    aiShortcut?: string;
+    aiAriaKeyShortcuts?: string;
+  }) => (
     <div
       data-testid="selection-toolbar"
       data-enabled={String(Boolean(enabled))}
       data-ai-shortcut={aiShortcut ?? ''}
+      data-ai-aria-keyshortcuts={aiAriaKeyShortcuts ?? ''}
     />
   ),
 }));
@@ -77,6 +86,7 @@ describe('WysiwygEditorChrome', () => {
         enabled
         skillNames={new Set(['goal', 'git-commit'])}
         aiShortcut="⌘⇧K"
+        aiAriaKeyShortcuts="Meta+Shift+K Control+Shift+K"
       />,
     );
 
@@ -87,6 +97,10 @@ describe('WysiwygEditorChrome', () => {
     expect(screen.getByTestId('skill-token-menu')).toHaveAttribute('data-skill-count', '2');
     expect(screen.getByTestId('selection-toolbar')).toHaveAttribute('data-enabled', 'true');
     expect(screen.getByTestId('selection-toolbar')).toHaveAttribute('data-ai-shortcut', '⌘⇧K');
+    expect(screen.getByTestId('selection-toolbar')).toHaveAttribute(
+      'data-ai-aria-keyshortcuts',
+      'Meta+Shift+K Control+Shift+K',
+    );
     expect(screen.getByTestId('link-popup')).toHaveAttribute('data-enabled', 'true');
     expect(screen.getByTestId('table-toolbar')).toHaveAttribute('data-enabled', 'true');
   });

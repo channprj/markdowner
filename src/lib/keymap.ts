@@ -189,6 +189,15 @@ export function formatKeyBinding(binding: KeyBinding): string {
   return `${binding.alt ? '⌥' : ''}⌘${binding.shift ? '⇧' : ''}${key}`;
 }
 
+export function formatAriaKeyShortcuts(binding: KeyBinding): string {
+  const key = binding.key.length === 1 ? binding.key.toUpperCase() : binding.key;
+  const chord = (modifier: 'Meta' | 'Control') =>
+    [modifier, binding.alt ? 'Alt' : null, binding.shift ? 'Shift' : null, key]
+      .filter((part): part is string => part !== null)
+      .join('+');
+  return `${chord('Meta')} ${chord('Control')}`;
+}
+
 /** Effective bindings = defaults overlaid with the persisted overrides. */
 export function resolveShellBindings(
   overrides: Record<string, string> | undefined,
