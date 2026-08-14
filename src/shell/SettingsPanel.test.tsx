@@ -294,6 +294,34 @@ describe('SettingsPanel update section', () => {
     );
   });
 
+  it('persists an isolated local-agent executable path', () => {
+    const onSettingsChange = vi.fn();
+    renderPanel({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        localAgentExecutablePaths: {
+          claude: '/existing/claude',
+          codex: '',
+          opencode: '/existing/opencode',
+        },
+      },
+      onSettingsChange,
+    });
+
+    fireEvent.change(screen.getByLabelText('Codex executable path'), {
+      target: { value: '/opt/homebrew/bin/codex' },
+    });
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        localAgentExecutablePaths: {
+          claude: '/existing/claude',
+          codex: '/opt/homebrew/bin/codex',
+          opencode: '/existing/opencode',
+        },
+      }),
+    );
+  });
+
   it('persists A3 size and landscape orientation', () => {
     const onSettingsChange = vi.fn();
     renderPanel({ onSettingsChange });

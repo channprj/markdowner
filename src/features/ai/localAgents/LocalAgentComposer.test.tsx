@@ -30,6 +30,7 @@ const statuses: LocalAgentStatus[] = [
     pathLabel: "claude (PATH)",
     version: "2.0.0",
     reason: null,
+    source: "automatic",
   },
   {
     kind: "codex",
@@ -40,6 +41,7 @@ const statuses: LocalAgentStatus[] = [
     pathLabel: "codex (PATH)",
     version: "1.0.0",
     reason: null,
+    source: "automatic",
   },
   {
     kind: "opencode",
@@ -50,6 +52,7 @@ const statuses: LocalAgentStatus[] = [
     pathLabel: "opencode (PATH)",
     version: "0.1.0",
     reason: "This version is not supported.",
+    source: "automatic",
   },
 ];
 
@@ -96,6 +99,12 @@ const documentSnapshot: LocalAgentTargetSnapshot = {
   selectedText: "",
 };
 
+const executablePaths = {
+  claude: "/custom/claude",
+  codex: "  /custom/codex  ",
+  opencode: "",
+};
+
 function resultFor(request: LocalAgentRunRequest): LocalAgentRunResult {
   return {
     schemaVersion: 1,
@@ -122,6 +131,7 @@ function renderComposer(
     documentLabel: "meeting-notes.md",
     disclosureAccepted: true,
     preferredAgent: "codex" as const,
+    executablePaths,
     onDisclosureAcceptedChange: vi.fn(),
     onClose: vi.fn(),
     onResult: vi.fn(),
@@ -359,7 +369,7 @@ describe("LocalAgentComposer", () => {
       .mockImplementation(async (request: LocalAgentRunRequest) =>
         resultFor(request),
       );
-    const { props } = renderComposer({
+    const { props, services } = renderComposer({
       services: {
         listStatuses: vi.fn().mockResolvedValue(statuses),
         run,
@@ -382,7 +392,9 @@ describe("LocalAgentComposer", () => {
       selection: { start: 7, end: 12 },
       cursor: null,
       instruction: "Turn this into a checklist",
+      executablePath: "/custom/codex",
     });
+    expect(services.listStatuses).toHaveBeenCalledWith(executablePaths);
     expect(request.requestId).toEqual(expect.any(String));
     expect(selectionSnapshot.source).toBe(original);
     expect(props.onResult).toHaveBeenCalledWith(

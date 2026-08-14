@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { LocalAgentSettings } from './LocalAgentSettings';
 
+const executablePaths = { claude: '', codex: '', opencode: '' };
+
 afterEach(cleanup);
 
 const statuses = [
@@ -16,6 +18,7 @@ const statuses = [
     pathLabel: 'claude (Homebrew)',
     version: '2.1.0',
     reason: null,
+    source: 'automatic' as const,
   },
   {
     kind: 'codex' as const,
@@ -26,6 +29,7 @@ const statuses = [
     pathLabel: 'codex (PATH)',
     version: '0.3.0',
     reason: 'This version is not supported.',
+    source: 'manual' as const,
   },
   {
     kind: 'opencode' as const,
@@ -36,6 +40,7 @@ const statuses = [
     pathLabel: null,
     version: null,
     reason: 'Not found.',
+    source: null,
   },
 ];
 
@@ -48,6 +53,8 @@ describe('LocalAgentSettings', () => {
         <LocalAgentSettings
           disclosureAccepted={false}
           onDisclosureAcceptedChange={vi.fn()}
+          executablePaths={executablePaths}
+          onExecutablePathsChange={vi.fn()}
           services={{ listStatuses }}
         />
       </StrictMode>,
@@ -77,6 +84,8 @@ describe('LocalAgentSettings', () => {
       <LocalAgentSettings
         disclosureAccepted={false}
         onDisclosureAcceptedChange={vi.fn()}
+        executablePaths={executablePaths}
+        onExecutablePathsChange={vi.fn()}
         services={{ listStatuses }}
       />,
     );
@@ -102,6 +111,8 @@ describe('LocalAgentSettings', () => {
         <LocalAgentSettings
           disclosureAccepted={false}
           onDisclosureAcceptedChange={vi.fn()}
+          executablePaths={executablePaths}
+          onExecutablePathsChange={vi.fn()}
           services={{ listStatuses: vi.fn().mockReturnValue(pending.promise) }}
         />
       </StrictMode>,
@@ -122,6 +133,8 @@ describe('LocalAgentSettings', () => {
       <LocalAgentSettings
         disclosureAccepted={false}
         onDisclosureAcceptedChange={onDisclosureAcceptedChange}
+        executablePaths={executablePaths}
+        onExecutablePathsChange={vi.fn()}
         services={{ listStatuses }}
       />,
     );
@@ -135,7 +148,7 @@ describe('LocalAgentSettings', () => {
     ]);
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh local agent status' }));
-    await waitFor(() => expect(listStatuses).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(listStatuses).toHaveBeenCalledWith(executablePaths));
 
     expect(screen.getAllByTestId('local-agent-status-row').map((row) => row.textContent)).toEqual([
       expect.stringContaining('Claude Code'),
@@ -148,6 +161,8 @@ describe('LocalAgentSettings', () => {
     expect(screen.getAllByTestId('local-agent-status-row')[0]).toHaveTextContent('Version 2.1.0');
     expect(screen.getByText('This version is not supported.')).toBeInTheDocument();
     expect(screen.getByText('claude (Homebrew)')).toBeInTheDocument();
+    expect(screen.getByText('Source Automatic')).toBeInTheDocument();
+    expect(screen.getByText('Source Manual')).toBeInTheDocument();
     expect(screen.queryByText('/opt/homebrew/bin/claude')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('switch', { name: 'Allow local agent processing' }));
@@ -167,6 +182,8 @@ describe('LocalAgentSettings', () => {
       <LocalAgentSettings
         disclosureAccepted
         onDisclosureAcceptedChange={vi.fn()}
+        executablePaths={executablePaths}
+        onExecutablePathsChange={vi.fn()}
         services={{ listStatuses: vi.fn().mockRejectedValue(unsafeFailure) }}
       />,
     );
@@ -178,6 +195,62 @@ describe('LocalAgentSettings', () => {
     );
     expect(alert).not.toHaveTextContent(/AcmeSensitiveProvider|sk-local-secret|private\/tmp/i);
     expect(screen.getAllByTestId('local-agent-status-row')).toHaveLength(3);
+  });
+
+  it('updates one path at a time and supports Browse, cancel, Reset, and exact refresh input', async () => {
+    const onExecutablePathsChange = vi.fn();
+    const listStatuses = vi.fn().mockResolvedValue(statuses);
+    const selectExecutable = vi
+      .fn()
+      .mockResolvedValueOnce('/Applications/Claude/claude')
+      .mockResolvedValueOnce(null);
+    const configured = {
+      claude: '/custom/claude',
+      codex: '/custom/codex',
+      opencode: '/custom/opencode',
+    };
+    render(
+      <LocalAgentSettings
+        disclosureAccepted
+        onDisclosureAcceptedChange={vi.fn()}
+        executablePaths={configured}
+        onExecutablePathsChange={onExecutablePathsChange}
+        services={{ listStatuses, selectExecutable }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Codex executable path'), {
+      target: { value: '/new/codex' },
+    });
+    expect(onExecutablePathsChange).toHaveBeenCalledWith({
+      claude: '/custom/claude',
+      codex: '/new/codex',
+      opencode: '/custom/opencode',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Browse Claude Code executable' }));
+    await waitFor(() =>
+      expect(onExecutablePathsChange).toHaveBeenCalledWith({
+        ...configured,
+        claude: '/Applications/Claude/claude',
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Browse OpenCode executable' }));
+    await waitFor(() => expect(selectExecutable).toHaveBeenCalledTimes(2));
+    expect(onExecutablePathsChange).not.toHaveBeenCalledWith({
+      ...configured,
+      opencode: null,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Codex executable path' }));
+    expect(onExecutablePathsChange).toHaveBeenCalledWith({
+      claude: '/custom/claude',
+      codex: '',
+      opencode: '/custom/opencode',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh local agent status' }));
+    await waitFor(() => expect(listStatuses).toHaveBeenCalledWith(configured));
   });
 });
 

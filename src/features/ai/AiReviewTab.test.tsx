@@ -310,6 +310,7 @@ describe('AiReviewTab', () => {
       selection: null,
       cursor: null,
       instruction: 'Rewrite it',
+      executablePath: null,
     };
     const localResult: LocalAgentRunResult = {
       schemaVersion: 1,
@@ -377,6 +378,7 @@ describe('AiReviewTab', () => {
       selection: { start: 6, end: 10 },
       cursor: null,
       instruction: 'Capitalize it',
+      executablePath: null,
     };
     const localResult: LocalAgentRunResult = {
       schemaVersion: 1,

@@ -32,6 +32,45 @@ describe('always-on GFM', () => {
   });
 });
 
+describe('local agent executable path settings', () => {
+  it('defaults missing executable paths independently', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValueOnce({
+      aiModelDefaultsVersion: 1,
+      autoSave: true,
+      localAgentExecutablePaths: {
+        claude: '/opt/homebrew/bin/claude',
+        opencode: 42,
+      },
+    });
+
+    await expect(loadSettings()).resolves.toMatchObject({
+      autoSave: true,
+      localAgentExecutablePaths: {
+        claude: '/opt/homebrew/bin/claude',
+        codex: '',
+        opencode: '',
+      },
+    });
+  });
+
+  it('defaults a missing or malformed executable-path object', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValueOnce({ aiModelDefaultsVersion: 1 });
+    await expect(loadSettings()).resolves.toMatchObject({
+      localAgentExecutablePaths: { claude: '', codex: '', opencode: '' },
+    });
+
+    invokeMock.mockResolvedValueOnce({
+      aiModelDefaultsVersion: 1,
+      localAgentExecutablePaths: 'not-an-object',
+    });
+    await expect(loadSettings()).resolves.toMatchObject({
+      localAgentExecutablePaths: { claude: '', codex: '', opencode: '' },
+    });
+  });
+});
+
 describe('code block syntax highlighting settings', () => {
   it('defaults to One Dark with theme sync enabled', () => {
     expect(DEFAULT_SETTINGS.codeBlockTheme).toBe('one-dark');

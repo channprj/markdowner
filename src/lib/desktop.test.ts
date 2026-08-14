@@ -70,6 +70,11 @@ describe('desktop local-agent bridge', () => {
   });
 
   it('forwards status, streamed events, and cancellation through the local-agent commands', async () => {
+    const executablePaths = {
+      claude: '/opt/homebrew/bin/claude',
+      codex: '',
+      opencode: '',
+    };
     const request: LocalAgentRunRequest = {
       requestId: 'local-agent-1',
       documentId: 'notes.md',
@@ -79,17 +84,20 @@ describe('desktop local-agent bridge', () => {
       selection: { start: 0, end: 7 },
       cursor: null,
       instruction: 'Improve this.',
+      executablePath: '/opt/homebrew/bin/claude',
     };
     const onEvent = vi.fn();
     const event: LocalAgentStreamEvent = { type: 'running', requestId: 'local-agent-1' };
     invokeMock.mockResolvedValue(undefined);
 
-    await localAgentStatuses();
+    await localAgentStatuses(executablePaths);
     await localAgentRun(request, onEvent);
     channels[0]?.onmessage?.(event);
     await localAgentCancel('local-agent-1');
 
-    expect(invokeMock).toHaveBeenNthCalledWith(1, 'local_agent_statuses');
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'local_agent_statuses', {
+      executablePaths,
+    });
     expect(invokeMock).toHaveBeenNthCalledWith(2, 'local_agent_run', {
       request,
       onEvent: channels[0],

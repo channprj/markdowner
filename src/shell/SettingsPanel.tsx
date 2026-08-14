@@ -1543,6 +1543,10 @@ export function SettingsPanel({
 
         <LocalAgentSettings
           disclosureAccepted={settings.localAgentDisclosureAccepted}
+          executablePaths={settings.localAgentExecutablePaths}
+          onExecutablePathsChange={(localAgentExecutablePaths) =>
+            onSettingsChange({ ...settings, localAgentExecutablePaths })
+          }
           onDisclosureAcceptedChange={(localAgentDisclosureAccepted) =>
             onSettingsChange({ ...settings, localAgentDisclosureAccepted })
           }

@@ -30,6 +30,7 @@ import type {
   ImageExportLayout,
   ImageExportScale,
 } from './imageExport';
+import type { LocalAgentExecutablePaths } from './settings';
 
 export type EditorMode = 'Wysiwyg' | 'Editor' | 'SplitView';
 export type ThemeKind = 'BuiltInLight' | 'BuiltInDark' | 'CustomCss';
@@ -474,8 +475,10 @@ export async function aiCancel(requestId: string): Promise<boolean> {
   return invoke<boolean>('ai_cancel', { requestId });
 }
 
-export async function localAgentStatuses(): Promise<LocalAgentStatus[]> {
-  return invoke<LocalAgentStatus[]>('local_agent_statuses');
+export async function localAgentStatuses(
+  executablePaths: LocalAgentExecutablePaths,
+): Promise<LocalAgentStatus[]> {
+  return invoke<LocalAgentStatus[]>('local_agent_statuses', { executablePaths });
 }
 
 export async function localAgentRun(

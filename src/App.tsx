@@ -7503,6 +7503,7 @@ export default function App() {
           snapshot={localAgentSnapshot}
           documentLabel={localAgentDocumentLabel || 'Untitled'}
           disclosureAccepted={settings.localAgentDisclosureAccepted}
+          executablePaths={settings.localAgentExecutablePaths}
           preferredAgent={localAgentPreferredAgent}
           initialInstruction={localAgentInitialInstruction}
           initialTarget={localAgentInitialTarget ?? localAgentSnapshot.kind}

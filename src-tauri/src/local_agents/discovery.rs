@@ -19,8 +19,8 @@ use tokio_util::sync::CancellationToken;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 use super::{
-    LocalAgentError, LocalAgentKind, LocalAgentStatus, OPEN_CODE_OWNED_AGENT, ResolvedAgent,
-    owned_opencode_environment,
+    LocalAgentError, LocalAgentKind, LocalAgentStatus, LocalAgentStatusSource,
+    OPEN_CODE_OWNED_AGENT, ResolvedAgent, owned_opencode_environment,
     process::{
         OwnedTempCapability, RegisteredProcessGroup, RejectedProcessGroup, controlled_environment,
         create_owned_temp_dir,
@@ -1020,12 +1020,19 @@ pub fn discover_all() -> Vec<LocalAgentStatus> {
     discover_all_with_runner(&BoundedProbeRunner)
 }
 
+pub(super) fn discover_all_with_paths(
+    executable_paths: &markdowner_core::settings::LocalAgentExecutablePaths,
+) -> Vec<LocalAgentStatus> {
+    discover_all_with_runner_and_paths(&BoundedProbeRunner, executable_paths)
+}
+
 pub fn resolve_compatible_agent(kind: LocalAgentKind) -> Result<ResolvedAgent, LocalAgentError> {
     resolve_compatible_agent_with_runner(kind, &BoundedProbeRunner)
 }
 
 pub(super) fn resolve_compatible_agent_cancellable(
     kind: LocalAgentKind,
+    manual_path: Option<&str>,
     cancellation: &CancellationToken,
     deadline: Instant,
 ) -> Result<(ResolvedAgent, ExecutableProof), LocalAgentError> {
@@ -1036,6 +1043,7 @@ pub(super) fn resolve_compatible_agent_cancellable(
     };
     let result = resolve_compatible_agent_with_runner_and_proof(
         kind,
+        manual_path,
         &runner,
         Some(cancellation),
         Some(deadline),
@@ -1045,15 +1053,40 @@ pub(super) fn resolve_compatible_agent_cancellable(
 }
 
 fn discover_all_with_runner(runner: &impl ProbeRunner) -> Vec<LocalAgentStatus> {
+    discover_all_with_runner_and_paths(
+        runner,
+        &markdowner_core::settings::LocalAgentExecutablePaths::default(),
+    )
+}
+
+fn discover_all_with_runner_and_paths(
+    runner: &impl ProbeRunner,
+    executable_paths: &markdowner_core::settings::LocalAgentExecutablePaths,
+) -> Vec<LocalAgentStatus> {
     let paths = current_search_path_directories_with_runner(runner);
     let environment_path = env::join_paths(&paths).unwrap_or_default();
+    let home = env::var_os("HOME").map(PathBuf::from);
     LocalAgentKind::ALL
         .into_iter()
-        .map(|kind| match resolve_from_paths(kind, &paths) {
-            Some(resolved) => {
-                probe_resolved_agent_with_environment_path(resolved, &environment_path, runner)
+        .map(|kind| {
+            let manual_path = match kind {
+                LocalAgentKind::Claude => &executable_paths.claude,
+                LocalAgentKind::Codex => &executable_paths.codex,
+                LocalAgentKind::Opencode => &executable_paths.opencode,
+            };
+            match resolve_candidate_from_paths(kind, Some(manual_path), home.as_deref(), &paths) {
+                Ok((resolved, source)) => probe_resolved_agent_with_environment_path(
+                    resolved,
+                    &environment_path,
+                    runner,
+                    source,
+                ),
+                Err(error) => unavailable_status(
+                    kind,
+                    error,
+                    (!manual_path.trim().is_empty()).then_some(LocalAgentStatusSource::Manual),
+                ),
             }
-            None => unavailable_status(kind),
         })
         .collect()
 }
@@ -1063,12 +1096,13 @@ fn resolve_compatible_agent_with_runner(
     runner: &impl ProbeRunner,
 ) -> Result<ResolvedAgent, LocalAgentError> {
     let (resolved, _proof) =
-        resolve_compatible_agent_with_runner_and_proof(kind, runner, None, None)?;
+        resolve_compatible_agent_with_runner_and_proof(kind, None, runner, None, None)?;
     Ok(resolved)
 }
 
 fn resolve_compatible_agent_with_runner_and_proof(
     kind: LocalAgentKind,
+    manual_path: Option<&str>,
     runner: &impl ProbeRunner,
     cancellation: Option<&CancellationToken>,
     deadline: Option<Instant>,
@@ -1076,7 +1110,8 @@ fn resolve_compatible_agent_with_runner_and_proof(
     ensure_probe_active(cancellation, deadline)?;
     let paths = current_search_path_directories_with_runner(runner);
     let environment_path = env::join_paths(&paths).map_err(|_| LocalAgentError::ProbeFailed)?;
-    let resolved = resolve_from_paths(kind, &paths).ok_or(LocalAgentError::NotInstalled)?;
+    let home = env::var_os("HOME").map(PathBuf::from);
+    let (resolved, _) = resolve_candidate_from_paths(kind, manual_path, home.as_deref(), &paths)?;
     let proof = ExecutableProof::capture_with_constraints(
         &resolved.path,
         environment_path,
@@ -1202,6 +1237,64 @@ fn resolve_from_paths(kind: LocalAgentKind, paths: &[PathBuf]) -> Option<Resolve
     })
 }
 
+fn resolve_candidate_from_paths(
+    kind: LocalAgentKind,
+    manual_path: Option<&str>,
+    home: Option<&Path>,
+    automatic_paths: &[PathBuf],
+) -> Result<(ResolvedAgent, LocalAgentStatusSource), LocalAgentError> {
+    let manual_path = manual_path.map(str::trim).unwrap_or_default();
+    if manual_path.is_empty() {
+        return resolve_from_paths(kind, automatic_paths)
+            .map(|resolved| (resolved, LocalAgentStatusSource::Automatic))
+            .ok_or(LocalAgentError::NotInstalled);
+    }
+
+    let requested = if let Some(relative_to_home) = manual_path.strip_prefix("~/") {
+        let home = home.ok_or_else(|| {
+            LocalAgentError::run(
+                "invalid_agent_path",
+                "The home directory is unavailable for the configured executable path.",
+            )
+        })?;
+        home.join(relative_to_home)
+    } else {
+        if manual_path.starts_with('~') {
+            return Err(LocalAgentError::run(
+                "invalid_agent_path",
+                "The configured executable path must be absolute or start with ~/.",
+            ));
+        }
+        PathBuf::from(manual_path)
+    };
+    if !requested.is_absolute() {
+        return Err(LocalAgentError::run(
+            "invalid_agent_path",
+            "The configured executable path must be absolute or start with ~/.",
+        ));
+    }
+    let canonical_path = requested.canonicalize().map_err(|_| {
+        LocalAgentError::run(
+            "invalid_agent_path",
+            "The configured executable was not found.",
+        )
+    })?;
+    if !canonical_path.is_absolute() || !is_executable_file(&canonical_path) {
+        return Err(LocalAgentError::run(
+            "invalid_agent_path",
+            "The configured path is not a regular executable file.",
+        ));
+    }
+    Ok((
+        ResolvedAgent {
+            kind,
+            path_label: canonical_path.to_string_lossy().into_owned(),
+            path: canonical_path,
+        },
+        LocalAgentStatusSource::Manual,
+    ))
+}
+
 #[cfg(unix)]
 fn is_executable_file(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
@@ -1219,7 +1312,11 @@ fn redacted_path_label(basename: &str) -> String {
     format!("bin/{basename}")
 }
 
-fn unavailable_status(kind: LocalAgentKind) -> LocalAgentStatus {
+fn unavailable_status(
+    kind: LocalAgentKind,
+    error: LocalAgentError,
+    source: Option<LocalAgentStatusSource>,
+) -> LocalAgentStatus {
     LocalAgentStatus {
         kind,
         mention: kind.mention(),
@@ -1228,20 +1325,27 @@ fn unavailable_status(kind: LocalAgentKind) -> LocalAgentStatus {
         compatible: false,
         path_label: None,
         version: None,
-        reason: Some(LocalAgentError::NotInstalled.reason().to_string()),
+        reason: Some(error.reason().to_string()),
+        source,
     }
 }
 
 #[cfg(test)]
 fn probe_resolved_agent(resolved: ResolvedAgent, runner: &impl ProbeRunner) -> LocalAgentStatus {
     let environment_path = sanitized_path_value(env::var_os("PATH").as_deref()).unwrap_or_default();
-    probe_resolved_agent_with_environment_path(resolved, &environment_path, runner)
+    probe_resolved_agent_with_environment_path(
+        resolved,
+        &environment_path,
+        runner,
+        LocalAgentStatusSource::Automatic,
+    )
 }
 
 fn probe_resolved_agent_with_environment_path(
     resolved: ResolvedAgent,
     environment_path: &OsStr,
     runner: &impl ProbeRunner,
+    source: LocalAgentStatusSource,
 ) -> LocalAgentStatus {
     let kind = resolved.kind;
     let mut status = LocalAgentStatus {
@@ -1253,6 +1357,7 @@ fn probe_resolved_agent_with_environment_path(
         path_label: Some(resolved.path_label.clone()),
         version: None,
         reason: None,
+        source: Some(source),
     };
 
     let proof = match ExecutableProof::capture_with_constraints(
@@ -1759,11 +1864,13 @@ mod tests {
         evaluate_codex_features, evaluate_codex_help, evaluate_opencode_help, executable_sha256,
         executable_sha256_exact, login_shell_path_value_with_runner,
         opencode_permissions_are_denied, parse_shebang_interpreter, probe_agent,
-        probe_agent_with_proof, probe_resolved_agent, resolve_from_paths, search_path_directories,
+        probe_agent_with_proof, probe_resolved_agent, probe_resolved_agent_with_environment_path,
+        resolve_candidate_from_paths, resolve_from_paths, search_path_directories,
         search_path_directories_with_runner,
     };
     use crate::local_agents::{
-        LocalAgentError, LocalAgentKind, ResolvedAgent, owned_opencode_environment,
+        LocalAgentError, LocalAgentKind, LocalAgentStatusSource, ResolvedAgent,
+        owned_opencode_environment,
     };
 
     const SAFE_CODEX_FEATURES: &str = "\
@@ -2034,6 +2141,66 @@ Usage: opencode debug config
 
         assert_eq!(resolved.path, codex.canonicalize().unwrap());
         assert_eq!(resolved.path.file_name(), Some(OsStr::new("codex")));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn manual_resolution_expands_home_and_canonicalizes_a_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let home = tempdir().unwrap();
+        let real = home.path().join("tools/claude-real");
+        fs::create_dir_all(real.parent().unwrap()).unwrap();
+        create_executable(&real);
+        let link = home.path().join("claude");
+        symlink(&real, &link).unwrap();
+
+        let (resolved, source) = resolve_candidate_from_paths(
+            LocalAgentKind::Claude,
+            Some("~/claude"),
+            Some(home.path()),
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(resolved.path, real.canonicalize().unwrap());
+        assert_eq!(
+            resolved.path_label,
+            real.canonicalize().unwrap().to_string_lossy()
+        );
+        assert_eq!(source, LocalAgentStatusSource::Manual);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn invalid_manual_path_never_falls_back_to_an_automatic_candidate() {
+        let temp = tempdir().unwrap();
+        let automatic_bin = temp.path().join("bin");
+        fs::create_dir_all(&automatic_bin).unwrap();
+        create_executable(&automatic_bin.join("claude"));
+
+        let relative = resolve_candidate_from_paths(
+            LocalAgentKind::Claude,
+            Some("relative/claude"),
+            Some(temp.path()),
+            std::slice::from_ref(&automatic_bin),
+        )
+        .unwrap_err();
+        assert_eq!(relative.code_value(), "invalid_agent_path");
+        assert_eq!(
+            relative.reason(),
+            "The configured executable path must be absolute or start with ~/."
+        );
+
+        let missing = resolve_candidate_from_paths(
+            LocalAgentKind::Claude,
+            Some("~/missing-claude"),
+            Some(temp.path()),
+            &[automatic_bin],
+        )
+        .unwrap_err();
+        assert_eq!(missing.code_value(), "invalid_agent_path");
+        assert_eq!(missing.reason(), "The configured executable was not found.");
     }
 
     #[test]
@@ -3424,10 +3591,78 @@ Usage: opencode debug config
         assert!(!status.compatible);
         assert_eq!(status.version.as_deref(), Some("2.1.226"));
         assert_eq!(status.reason.as_deref(), Some(CLAUDE_FLAGS_REASON));
+        assert_eq!(status.source, Some(LocalAgentStatusSource::Automatic));
         assert!(
             !serde_json::to_string(&status)
                 .unwrap()
                 .contains(temp.path().to_string_lossy().as_ref())
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn manual_status_rejects_unsafe_and_incompatible_executables_without_fallback() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempdir().unwrap();
+        let unsafe_executable = temp.path().join("unsafe-claude");
+        create_executable(&unsafe_executable);
+        let mut permissions = fs::metadata(&unsafe_executable).unwrap().permissions();
+        permissions.set_mode(0o777);
+        fs::set_permissions(&unsafe_executable, permissions).unwrap();
+        let (resolved, source) = resolve_candidate_from_paths(
+            LocalAgentKind::Claude,
+            Some(unsafe_executable.to_str().unwrap()),
+            None,
+            &[],
+        )
+        .unwrap();
+        let unsafe_runner = IncompatibleClaudeRunner {
+            calls: Mutex::new(0),
+        };
+        let unsafe_status = probe_resolved_agent_with_environment_path(
+            resolved,
+            OsStr::new("/usr/bin:/bin"),
+            &unsafe_runner,
+            source,
+        );
+        assert!(unsafe_status.installed);
+        assert!(!unsafe_status.compatible);
+        assert_eq!(unsafe_status.source, Some(LocalAgentStatusSource::Manual));
+        assert_eq!(
+            unsafe_status.reason.as_deref(),
+            Some("Capability probe failed.")
+        );
+        assert_eq!(*unsafe_runner.calls.lock().unwrap(), 0);
+
+        let incompatible_executable = temp.path().join("incompatible-claude");
+        create_executable(&incompatible_executable);
+        let (resolved, source) = resolve_candidate_from_paths(
+            LocalAgentKind::Claude,
+            Some(incompatible_executable.to_str().unwrap()),
+            None,
+            &[],
+        )
+        .unwrap();
+        let incompatible_runner = IncompatibleClaudeRunner {
+            calls: Mutex::new(0),
+        };
+        let incompatible_status = probe_resolved_agent_with_environment_path(
+            resolved,
+            OsStr::new("/usr/bin:/bin"),
+            &incompatible_runner,
+            source,
+        );
+        assert!(incompatible_status.installed);
+        assert!(!incompatible_status.compatible);
+        assert_eq!(
+            incompatible_status.source,
+            Some(LocalAgentStatusSource::Manual)
+        );
+        assert_eq!(incompatible_status.version.as_deref(), Some("2.1.226"));
+        assert_eq!(
+            incompatible_status.reason.as_deref(),
+            Some(CLAUDE_FLAGS_REASON)
         );
     }
 

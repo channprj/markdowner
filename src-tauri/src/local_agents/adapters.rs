@@ -1103,6 +1103,7 @@ mod tests {
             selection,
             cursor,
             instruction: instruction.to_string(),
+            executable_path: None,
         }
     }
 

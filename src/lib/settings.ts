@@ -68,6 +68,12 @@ export const CODE_BLOCK_THEMES: ReadonlyArray<{ value: CodeBlockTheme; label: st
   { value: 'monokai-dark', label: 'Monokai Dark' },
 ];
 
+export interface LocalAgentExecutablePaths {
+  claude: string;
+  codex: string;
+  opencode: string;
+}
+
 export interface Settings extends InlineStyleColorSettings {
   autoSave: boolean;
   editorFontSize: number;
@@ -134,6 +140,7 @@ export interface Settings extends InlineStyleColorSettings {
   aiZdrOnly: boolean;
   aiCloudDisclosureAccepted: boolean;
   localAgentDisclosureAccepted: boolean;
+  localAgentExecutablePaths: LocalAgentExecutablePaths;
   aiDefaultScope: 'document' | 'workspace';
   aiHistoryEnabled: boolean;
 }
@@ -283,6 +290,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiZdrOnly: true,
   aiCloudDisclosureAccepted: false,
   localAgentDisclosureAccepted: false,
+  localAgentExecutablePaths: { claude: '', codex: '', opencode: '' },
   aiDefaultScope: 'document',
   aiHistoryEnabled: true,
 };
@@ -627,6 +635,9 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): {
     merged.localAgentDisclosureAccepted =
       DEFAULT_SETTINGS.localAgentDisclosureAccepted;
   }
+  merged.localAgentExecutablePaths = normalizeLocalAgentExecutablePaths(
+    merged.localAgentExecutablePaths,
+  );
   if (merged.aiDefaultScope !== 'document' && merged.aiDefaultScope !== 'workspace') {
     merged.aiDefaultScope = DEFAULT_SETTINGS.aiDefaultScope;
   }
@@ -686,6 +697,20 @@ function normalizeKeybindingOverrides(value: unknown): Record<string, string> {
     }
   }
   return next;
+}
+
+function normalizeLocalAgentExecutablePaths(
+  value: unknown,
+): LocalAgentExecutablePaths {
+  const entries =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  return {
+    claude: typeof entries.claude === 'string' ? entries.claude : '',
+    codex: typeof entries.codex === 'string' ? entries.codex : '',
+    opencode: typeof entries.opencode === 'string' ? entries.opencode : '',
+  };
 }
 
 export async function loadSettings(): Promise<Settings> {

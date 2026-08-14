@@ -1,25 +1,40 @@
 import { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { localAgentStatuses } from '@/lib/desktop';
+import type { LocalAgentExecutablePaths } from '@/lib/settings';
 
 import type { LocalAgentKind, LocalAgentStatus } from './types';
 
 export interface LocalAgentSettingsServices {
-  listStatuses: () => Promise<LocalAgentStatus[]>;
+  listStatuses: (paths: LocalAgentExecutablePaths) => Promise<LocalAgentStatus[]>;
+  selectExecutable: (kind: LocalAgentKind) => Promise<string | null>;
 }
 
 export interface LocalAgentSettingsProps {
   disclosureAccepted: boolean;
   onDisclosureAcceptedChange: (accepted: boolean) => void;
-  services?: LocalAgentSettingsServices;
+  executablePaths: LocalAgentExecutablePaths;
+  onExecutablePathsChange: (paths: LocalAgentExecutablePaths) => void;
+  services?: Partial<LocalAgentSettingsServices>;
 }
 
 const DEFAULT_SERVICES: LocalAgentSettingsServices = {
   listStatuses: localAgentStatuses,
+  selectExecutable: async (kind) => {
+    const agent = AGENTS.find((candidate) => candidate.kind === kind);
+    const selected = await openDialog({
+      directory: false,
+      multiple: false,
+      title: `Select ${agent?.label ?? kind} executable`,
+    });
+    return typeof selected === 'string' ? selected : null;
+  },
 };
 
 const AGENTS: ReadonlyArray<{ kind: LocalAgentKind; label: string; mention: string }> = [
@@ -31,12 +46,15 @@ const AGENTS: ReadonlyArray<{ kind: LocalAgentKind; label: string; mention: stri
 export function LocalAgentSettings({
   disclosureAccepted,
   onDisclosureAcceptedChange,
+  executablePaths,
+  onExecutablePathsChange,
   services = DEFAULT_SERVICES,
 }: LocalAgentSettingsProps) {
   const [statuses, setStatuses] = useState<LocalAgentStatus[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const refreshGeneration = useRef(0);
+  const resolvedServices = { ...DEFAULT_SERVICES, ...services };
 
   useEffect(() => {
     return () => {
@@ -50,7 +68,7 @@ export function LocalAgentSettings({
     setLoading(true);
     setError('');
     try {
-      const next = await services.listStatuses();
+      const next = await resolvedServices.listStatuses(executablePaths);
       if (refreshGeneration.current === generation) setStatuses(next);
     } catch {
       if (refreshGeneration.current === generation) {
@@ -58,6 +76,19 @@ export function LocalAgentSettings({
       }
     } finally {
       if (refreshGeneration.current === generation) setLoading(false);
+    }
+  };
+
+  const updateExecutablePath = (kind: LocalAgentKind, path: string) => {
+    onExecutablePathsChange({ ...executablePaths, [kind]: path });
+  };
+
+  const browse = async (kind: LocalAgentKind) => {
+    try {
+      const selected = await resolvedServices.selectExecutable(kind);
+      if (selected !== null) updateExecutablePath(kind, selected);
+    } catch {
+      setError('Could not choose a local agent executable.');
     }
   };
 
@@ -115,30 +146,65 @@ export function LocalAgentSettings({
             <div
               key={agent.kind}
               data-testid="local-agent-status-row"
-              className="flex min-w-0 items-start justify-between gap-4 border-b border-border px-3 py-2 last:border-b-0"
+              className="grid min-w-0 gap-2 border-b border-border px-3 py-3 last:border-b-0"
             >
-              <div className="min-w-0">
-                <p className="text-sm font-medium">
-                  {agent.label}{' '}
-                  <span className="font-mono text-xs font-normal text-muted-foreground">
-                    {agent.mention}
-                  </span>
-                </p>
-                {status?.pathLabel ? (
-                  <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
-                    {status.pathLabel}
+              <div className="flex min-w-0 items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">
+                    {agent.label}{' '}
+                    <span className="font-mono text-xs font-normal text-muted-foreground">
+                      {agent.mention}
+                    </span>
                   </p>
-                ) : null}
-                {status?.version ? (
-                  <p className="mt-0.5 text-xs text-muted-foreground">Version {status.version}</p>
-                ) : null}
-                {status?.reason ? (
-                  <p className="mt-0.5 text-xs text-muted-foreground">{status.reason}</p>
-                ) : null}
+                  {status?.pathLabel ? (
+                    <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+                      {status.pathLabel}
+                    </p>
+                  ) : null}
+                  {status?.source ? (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Source {status.source === 'manual' ? 'Manual' : 'Automatic'}
+                    </p>
+                  ) : null}
+                  {status?.version ? (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Version {status.version}
+                    </p>
+                  ) : null}
+                  {status?.reason ? (
+                    <p className="mt-0.5 text-xs text-muted-foreground">{status.reason}</p>
+                  ) : null}
+                </div>
+                <span className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${statusClass(status)}`}>
+                  {statusLabel(status)}
+                </span>
               </div>
-              <span className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${statusClass(status)}`}>
-                {statusLabel(status)}
-              </span>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+                <Input
+                  value={executablePaths[agent.kind]}
+                  aria-label={`${agent.label} executable path`}
+                  placeholder="Auto-detect from PATH"
+                  spellCheck={false}
+                  onChange={(event) => updateExecutablePath(agent.kind, event.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-label={`Browse ${agent.label} executable`}
+                  onClick={() => void browse(agent.kind)}
+                >
+                  Browse
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  aria-label={`Reset ${agent.label} executable path`}
+                  disabled={executablePaths[agent.kind].length === 0}
+                  onClick={() => updateExecutablePath(agent.kind, '')}
+                >
+                  Reset
+                </Button>
+              </div>
             </div>
           );
         })}

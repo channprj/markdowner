@@ -134,6 +134,7 @@ describe('AI review origins', () => {
       selection: { start: 6, end: 10 },
       cursor: null,
       instruction: 'Capitalize it',
+      executablePath: null,
     };
     const result: LocalAgentRunResult = {
       schemaVersion: 1,
@@ -190,6 +191,7 @@ describe('AI review origins', () => {
       selection: null,
       cursor: 2,
       instruction: 'Insert a heading',
+      executablePath: null,
     };
     const result: LocalAgentRunResult = {
       schemaVersion: 1,
@@ -241,6 +243,7 @@ describe('AI review origins', () => {
       selection: null,
       cursor: null,
       instruction: 'Rewrite the document',
+      executablePath: null,
     };
     const result: LocalAgentRunResult = {
       schemaVersion: 1,
@@ -286,6 +289,7 @@ describe('AI review origins', () => {
       selection: { start: 10, end: 14 },
       cursor: null,
       instruction: '대문자로 바꿔 주세요',
+      executablePath: null,
     };
     const result: LocalAgentRunResult = {
       schemaVersion: 1,
@@ -334,6 +338,7 @@ describe('AI review origins', () => {
       selection: null,
       cursor: 5,
       instruction: 'Add a conclusion',
+      executablePath: null,
     };
     const result: LocalAgentRunResult = {
       schemaVersion: 1,

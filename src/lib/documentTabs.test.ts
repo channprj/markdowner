@@ -211,6 +211,7 @@ describe('local-agent Review tabs', () => {
       selection: null,
       cursor: null,
       instruction: 'Rewrite this document',
+      executablePath: null,
     };
     const review = createLocalAgentReview(snapshot, request, {
       schemaVersion: 1,

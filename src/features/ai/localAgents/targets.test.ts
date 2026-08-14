@@ -27,6 +27,7 @@ function requestFor(
     selection: snapshot.kind === 'selection' ? snapshot.byteRange : null,
     cursor: snapshot.kind === 'insert' ? snapshot.byteRange?.start ?? null : null,
     instruction: 'Make this clearer',
+    executablePath: null,
   };
 }
 

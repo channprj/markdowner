@@ -12,6 +12,7 @@ export interface LocalAgentStatus {
   pathLabel: string | null;
   version: string | null;
   reason: string | null;
+  source: 'manual' | 'automatic' | null;
 }
 
 export interface LocalAgentRunRequest {
@@ -23,6 +24,7 @@ export interface LocalAgentRunRequest {
   selection: AiByteRange | null;
   cursor: number | null;
   instruction: string;
+  executablePath: string | null;
 }
 
 export interface LocalAgentRunResult {

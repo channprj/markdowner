@@ -15,6 +15,7 @@ use markdowner_core::ai_document::{
     AiDocumentEnvelope, ByteRange, SelectionResponse, ValidationError, ValidationIssueCode,
     validate_full_replacement, validate_markdown_insertion, validate_selection_response,
 };
+use markdowner_core::settings::LocalAgentExecutablePaths;
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 use tauri::{State, WebviewWindow, ipc::Channel};
 use tokio::{sync::Notify, time::Instant};
@@ -33,6 +34,12 @@ mod process;
 
 pub fn discover_all() -> Vec<LocalAgentStatus> {
     discovery::discover_all()
+}
+
+pub fn discover_all_with_paths(
+    executable_paths: &LocalAgentExecutablePaths,
+) -> Vec<LocalAgentStatus> {
+    discovery::discover_all_with_paths(executable_paths)
 }
 
 pub fn resolve_compatible_agent(kind: LocalAgentKind) -> Result<ResolvedAgent, LocalAgentError> {
@@ -83,6 +90,13 @@ pub enum LocalAgentTargetKind {
     Document,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalAgentStatusSource {
+    Manual,
+    Automatic,
+}
+
 impl LocalAgentTargetKind {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -104,6 +118,7 @@ pub struct LocalAgentRunRequest {
     pub selection: Option<ByteRange>,
     pub cursor: Option<usize>,
     pub instruction: String,
+    pub executable_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -124,6 +139,7 @@ impl fmt::Debug for LocalAgentRunRequest {
             .field("instruction_bytes", &self.instruction.len())
             .field("has_selection", &self.selection.is_some())
             .field("has_cursor", &self.cursor.is_some())
+            .field("has_executable_path", &self.executable_path.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -167,6 +183,7 @@ pub struct LocalAgentStatus {
     pub path_label: Option<String>,
     pub version: Option<String>,
     pub reason: Option<String>,
+    pub source: Option<LocalAgentStatusSource>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -959,8 +976,7 @@ fn validate_document_complexity(request: &LocalAgentRunRequest) -> Result<(), Lo
     if envelope.protected.len() > MAX_PROTECTED_TOKENS {
         return Err(document_too_complex_error());
     }
-    if request.target == LocalAgentTargetKind::Selection
-        && !envelope.selection_has_editable_bytes()
+    if request.target == LocalAgentTargetKind::Selection && !envelope.selection_has_editable_bytes()
     {
         return Err(LocalAgentError::run(
             "selection_not_editable",
@@ -1126,7 +1142,9 @@ fn validate_agent_payload(
 }
 
 #[tauri::command]
-pub async fn local_agent_statuses() -> Result<Vec<LocalAgentStatus>, LocalAgentError> {
+pub async fn local_agent_statuses(
+    executable_paths: LocalAgentExecutablePaths,
+) -> Result<Vec<LocalAgentStatus>, LocalAgentError> {
     let activity = process::ProcessActivityGuard::begin().ok_or_else(|| {
         LocalAgentError::run(
             "local_agent_shutting_down",
@@ -1135,7 +1153,7 @@ pub async fn local_agent_statuses() -> Result<Vec<LocalAgentStatus>, LocalAgentE
     })?;
     tokio::task::spawn_blocking(move || {
         let _activity = activity;
-        discover_all()
+        discover_all_with_paths(&executable_paths)
     })
     .await
     .map_err(|_| scheduler_error())
@@ -1215,9 +1233,15 @@ async fn run_registered_local_agent(
     ensure_not_cancelled(cancellation)?;
     ensure_before_deadline(deadline)?;
     let agent = request.agent;
+    let executable_path = request.executable_path.clone();
     let probe_cancellation = cancellation.clone();
     let resolved_task = tokio::task::spawn_blocking(move || {
-        discovery::resolve_compatible_agent_cancellable(agent, &probe_cancellation, deadline)
+        discovery::resolve_compatible_agent_cancellable(
+            agent,
+            executable_path.as_deref(),
+            &probe_cancellation,
+            deadline,
+        )
     })
     .await;
     ensure_not_cancelled(cancellation)?;
@@ -1437,10 +1461,10 @@ mod tests {
     use super::adapters::LocalAgentPayload;
     use super::{
         LocalAgentError, LocalAgentKind, LocalAgentRunRequest, LocalAgentState, LocalAgentStatus,
-        LocalAgentStreamEvent, LocalAgentTargetKind, MAX_ID_BYTES, MAX_INSTRUCTION_BYTES,
-        MAX_PROCESS_STDIN_BYTES, MAX_SOURCE_BYTES, finish_post_processing, map_resolution_error,
-        prepared_request_size, remaining_run_time, validate_agent_payload, validate_request,
-        validate_window_label,
+        LocalAgentStatusSource, LocalAgentStreamEvent, LocalAgentTargetKind, MAX_ID_BYTES,
+        MAX_INSTRUCTION_BYTES, MAX_PROCESS_STDIN_BYTES, MAX_SOURCE_BYTES, finish_post_processing,
+        map_resolution_error, prepared_request_size, remaining_run_time, validate_agent_payload,
+        validate_request, validate_window_label,
     };
     use markdowner_core::ai_document::{AiDocumentEnvelope, ByteRange, ProtectedKind};
 
@@ -1460,6 +1484,7 @@ mod tests {
             selection,
             cursor,
             instruction: "Rewrite clearly.".to_string(),
+            executable_path: None,
         }
     }
 
@@ -2034,9 +2059,15 @@ mod tests {
         let mut request = fixture_request(LocalAgentTargetKind::Document);
         request.source = "captured source".to_string();
         request.instruction = "private prompt".to_string();
+        request.executable_path = Some("/private/secret-user/bin/codex".to_string());
         let debug = format!("{request:?}");
         assert!(!debug.contains("captured source"));
         assert!(!debug.contains("private prompt"));
+        assert!(!debug.contains("secret-user"));
+        assert_eq!(
+            serde_json::to_value(&request).unwrap()["executablePath"],
+            "/private/secret-user/bin/codex"
+        );
 
         let error = LocalAgentError::run(
             "local_agent_failed",
@@ -2267,6 +2298,7 @@ mod tests {
             path_label: Some("bin/claude".to_string()),
             version: Some("2.1.226".to_string()),
             reason: Some("Required Claude Code safety flags are unavailable.".to_string()),
+            source: Some(LocalAgentStatusSource::Automatic),
         };
 
         assert_eq!(
@@ -2279,7 +2311,8 @@ mod tests {
                 "compatible": false,
                 "pathLabel": "bin/claude",
                 "version": "2.1.226",
-                "reason": "Required Claude Code safety flags are unavailable."
+                "reason": "Required Claude Code safety flags are unavailable.",
+                "source": "automatic"
             })
         );
     }

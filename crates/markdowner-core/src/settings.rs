@@ -142,6 +142,38 @@ hex_color_deserializer!(deserialize_zinc_100, "#F4F4F5");
 hex_color_deserializer!(deserialize_zinc_50, "#FAFAFA");
 hex_color_deserializer!(deserialize_zinc_800, "#27272A");
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LocalAgentExecutablePaths {
+    pub claude: String,
+    pub codex: String,
+    pub opencode: String,
+}
+
+fn deserialize_local_agent_executable_paths<'de, D>(
+    deserializer: D,
+) -> Result<LocalAgentExecutablePaths, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    let Some(entries) = value.as_object() else {
+        return Ok(LocalAgentExecutablePaths::default());
+    };
+    let string_entry = |key: &str| {
+        entries
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    Ok(LocalAgentExecutablePaths {
+        claude: string_entry("claude"),
+        codex: string_entry("codex"),
+        opencode: string_entry("opencode"),
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -229,6 +261,8 @@ pub struct Settings {
     pub ai_cloud_disclosure_accepted: bool,
     #[serde(deserialize_with = "deserialize_bool_or_false")]
     pub local_agent_disclosure_accepted: bool,
+    #[serde(deserialize_with = "deserialize_local_agent_executable_paths")]
+    pub local_agent_executable_paths: LocalAgentExecutablePaths,
     #[serde(deserialize_with = "deserialize_ai_default_scope")]
     pub ai_default_scope: String,
     #[serde(deserialize_with = "deserialize_bool_or_true")]
@@ -294,6 +328,7 @@ impl Default for Settings {
             ai_zdr_only: true,
             ai_cloud_disclosure_accepted: false,
             local_agent_disclosure_accepted: false,
+            local_agent_executable_paths: LocalAgentExecutablePaths::default(),
             ai_default_scope: "document".to_string(),
             ai_history_enabled: true,
         }
@@ -769,5 +804,49 @@ mod tests {
         }))
         .expect("malformed setting parse");
         assert!(!malformed.local_agent_disclosure_accepted);
+    }
+
+    #[test]
+    fn local_agent_executable_paths_default_and_normalize_each_entry() {
+        let legacy: Settings = serde_json::from_value(serde_json::json!({
+            "autoSave": true
+        }))
+        .expect("legacy settings parse");
+        assert!(legacy.auto_save);
+        assert_eq!(legacy.local_agent_executable_paths.claude, "");
+        assert_eq!(legacy.local_agent_executable_paths.codex, "");
+        assert_eq!(legacy.local_agent_executable_paths.opencode, "");
+
+        let partial: Settings = serde_json::from_value(serde_json::json!({
+            "autoSave": true,
+            "localAgentExecutablePaths": {
+                "claude": "/opt/homebrew/bin/claude",
+                "opencode": 42
+            }
+        }))
+        .expect("partial settings parse");
+        assert!(partial.auto_save);
+        assert_eq!(
+            partial.local_agent_executable_paths.claude,
+            "/opt/homebrew/bin/claude"
+        );
+        assert_eq!(partial.local_agent_executable_paths.codex, "");
+        assert_eq!(partial.local_agent_executable_paths.opencode, "");
+
+        let malformed: Settings = serde_json::from_value(serde_json::json!({
+            "autoSave": true,
+            "localAgentExecutablePaths": "not-an-object"
+        }))
+        .expect("malformed path object should not discard other settings");
+        assert!(malformed.auto_save);
+        assert_eq!(malformed.local_agent_executable_paths.claude, "");
+
+        let serialized = serde_json::to_value(partial).expect("settings serialize");
+        assert_eq!(
+            serialized["localAgentExecutablePaths"]["claude"],
+            "/opt/homebrew/bin/claude"
+        );
+        assert_eq!(serialized["localAgentExecutablePaths"]["codex"], "");
+        assert_eq!(serialized["localAgentExecutablePaths"]["opencode"], "");
     }
 }

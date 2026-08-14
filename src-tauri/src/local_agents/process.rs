@@ -3582,6 +3582,7 @@ mod tests {
             cursor: None,
             source,
             instruction: "private instruction".to_string(),
+            executable_path: None,
         }
     }
 
@@ -5017,6 +5018,7 @@ mod tests {
             cursor: None,
             source,
             instruction: "private instruction".to_string(),
+            executable_path: None,
         };
         let registry = Arc::new(Mutex::new(ProcessGroupRegistry::default()));
         let mut owned_temp = create_owned_temp_dir().unwrap();

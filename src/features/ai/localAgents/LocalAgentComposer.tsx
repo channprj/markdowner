@@ -9,6 +9,7 @@ import {
   localAgentRun,
   localAgentStatuses,
 } from "@/lib/desktop";
+import type { LocalAgentExecutablePaths } from "@/lib/settings";
 
 import { filterLocalAgentMentions } from "./mentions";
 import {
@@ -26,7 +27,7 @@ import type {
 } from "./types";
 
 export interface LocalAgentComposerServices {
-  listStatuses: () => Promise<LocalAgentStatus[]>;
+  listStatuses: (paths: LocalAgentExecutablePaths) => Promise<LocalAgentStatus[]>;
   run: (
     request: LocalAgentRunRequest,
     onEvent: (event: LocalAgentStreamEvent) => void,
@@ -41,6 +42,7 @@ export interface LocalAgentComposerProps {
   preferredAgent?: LocalAgentKind | null;
   initialInstruction?: string;
   initialTarget?: LocalAgentTargetKind;
+  executablePaths: LocalAgentExecutablePaths;
   onDisclosureAcceptedChange: (accepted: boolean) => void;
   onClose: () => void;
   onResult: (
@@ -64,6 +66,7 @@ export function LocalAgentComposer({
   preferredAgent = null,
   initialInstruction = "",
   initialTarget = snapshot.kind,
+  executablePaths,
   onDisclosureAcceptedChange,
   onClose,
   onResult,
@@ -140,7 +143,7 @@ export function LocalAgentComposer({
     setStatusLoading(true);
     setStatusError("");
     void services
-      .listStatuses()
+      .listStatuses(executablePaths)
       .then((nextStatuses) => {
         if (mountedRef.current && statusGenerationRef.current === generation) {
           setStatuses(nextStatuses);
@@ -156,7 +159,7 @@ export function LocalAgentComposer({
           setStatusLoading(false);
         }
       });
-  }, [services]);
+  }, [executablePaths, services]);
 
   useEffect(() => {
     if (mentionOpen) {
@@ -280,6 +283,7 @@ export function LocalAgentComposer({
       selectedAgent,
       requestId,
       trimmedInstruction,
+      executablePaths[selectedAgent],
     );
     if (!request) return;
     const generation = runGenerationRef.current + 1;
@@ -653,6 +657,7 @@ function requestFromSnapshot(
   agent: LocalAgentKind,
   requestId: string,
   instruction: string,
+  executablePath: string,
 ): LocalAgentRunRequest | null {
   if (!isValidLocalAgentTargetSnapshot(snapshot)) return null;
   if (snapshot.kind === "document") {
@@ -665,6 +670,7 @@ function requestFromSnapshot(
       selection: null,
       cursor: null,
       instruction,
+      executablePath: executablePath.trim() || null,
     };
   }
   if (!snapshot.byteRange) return null;
@@ -677,6 +683,7 @@ function requestFromSnapshot(
     selection: snapshot.kind === "selection" ? { ...snapshot.byteRange } : null,
     cursor: snapshot.kind === "insert" ? snapshot.byteRange.start : null,
     instruction,
+    executablePath: executablePath.trim() || null,
   };
 }
 
