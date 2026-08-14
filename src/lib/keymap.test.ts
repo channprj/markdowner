@@ -40,6 +40,16 @@ describe('keymap descriptors', () => {
   it('binds AI Feature to command-shift-a by default', () => {
     expect(DEFAULT_SHELL_BINDINGS['view.toggleAiFeature']).toEqual({ key: 'a', shift: true });
   });
+
+  it('binds selected-text AI to command-shift-k by default', () => {
+    expect(DEFAULT_SHELL_BINDINGS['ai.runSelection']).toEqual({ key: 'k', shift: true });
+    expect(KEYMAP_ROWS).toContainEqual({
+      id: 'ai.runSelection',
+      commandId: 'ai.runSelection',
+      label: 'Run AI on Selection',
+      section: 'AI',
+    });
+  });
 });
 
 describe('resolveShellBindings', () => {
@@ -56,6 +66,13 @@ describe('resolveShellBindings', () => {
     });
     expect(bindings['file.newDocument']).toEqual({ key: 'n', shift: true });
     expect(bindings['file.save']).toEqual(DEFAULT_SHELL_BINDINGS['file.save']);
+  });
+
+  it('replaces the selected-text AI binding with a valid stored override', () => {
+    expect(resolveShellBindings({ 'ai.runSelection': 'mod+shift+l' })['ai.runSelection']).toEqual({
+      key: 'l',
+      shift: true,
+    });
   });
 });
 

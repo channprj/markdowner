@@ -42,8 +42,12 @@ vi.mock('@/components/wysiwyg/SkillTokenMenu', () => ({
 }));
 
 vi.mock('@/components/wysiwyg/SelectionToolbar', () => ({
-  SelectionToolbar: ({ enabled }: { enabled?: boolean }) => (
-    <div data-testid="selection-toolbar" data-enabled={String(Boolean(enabled))} />
+  SelectionToolbar: ({ enabled, aiShortcut }: { enabled?: boolean; aiShortcut?: string }) => (
+    <div
+      data-testid="selection-toolbar"
+      data-enabled={String(Boolean(enabled))}
+      data-ai-shortcut={aiShortcut ?? ''}
+    />
   ),
 }));
 
@@ -72,6 +76,7 @@ describe('WysiwygEditorChrome', () => {
         editor={editor}
         enabled
         skillNames={new Set(['goal', 'git-commit'])}
+        aiShortcut="⌘⇧K"
       />,
     );
 
@@ -81,6 +86,7 @@ describe('WysiwygEditorChrome', () => {
     expect(screen.getByTestId('skill-token-menu')).toHaveAttribute('data-enabled', 'true');
     expect(screen.getByTestId('skill-token-menu')).toHaveAttribute('data-skill-count', '2');
     expect(screen.getByTestId('selection-toolbar')).toHaveAttribute('data-enabled', 'true');
+    expect(screen.getByTestId('selection-toolbar')).toHaveAttribute('data-ai-shortcut', '⌘⇧K');
     expect(screen.getByTestId('link-popup')).toHaveAttribute('data-enabled', 'true');
     expect(screen.getByTestId('table-toolbar')).toHaveAttribute('data-enabled', 'true');
   });

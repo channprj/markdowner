@@ -309,7 +309,7 @@ import {
   resolveInlineStylePalette,
   resolveInlineStyleTone,
 } from './lib/inlineStylePalette';
-import { resolveShellBindings } from './lib/keymap';
+import { formatKeyBinding, resolveShellBindings } from './lib/keymap';
 import { loadSkillTokenNames } from './lib/skillTokens';
 import { moveTabToIndex } from './lib/tabDragReorder';
 import { moveTab } from './lib/tabs';
@@ -597,6 +597,11 @@ export default function App() {
   const [manualUpdateCheckInfo, setManualUpdateCheckInfo] = useState<UpdateInfo | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const shellBindings = useMemo(
+    () => resolveShellBindings(settings.keybindingOverrides),
+    [settings.keybindingOverrides],
+  );
+  const aiSelectionShortcut = formatKeyBinding(shellBindings['ai.runSelection']);
   const [aiSelectionSnapshot, setAiSelectionSnapshot] =
     useState<AiSelectionSnapshot | null>(null);
   const [aiSelectionPromptOpen, setAiSelectionPromptOpen] = useState(false);
@@ -6457,7 +6462,7 @@ export default function App() {
           isSidebarOpen,
           sidebarPanel,
         },
-        resolveShellBindings(settings.keybindingOverrides),
+        shellBindings,
       );
       if (shellShortcutAction.kind !== 'none') {
         event.preventDefault();
@@ -6485,6 +6490,9 @@ export default function App() {
             return;
           case 'reopenClosedTab':
             void handleReopenClosedTab();
+            return;
+          case 'runAiOnSelection':
+            openAiForCurrentSelection();
             return;
           case 'save':
             void handleSave();
@@ -7409,6 +7417,7 @@ export default function App() {
             enabled={currentMode === 'Wysiwyg'}
             skillNames={skillTokenNames}
             onAiSelection={handleWysiwygAiSelection}
+            aiShortcut={aiSelectionShortcut}
           />
         }
         sourceEditor={
@@ -7457,8 +7466,8 @@ export default function App() {
       activeTab?.kind === 'document' ? (
         <button
           type="button"
-          aria-label="AI prompt selected text"
-          title="Run a custom AI prompt on this selection"
+          aria-label={`AI prompt selected text (${aiSelectionShortcut})`}
+          title={`Run a custom AI prompt on this selection (${aiSelectionShortcut})`}
           className="fixed z-[70] inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-popover px-2.5 text-xs font-medium text-popover-foreground shadow-lg hover:bg-accent"
           style={{
             top: Math.max(

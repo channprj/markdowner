@@ -77,6 +77,7 @@ export type ShellShortcutAction =
   | { kind: 'openWorkspace' }
   | { kind: 'quit' }
   | { kind: 'reopenClosedTab' }
+  | { kind: 'runAiOnSelection' }
   | { kind: 'save' }
   | { kind: 'saveAs' }
   | { kind: 'showExplorerPanel' }
@@ -280,6 +281,9 @@ export function resolveShellShortcutAction(
   }
   if (matches('view.documentStats')) {
     return context.activeDocumentOpen ? { kind: 'toggleDocumentStats' } : { kind: 'none' };
+  }
+  if (matches('ai.runSelection')) {
+    return context.activeDocumentOpen ? { kind: 'runAiOnSelection' } : { kind: 'none' };
   }
   if (matches('file.openDocument')) {
     return { kind: 'openDocument' };

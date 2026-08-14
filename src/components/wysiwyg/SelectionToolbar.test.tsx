@@ -141,6 +141,24 @@ describe('SelectionToolbar', () => {
     expect(onAiSelection).toHaveBeenCalledWith({ from: 2, to: 6 });
   });
 
+  it('announces the effective shortcut on the AI action', async () => {
+    const editor = createSelectionEditor();
+
+    render(
+      <SelectionToolbar
+        editor={editor}
+        onAiSelection={vi.fn()}
+        aiShortcut="⌘⇧K"
+      />,
+    );
+    act(() => {
+      editor.emit('selectionUpdate');
+    });
+
+    const button = await screen.findByRole('button', { name: 'AI actions (⌘⇧K)' });
+    expect(button).toHaveAttribute('title', 'AI actions (⌘⇧K)');
+  });
+
   it('retains the exact Tiptap range when the live selection collapses before click', async () => {
     const editor = new Editor({
       element: document.createElement('div'),

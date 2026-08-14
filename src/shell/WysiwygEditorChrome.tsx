@@ -11,6 +11,7 @@ interface WysiwygEditorChromeProps {
   enabled: boolean;
   skillNames?: ReadonlySet<string>;
   onAiSelection?: (selection: { from: number; to: number }) => void;
+  aiShortcut?: string;
 }
 
 export function WysiwygEditorChrome({
@@ -18,6 +19,7 @@ export function WysiwygEditorChrome({
   enabled,
   skillNames,
   onAiSelection,
+  aiShortcut,
 }: WysiwygEditorChromeProps) {
   return (
     <>
@@ -36,6 +38,7 @@ export function WysiwygEditorChrome({
         editor={editor}
         enabled={enabled}
         onAiSelection={onAiSelection}
+        aiShortcut={aiShortcut}
       />
       <LinkPopup editor={editor} enabled={enabled} />
       <TableToolbar editor={editor} enabled={enabled} />

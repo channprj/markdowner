@@ -19,6 +19,7 @@ interface Props {
   /** When false, listeners are detached and nothing is rendered. */
   enabled?: boolean;
   onAiSelection?: (selection: { from: number; to: number }) => void;
+  aiShortcut?: string;
 }
 
 type Position = { top: number; left: number };
@@ -45,6 +46,7 @@ export function SelectionToolbar({
   editor,
   enabled = true,
   onAiSelection,
+  aiShortcut,
 }: Props) {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<Position>({ top: 0, left: 0 });
@@ -261,6 +263,7 @@ export function SelectionToolbar({
           <span aria-hidden className="selection-toolbar-separator" />
           <ToolbarButton
             label="AI actions"
+            shortcut={aiShortcut}
             active={false}
             onClick={() => {
               const selection = aiSelectionRef.current;
@@ -288,7 +291,7 @@ function ToolbarButton({ label, shortcut, active, onClick, children }: ToolbarBu
   return (
     <button
       type="button"
-      aria-label={label}
+      aria-label={shortcut ? `${label} (${shortcut})` : label}
       aria-pressed={active}
       title={shortcut ? `${label} (${shortcut})` : label}
       className={cn('selection-toolbar-button', active && 'is-active')}

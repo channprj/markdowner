@@ -32,6 +32,7 @@ export type ShellCommandId =
   | 'app.quit'
   | 'app.openSettings'
   | 'help.toggleShortcuts'
+  | 'ai.runSelection'
   | 'view.quickOpen'
   | 'view.commandPalette'
   | 'view.documentStats'
@@ -58,6 +59,7 @@ export const DEFAULT_SHELL_BINDINGS: ShellBindings = {
   'app.quit': { key: 'q' },
   'app.openSettings': { key: ',' },
   'help.toggleShortcuts': { key: '/' },
+  'ai.runSelection': { key: 'k', shift: true },
   'view.quickOpen': { key: 'p' },
   'view.commandPalette': { key: 'p', shift: true },
   'view.documentStats': { key: 'i', shift: true },
@@ -96,6 +98,7 @@ export const KEYMAP_ROWS: KeymapRow[] = [
   { id: 'app.quit', commandId: 'app.quit', label: 'Quit', section: 'General' },
   { id: 'app.openSettings', commandId: 'app.openSettings', label: 'Open Settings', section: 'General' },
   { id: 'help.toggleShortcuts', commandId: 'help.toggleShortcuts', label: 'Show keyboard shortcuts', section: 'General' },
+  { id: 'ai.runSelection', commandId: 'ai.runSelection', label: 'Run AI on Selection', section: 'AI' },
   { id: 'view.quickOpen', commandId: 'view.quickOpen', label: 'Quick Open', section: 'Navigation' },
   { id: 'view.commandPalette', commandId: 'view.commandPalette', label: 'Command Palette', section: 'Navigation' },
   { id: 'view.documentStats', commandId: 'view.documentStats', label: 'Document Stats', section: 'Navigation' },

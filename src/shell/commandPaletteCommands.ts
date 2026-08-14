@@ -6,6 +6,7 @@ import {
   type Settings,
 } from '@/lib/settings';
 import { EDITOR_MODE_OPTIONS } from '@/lib/shellDisplay';
+import { formatKeyBinding, resolveShellBindings } from '@/lib/keymap';
 import type { CommandPaletteCommand } from './CommandPalette';
 
 export type CommandPaletteActions = {
@@ -96,6 +97,9 @@ export function buildCommandPaletteCommands(
       : updateAvailable && latestUpdateVersion
         ? `Update to Latest Version (v${latestUpdateVersion})`
         : 'Update to Latest Version';
+  const aiSelectionShortcut = formatKeyBinding(
+    resolveShellBindings(settings.keybindingOverrides)['ai.runSelection'],
+  );
 
   return [
     {
@@ -255,6 +259,7 @@ export function buildCommandPaletteCommands(
       id: 'ai.runSelection',
       category: 'AI',
       label: 'AI: Run on Selection…',
+      shortcut: aiSelectionShortcut,
       disabled: !activeDocumentOpen || !hasActiveSelection,
       run: actions.runAiOnSelection,
     },

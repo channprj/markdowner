@@ -230,8 +230,24 @@ describe('buildCommandPaletteCommands', () => {
 
     const command = commands.find((candidate) => candidate.id === 'ai.runSelection');
     expect(command?.disabled).toBe(false);
+    expect(command?.shortcut).toBe('⌘⇧K');
     command?.run?.();
     expect(runAiOnSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the effective selected-text AI shortcut after rebinding', () => {
+    const commands = buildCommandPaletteCommands({
+      activeDocumentOpen: true,
+      hasActiveSelection: true,
+      canGoBack: true,
+      canGoForward: true,
+      settings: settings({
+        keybindingOverrides: { 'ai.runSelection': 'mod+shift+l' },
+      }),
+      actions: actions(),
+    });
+
+    expect(commands.find((command) => command.id === 'ai.runSelection')?.shortcut).toBe('⌘⇧L');
   });
 
   it('runs a local agent for any open document, including a collapsed caret', () => {

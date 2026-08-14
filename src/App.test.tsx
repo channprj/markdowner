@@ -1701,6 +1701,140 @@ describe('App recent documents', () => {
     expect(editor.markdown).toBe('alpha BETA');
   });
 
+  it('opens the exact Source selection with Cmd+Shift+K and prevents editor-native behavior', async () => {
+    const source = 'alpha beta';
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'selection.md',
+        activeDocumentPath: '/tmp/project/selection.md',
+        activeDocumentSource: source,
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByLabelText('Source editor');
+    const view = createMockSourceEditorView(6, 10);
+    await act(async () => {
+      sourceEditorMockState.lastProps.onCreateEditor(view);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(view.dispatch).toHaveBeenCalled());
+    view.state.selection.main = { anchor: 6, head: 10 };
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'K',
+      metaKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(
+      await screen.findByRole('dialog', { name: /prompt selected text/i }),
+    ).toBeVisible();
+    expect(screen.getByText('beta')).toBeVisible();
+  });
+
+  it('opens the exact WYSIWYG selection with Cmd+Shift+K', async () => {
+    const source = 'alpha beta';
+    const editor = createMockTiptapEditor(source, [{ text: source, from: 0 }]);
+    tiptapMockState.editor = editor;
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'selection.md',
+        activeDocumentPath: '/tmp/project/selection.md',
+        activeDocumentSource: source,
+        mode: 'Wysiwyg',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByTestId('mock-tiptap-editor');
+    act(() => {
+      editor.commands.setTextSelection({ from: 6, to: 10 });
+    });
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'K',
+      metaKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(
+      await screen.findByRole('dialog', { name: /prompt selected text/i }),
+    ).toBeVisible();
+    expect(screen.getByText('beta')).toBeVisible();
+  });
+
+  it('honours a selected-text AI rebind and stops handling Cmd+Shift+K', async () => {
+    const source = 'alpha beta';
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'load_settings') {
+        return {
+          keybindingOverrides: { 'ai.runSelection': 'mod+shift+l' },
+        };
+      }
+      return undefined;
+    });
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'selection.md',
+        activeDocumentPath: '/tmp/project/selection.md',
+        activeDocumentSource: source,
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByLabelText('Source editor');
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('load_settings');
+    });
+    const view = createMockSourceEditorView(6, 10);
+    await act(async () => {
+      sourceEditorMockState.lastProps.onCreateEditor(view);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(view.dispatch).toHaveBeenCalled());
+    view.state.selection.main = { anchor: 6, head: 10 };
+
+    const oldDefault = new KeyboardEvent('keydown', {
+      key: 'K',
+      metaKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(oldDefault);
+    expect(oldDefault.defaultPrevented).toBe(false);
+    expect(screen.queryByRole('dialog', { name: /prompt selected text/i })).toBeNull();
+
+    const rebound = new KeyboardEvent('keydown', {
+      key: 'L',
+      metaKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(rebound);
+
+    expect(rebound.defaultPrevented).toBe(true);
+    expect(
+      await screen.findByRole('dialog', { name: /prompt selected text/i }),
+    ).toBeVisible();
+    expect(screen.getByText('beta')).toBeVisible();
+  });
+
   it('keeps AI actions on OpenRouter and hands the captured selection to local agents', async () => {
     const source = 'alpha beta';
     const editor = createMockTiptapEditor(source, [{ text: source, from: 0 }]);
@@ -1726,7 +1860,7 @@ describe('App recent documents', () => {
       editor.emit('selectionUpdate');
     });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'AI actions' }));
+    fireEvent.click(await screen.findByRole('button', { name: /AI actions/ }));
     expect(
       await screen.findByRole('dialog', { name: /prompt selected text/i }),
     ).toBeVisible();
@@ -1768,7 +1902,7 @@ describe('App recent documents', () => {
       editor.emit('selectionUpdate');
     });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'AI actions' }));
+    fireEvent.click(await screen.findByRole('button', { name: /AI actions/ }));
 
     await waitFor(() => {
       expect(screen.getByTestId('shell-live-region')).toHaveTextContent(

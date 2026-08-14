@@ -246,8 +246,28 @@ describe('resolveShellShortcutAction', () => {
     [{ key: 'T', metaKey: true, shiftKey: true }, { kind: 'reopenClosedTab' }],
     [{ key: 'J', metaKey: true, shiftKey: true }, { kind: 'toggleFocusMode' }],
     [{ key: 'm', metaKey: true, shiftKey: true }, { kind: 'toggleTableViewMode' }],
+    [{ key: 'K', metaKey: true, shiftKey: true }, { kind: 'runAiOnSelection' }],
   ] as const)('resolves shell shortcut %o', (event, expected) => {
     expect(resolveShellShortcutAction(shortcutEvent(event), context)).toEqual(expected);
+  });
+
+  it('honours a selected-text AI override and stops matching its old default', () => {
+    const bindings = resolveShellBindings({ 'ai.runSelection': 'mod+shift+l' });
+
+    expect(
+      resolveShellShortcutAction(
+        shortcutEvent({ key: 'L', metaKey: true, shiftKey: true }),
+        context,
+        bindings,
+      ),
+    ).toEqual({ kind: 'runAiOnSelection' });
+    expect(
+      resolveShellShortcutAction(
+        shortcutEvent({ key: 'K', metaKey: true, shiftKey: true }),
+        context,
+        bindings,
+      ),
+    ).toEqual({ kind: 'none' });
   });
 
   it('routes Explorer shortcut to show or toggle based on the current sidebar panel', () => {
