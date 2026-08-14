@@ -71,6 +71,28 @@ describe('local agent executable path settings', () => {
   });
 });
 
+describe('file auto-save setting', () => {
+  it('defaults missing and malformed values off while preserving valid booleans', async () => {
+    invokeMock.mockReset();
+    for (const [stored, expected] of [
+      [undefined, false],
+      [false, false],
+      [true, true],
+      ['true', false],
+    ] as const) {
+      invokeMock.mockResolvedValueOnce({
+        aiModelDefaultsVersion: 1,
+        editorFontSize: 18,
+        ...(stored === undefined ? {} : { autoSave: stored }),
+      });
+      await expect(loadSettings()).resolves.toMatchObject({
+        autoSave: expected,
+        editorFontSize: 18,
+      });
+    }
+  });
+});
+
 describe('code block syntax highlighting settings', () => {
   it('defaults to One Dark with theme sync enabled', () => {
     expect(DEFAULT_SETTINGS.codeBlockTheme).toBe('one-dark');

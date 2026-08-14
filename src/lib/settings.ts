@@ -458,6 +458,9 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): {
   const migratedAiModelDefaults =
     storedAiModelDefaultsVersion < AI_MODEL_DEFAULTS_VERSION;
   const merged = { ...DEFAULT_SETTINGS, ...(value ?? {}) };
+  if (typeof merged.autoSave !== 'boolean') {
+    merged.autoSave = DEFAULT_SETTINGS.autoSave;
+  }
   merged.aiModelDefaultsVersion = storedAiModelDefaultsVersion;
   merged.editorFontSize = normalizeEditorFontSize(merged.editorFontSize);
   if (!Number.isFinite(merged.editorLineHeight) || merged.editorLineHeight <= 0) {

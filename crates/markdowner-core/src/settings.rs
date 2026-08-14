@@ -177,6 +177,7 @@ where
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
+    #[serde(deserialize_with = "deserialize_bool_or_false")]
     pub auto_save: bool,
     pub editor_font_size: u32,
     /// Unitless line-height multiplier; the frontend normalizes 0 → default.
@@ -848,5 +849,24 @@ mod tests {
         );
         assert_eq!(serialized["localAgentExecutablePaths"]["codex"], "");
         assert_eq!(serialized["localAgentExecutablePaths"]["opencode"], "");
+    }
+
+    #[test]
+    fn auto_save_defaults_off_and_malformed_values_do_not_discard_other_settings() {
+        for (value, expected) in [
+            (serde_json::Value::Null, false),
+            (serde_json::json!(false), false),
+            (serde_json::json!(true), true),
+            (serde_json::json!("true"), false),
+        ] {
+            let mut json = serde_json::json!({ "editorFontSize": 18 });
+            if !value.is_null() {
+                json["autoSave"] = value;
+            }
+            let parsed: Settings = serde_json::from_value(json)
+                .expect("autoSave should migrate without discarding settings");
+            assert_eq!(parsed.auto_save, expected);
+            assert_eq!(parsed.editor_font_size, 18);
+        }
     }
 }

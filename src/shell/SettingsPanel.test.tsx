@@ -94,6 +94,24 @@ describe('SettingsPanel update section', () => {
     expect(screen.queryByTestId('settings-analytics-section')).toBeNull();
   });
 
+  it('defines Auto Save to File separately from recovery backups', () => {
+    const onSettingsChange = vi.fn();
+    renderPanel({ onSettingsChange });
+
+    expect(
+      screen.getByText(
+        'Writes edits to the open file after 1 second. Recovery backups are always kept separately.',
+      ),
+    ).toBeInTheDocument();
+    const toggle = screen.getByRole('switch', { name: 'Auto Save to File' });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(toggle);
+    expect(onSettingsChange).toHaveBeenCalledWith({
+      ...DEFAULT_SETTINGS,
+      autoSave: true,
+    });
+  });
+
   it('shows the update action and fires onUpdateAction when available', () => {
     const onUpdateAction = vi.fn();
     renderPanel({ updateInfo: availableUpdate, onUpdateAction });

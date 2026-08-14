@@ -10684,7 +10684,7 @@ describe('App recent documents', () => {
     );
   });
 
-  it('does not auto-save when autoSave setting is disabled', async () => {
+  it('keeps recovery backups without writing the file when autoSave is disabled', async () => {
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {
         return {
@@ -10718,11 +10718,31 @@ describe('App recent documents', () => {
     render(<App />);
 
     const sourceEditor = await screen.findByLabelText('Source editor');
-    fireEvent.change(sourceEditor, { target: { value: '# Notes edited' } });
+    saveDraftBackupsMock.mockClear();
+    saveActiveDocumentMock.mockClear();
+    saveActiveDocumentAsMock.mockClear();
 
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(sourceEditor, { target: { value: '# Notes edited' } });
 
-    expect(saveActiveDocumentMock).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      expect(saveDraftBackupsMock).toHaveBeenCalledWith([
+        {
+          path: '/tmp/project/notes.md',
+          untitledId: null,
+          name: 'notes.md',
+          draft: '# Notes edited',
+        },
+      ]);
+      expect(saveActiveDocumentMock).not.toHaveBeenCalled();
+      expect(saveActiveDocumentAsMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('applies line wrapping to the source editor when editorLineWrap is enabled', async () => {

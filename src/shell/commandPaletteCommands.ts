@@ -393,7 +393,7 @@ export function buildCommandPaletteCommands(
     {
       id: 'preferences.toggleAutoSave',
       category: 'Preferences',
-      label: settings.autoSave ? 'Disable Auto Save' : 'Enable Auto Save',
+      label: settings.autoSave ? 'Disable Auto Save to File' : 'Enable Auto Save to File',
       run: () => actions.updateSettings({ ...settings, autoSave: !settings.autoSave }),
     },
     {

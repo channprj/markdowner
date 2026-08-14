@@ -858,9 +858,15 @@ export function SettingsPanel({
           <h4 className="text-sm font-medium leading-none">Editor Preferences</h4>
 
           <div className={switchFieldClass}>
-            <Label htmlFor="auto-save" className="text-sm">Auto Save</Label>
+            <Label htmlFor="auto-save" className="flex flex-col items-start gap-1 text-left">
+              <span>Auto Save to File</span>
+              <span className="text-xs font-normal leading-relaxed text-muted-foreground">
+                Writes edits to the open file after 1 second. Recovery backups are always kept separately.
+              </span>
+            </Label>
             <Switch
               id="auto-save"
+              aria-label="Auto Save to File"
               checked={settings.autoSave}
               onCheckedChange={(checked) => handleSettingChange('autoSave', checked)}
             />

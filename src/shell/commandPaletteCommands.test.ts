@@ -422,7 +422,17 @@ describe('buildCommandPaletteCommands', () => {
     expect(commands.find((command) => command.id === 'preferences.toggleWordBreakKeepAll')?.label)
       .toBe('Disable Word Break Keep All');
     expect(commands.find((command) => command.id === 'preferences.toggleAutoSave')?.label)
-      .toBe('Disable Auto Save');
+      .toBe('Disable Auto Save to File');
+
+    const enableAutoSave = buildCommandPaletteCommands({
+      activeDocumentOpen: true,
+      canGoBack: true,
+      canGoForward: true,
+      settings: { ...current, autoSave: false },
+      actions: actions({ updateSettings }),
+    });
+    expect(enableAutoSave.find((command) => command.id === 'preferences.toggleAutoSave')?.label)
+      .toBe('Enable Auto Save to File');
 
     commands.find((command) => command.id === 'preferences.toggleWordWrap')?.run?.();
     expect(updateSettings).toHaveBeenCalledWith({
