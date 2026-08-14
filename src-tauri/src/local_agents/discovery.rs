@@ -1149,25 +1149,38 @@ fn resolve_compatible_agent_with_runner_and_proof(
     resolve_compatible_from_paths_with_runner_and_proof(
         kind,
         manual_path,
-        home.as_deref(),
-        &paths,
-        environment_path,
         runner,
-        cancellation,
-        deadline,
+        CompatibleResolutionContext {
+            home: home.as_deref(),
+            paths: &paths,
+            environment_path,
+            cancellation,
+            deadline,
+        },
     )
+}
+
+struct CompatibleResolutionContext<'a> {
+    home: Option<&'a Path>,
+    paths: &'a [PathBuf],
+    environment_path: OsString,
+    cancellation: Option<&'a CancellationToken>,
+    deadline: Option<Instant>,
 }
 
 fn resolve_compatible_from_paths_with_runner_and_proof(
     kind: LocalAgentKind,
     manual_path: Option<&str>,
-    home: Option<&Path>,
-    paths: &[PathBuf],
-    environment_path: OsString,
     runner: &impl ProbeRunner,
-    cancellation: Option<&CancellationToken>,
-    deadline: Option<Instant>,
+    context: CompatibleResolutionContext<'_>,
 ) -> Result<(ResolvedAgent, ExecutableProof), LocalAgentError> {
+    let CompatibleResolutionContext {
+        home,
+        paths,
+        environment_path,
+        cancellation,
+        deadline,
+    } = context;
     let manual_configured = manual_path.is_some_and(|path| !path.trim().is_empty());
     if manual_configured {
         let (resolved, _) = resolve_candidate_from_paths(kind, manual_path, home, paths)?;
@@ -2079,10 +2092,11 @@ mod tests {
 
     use super::{
         BoundedProbeRunner, CAPABILITY_PROBE_TIMEOUT_REASON, CLAUDE_FLAGS_REASON,
-        CLAUDE_REQUIRED_FLAGS, CODEX_FEATURES_REASON, CancellableProbeRunner, ExecutableProof,
-        LOGIN_SHELL_PATH_BEGIN, LOGIN_SHELL_PATH_COMMAND, LOGIN_SHELL_PATH_END,
-        LOGIN_SHELL_PATH_LIMIT, MAX_EXECUTABLE_BYTES, OPEN_CODE_PERMISSIONS_REASON, PROBE_TIMEOUT,
-        ProbeOutput, ProbeRunner, STATUS_DISCOVERY_TIMEOUT, automatic_search_directories,
+        CLAUDE_REQUIRED_FLAGS, CODEX_FEATURES_REASON, CancellableProbeRunner,
+        CompatibleResolutionContext, ExecutableProof, LOGIN_SHELL_PATH_BEGIN,
+        LOGIN_SHELL_PATH_COMMAND, LOGIN_SHELL_PATH_END, LOGIN_SHELL_PATH_LIMIT,
+        MAX_EXECUTABLE_BYTES, OPEN_CODE_PERMISSIONS_REASON, PROBE_TIMEOUT, ProbeOutput,
+        ProbeRunner, STATUS_DISCOVERY_TIMEOUT, automatic_search_directories,
         codex_feature_probe_args, discover_automatic_kind_with_runner, evaluate_claude_help,
         evaluate_codex_features, evaluate_codex_help, evaluate_opencode_help, executable_sha256,
         executable_sha256_exact, login_shell_path_value_with_runner,
@@ -4061,12 +4075,14 @@ Usage: opencode debug config
         let (resolved, _) = resolve_compatible_from_paths_with_runner_and_proof(
             LocalAgentKind::Claude,
             None,
-            None,
-            &paths,
-            environment_path.clone(),
             &automatic_runner,
-            None,
-            None,
+            CompatibleResolutionContext {
+                home: None,
+                paths: &paths,
+                environment_path: environment_path.clone(),
+                cancellation: None,
+                deadline: None,
+            },
         )
         .unwrap();
         assert_eq!(resolved.path, automatic.canonicalize().unwrap());
@@ -4078,12 +4094,14 @@ Usage: opencode debug config
         let error = match resolve_compatible_from_paths_with_runner_and_proof(
             LocalAgentKind::Claude,
             Some(manual.to_str().unwrap()),
-            None,
-            &paths,
-            environment_path,
             &manual_runner,
-            None,
-            None,
+            CompatibleResolutionContext {
+                home: None,
+                paths: &paths,
+                environment_path,
+                cancellation: None,
+                deadline: None,
+            },
         ) {
             Err(error) => error,
             Ok(_) => panic!("an incompatible manual path unexpectedly fell back"),
