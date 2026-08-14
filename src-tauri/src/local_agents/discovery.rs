@@ -28,10 +28,14 @@ use super::{
 };
 
 pub(super) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+const STATUS_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(30);
 const PROBE_STDOUT_LIMIT: usize = 256 * 1024;
 const PROBE_STDERR_LIMIT: usize = 64 * 1024;
 const PROBE_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 const LOGIN_SHELL_PATH_LIMIT: usize = 64 * 1024;
+const LOGIN_SHELL_PATH_BEGIN: &str = "__MARKDOWNER_PATH_BEGIN_7F3A9C2E__";
+const LOGIN_SHELL_PATH_END: &str = "__MARKDOWNER_PATH_END_7F3A9C2E__";
+const LOGIN_SHELL_PATH_COMMAND: &str = "printf '\\n%s\\n%s\\n%s\\n' '__MARKDOWNER_PATH_BEGIN_7F3A9C2E__' \"$PATH\" '__MARKDOWNER_PATH_END_7F3A9C2E__'";
 const MAX_EXECUTABLE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_SHEBANG_BYTES: usize = 512;
 
@@ -702,6 +706,10 @@ impl<R: ProbeRunner> ProbeRunner for PinnedProbeRunner<'_, R> {
 
 struct BoundedProbeRunner;
 
+struct DeadlineProbeRunner {
+    deadline: Instant,
+}
+
 struct CancellableProbeRunner<'a> {
     cancellation: &'a CancellationToken,
     deadline: Instant,
@@ -721,6 +729,17 @@ impl ProbeRunner for BoundedProbeRunner {
         environment: &[(OsString, OsString)],
     ) -> Result<ProbeOutput, LocalAgentError> {
         run_bounded_probe(executable, args, environment, None, None)
+    }
+}
+
+impl ProbeRunner for DeadlineProbeRunner {
+    fn run(
+        &self,
+        executable: &Path,
+        args: &[OsString],
+        environment: &[(OsString, OsString)],
+    ) -> Result<ProbeOutput, LocalAgentError> {
+        run_bounded_probe(executable, args, environment, None, Some(self.deadline))
     }
 }
 
@@ -1017,13 +1036,23 @@ impl CapabilityEvaluation {
 }
 
 pub fn discover_all() -> Vec<LocalAgentStatus> {
-    discover_all_with_runner(&BoundedProbeRunner)
+    let deadline = Instant::now() + STATUS_DISCOVERY_TIMEOUT;
+    discover_all_with_runner_and_paths(
+        &DeadlineProbeRunner { deadline },
+        &markdowner_core::settings::LocalAgentExecutablePaths::default(),
+        Some(deadline),
+    )
 }
 
 pub(super) fn discover_all_with_paths(
     executable_paths: &markdowner_core::settings::LocalAgentExecutablePaths,
 ) -> Vec<LocalAgentStatus> {
-    discover_all_with_runner_and_paths(&BoundedProbeRunner, executable_paths)
+    let deadline = Instant::now() + STATUS_DISCOVERY_TIMEOUT;
+    discover_all_with_runner_and_paths(
+        &DeadlineProbeRunner { deadline },
+        executable_paths,
+        Some(deadline),
+    )
 }
 
 pub fn resolve_compatible_agent(kind: LocalAgentKind) -> Result<ResolvedAgent, LocalAgentError> {
@@ -1052,16 +1081,10 @@ pub(super) fn resolve_compatible_agent_cancellable(
     result
 }
 
-fn discover_all_with_runner(runner: &impl ProbeRunner) -> Vec<LocalAgentStatus> {
-    discover_all_with_runner_and_paths(
-        runner,
-        &markdowner_core::settings::LocalAgentExecutablePaths::default(),
-    )
-}
-
 fn discover_all_with_runner_and_paths(
     runner: &impl ProbeRunner,
     executable_paths: &markdowner_core::settings::LocalAgentExecutablePaths,
+    deadline: Option<Instant>,
 ) -> Vec<LocalAgentStatus> {
     let paths = current_search_path_directories_with_runner(runner);
     let environment_path = env::join_paths(&paths).unwrap_or_default();
@@ -1074,18 +1097,30 @@ fn discover_all_with_runner_and_paths(
                 LocalAgentKind::Codex => &executable_paths.codex,
                 LocalAgentKind::Opencode => &executable_paths.opencode,
             };
-            match resolve_candidate_from_paths(kind, Some(manual_path), home.as_deref(), &paths) {
-                Ok((resolved, source)) => probe_resolved_agent_with_environment_path(
-                    resolved,
+            if manual_path.trim().is_empty() {
+                discover_automatic_kind_with_runner_and_deadline(
+                    kind,
+                    &paths,
                     &environment_path,
                     runner,
-                    source,
-                ),
-                Err(error) => unavailable_status(
-                    kind,
-                    error,
-                    (!manual_path.trim().is_empty()).then_some(LocalAgentStatusSource::Manual),
-                ),
+                    deadline,
+                )
+            } else {
+                match resolve_candidate_from_paths(kind, Some(manual_path), home.as_deref(), &paths)
+                {
+                    Ok((resolved, source)) => {
+                        probe_resolved_agent_with_environment_path_and_deadline(
+                            resolved,
+                            &environment_path,
+                            runner,
+                            source,
+                            deadline,
+                        )
+                    }
+                    Err(error) => {
+                        unavailable_status(kind, error, Some(LocalAgentStatusSource::Manual))
+                    }
+                }
             }
         })
         .collect()
@@ -1111,7 +1146,70 @@ fn resolve_compatible_agent_with_runner_and_proof(
     let paths = current_search_path_directories_with_runner(runner);
     let environment_path = env::join_paths(&paths).map_err(|_| LocalAgentError::ProbeFailed)?;
     let home = env::var_os("HOME").map(PathBuf::from);
-    let (resolved, _) = resolve_candidate_from_paths(kind, manual_path, home.as_deref(), &paths)?;
+    resolve_compatible_from_paths_with_runner_and_proof(
+        kind,
+        manual_path,
+        home.as_deref(),
+        &paths,
+        environment_path,
+        runner,
+        cancellation,
+        deadline,
+    )
+}
+
+fn resolve_compatible_from_paths_with_runner_and_proof(
+    kind: LocalAgentKind,
+    manual_path: Option<&str>,
+    home: Option<&Path>,
+    paths: &[PathBuf],
+    environment_path: OsString,
+    runner: &impl ProbeRunner,
+    cancellation: Option<&CancellationToken>,
+    deadline: Option<Instant>,
+) -> Result<(ResolvedAgent, ExecutableProof), LocalAgentError> {
+    let manual_configured = manual_path.is_some_and(|path| !path.trim().is_empty());
+    if manual_configured {
+        let (resolved, _) = resolve_candidate_from_paths(kind, manual_path, home, paths)?;
+        return prove_compatible_resolved_agent(
+            resolved,
+            environment_path,
+            runner,
+            cancellation,
+            deadline,
+        );
+    }
+
+    let candidates = resolve_all_from_paths(kind, paths);
+    let mut first_failure = None;
+    for resolved in candidates {
+        ensure_probe_active(cancellation, deadline)?;
+        match prove_compatible_resolved_agent(
+            resolved,
+            environment_path.clone(),
+            runner,
+            cancellation,
+            deadline,
+        ) {
+            Ok(compatible) => return Ok(compatible),
+            Err(error) => {
+                ensure_probe_active(cancellation, deadline)?;
+                if first_failure.is_none() {
+                    first_failure = Some(error);
+                }
+            }
+        }
+    }
+    Err(first_failure.unwrap_or(LocalAgentError::NotInstalled))
+}
+
+fn prove_compatible_resolved_agent(
+    resolved: ResolvedAgent,
+    environment_path: OsString,
+    runner: &impl ProbeRunner,
+    cancellation: Option<&CancellationToken>,
+    deadline: Option<Instant>,
+) -> Result<(ResolvedAgent, ExecutableProof), LocalAgentError> {
     let proof = ExecutableProof::capture_with_constraints(
         &resolved.path,
         environment_path,
@@ -1125,8 +1223,11 @@ fn resolve_compatible_agent_with_runner_and_proof(
 
 fn current_search_path_directories_with_runner(runner: &impl ProbeRunner) -> Vec<PathBuf> {
     let gui_path = env::var_os("PATH");
+    let home = env::var_os("HOME").map(PathBuf::from);
     let shell = env::var_os("SHELL").unwrap_or_else(|| OsString::from("/bin/sh"));
-    let paths = search_path_directories_with_runner(gui_path.as_deref(), Path::new(&shell), runner);
+    let login_path = login_shell_path_value_with_runner(Path::new(&shell), runner).ok();
+    let paths =
+        automatic_search_directories(gui_path.as_deref(), login_path.as_deref(), home.as_deref());
     normalized_search_path_directories(paths).unwrap_or_default()
 }
 
@@ -1147,7 +1248,7 @@ fn login_shell_path_value_with_runner(
         &[
             OsString::from("-l"),
             OsString::from("-c"),
-            OsString::from("printf %s \"$PATH\""),
+            OsString::from(LOGIN_SHELL_PATH_COMMAND),
         ],
         &[],
     )?;
@@ -1157,18 +1258,39 @@ fn login_shell_path_value_with_runner(
     if output.stdout.len() > LOGIN_SHELL_PATH_LIMIT || output.stderr.len() > PROBE_STDERR_LIMIT {
         return Err(LocalAgentError::ProbeOutputTooLarge);
     }
-    let path =
-        std::str::from_utf8(&output.stdout).map_err(|_| LocalAgentError::MalformedProbeOutput)?;
-    if path.is_empty()
-        || path
-            .bytes()
-            .any(|byte| matches!(byte, b'\0' | b'\n' | b'\r'))
-    {
+    parse_login_shell_path_output(&output.stdout)
+}
+
+fn parse_login_shell_path_output(output: &[u8]) -> Result<OsString, LocalAgentError> {
+    let lines = output.split(|byte| *byte == b'\n').collect::<Vec<_>>();
+    let begin = LOGIN_SHELL_PATH_BEGIN.as_bytes();
+    let end = LOGIN_SHELL_PATH_END.as_bytes();
+    let mut open_frame = None;
+    let mut final_frame = None;
+    for (index, line) in lines.iter().enumerate() {
+        if *line == begin {
+            open_frame = Some(index);
+        } else if *line == end
+            && let Some(begin_index) = open_frame
+            && begin_index < index
+        {
+            final_frame = Some((begin_index, index));
+            open_frame = None;
+        }
+    }
+    let (begin_index, end_index) = final_frame.ok_or(LocalAgentError::MalformedProbeOutput)?;
+    if end_index != begin_index + 2 {
         return Err(LocalAgentError::MalformedProbeOutput);
     }
+    let path = lines[begin_index + 1];
+    if path.is_empty() || path.iter().any(|byte| matches!(byte, b'\0' | b'\r')) {
+        return Err(LocalAgentError::MalformedProbeOutput);
+    }
+    let path = std::str::from_utf8(path).map_err(|_| LocalAgentError::MalformedProbeOutput)?;
     Ok(OsString::from(path))
 }
 
+#[cfg(test)]
 fn search_path_directories_with_runner(
     gui_path: Option<&OsStr>,
     shell: &Path,
@@ -1184,6 +1306,41 @@ fn search_path_directories(gui_path: Option<&OsStr>, login_path: Option<&OsStr>)
         .into_iter()
         .chain(login_path)
         .flat_map(env::split_paths)
+        .filter(|path| path.is_absolute())
+        .filter(|path| {
+            let identity = path.canonicalize().unwrap_or_else(|_| path.clone());
+            seen.insert(identity)
+        })
+        .collect()
+}
+
+fn automatic_search_directories(
+    gui_path: Option<&OsStr>,
+    login_path: Option<&OsStr>,
+    home: Option<&Path>,
+) -> Vec<PathBuf> {
+    let mut paths = search_path_directories(gui_path, login_path);
+    paths.extend([
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+        PathBuf::from("/usr/bin"),
+        PathBuf::from("/bin"),
+    ]);
+    if let Some(home) = home.filter(|path| path.is_absolute()) {
+        paths.extend([
+            home.join(".local/bin"),
+            home.join(".opencode/bin"),
+            home.join(".bun/bin"),
+            home.join(".cargo/bin"),
+            home.join(".volta/bin"),
+            home.join(".npm-global/bin"),
+            home.join(".local/share/pnpm"),
+            home.join("Library/pnpm"),
+        ]);
+    }
+    let mut seen = HashSet::new();
+    paths
+        .into_iter()
         .filter(|path| path.is_absolute())
         .filter(|path| {
             let identity = path.canonicalize().unwrap_or_else(|_| path.clone());
@@ -1218,23 +1375,34 @@ fn normalized_environment_path(path: &OsStr) -> Result<OsString, LocalAgentError
         .ok_or(LocalAgentError::ProbeFailed)
 }
 
-fn resolve_from_paths(kind: LocalAgentKind, paths: &[PathBuf]) -> Option<ResolvedAgent> {
+fn resolve_all_from_paths(kind: LocalAgentKind, paths: &[PathBuf]) -> Vec<ResolvedAgent> {
     let basename = kind.executable_basename();
-    paths.iter().find_map(|directory| {
-        let candidate = directory.join(basename);
-        if !is_executable_file(&candidate) {
-            return None;
-        }
-        let canonical_path = candidate.canonicalize().ok()?;
-        if !canonical_path.is_absolute() || !is_executable_file(&canonical_path) {
-            return None;
-        }
-        Some(ResolvedAgent {
-            kind,
-            path_label: redacted_path_label(basename),
-            path: canonical_path,
+    let mut seen = HashSet::new();
+    paths
+        .iter()
+        .filter_map(|directory| {
+            let candidate = directory.join(basename);
+            if !is_executable_file(&candidate) {
+                return None;
+            }
+            let canonical_path = candidate.canonicalize().ok()?;
+            if !canonical_path.is_absolute()
+                || !is_executable_file(&canonical_path)
+                || !seen.insert(canonical_path.clone())
+            {
+                return None;
+            }
+            Some(ResolvedAgent {
+                kind,
+                path_label: redacted_path_label(basename),
+                path: canonical_path,
+            })
         })
-    })
+        .collect()
+}
+
+fn resolve_from_paths(kind: LocalAgentKind, paths: &[PathBuf]) -> Option<ResolvedAgent> {
+    resolve_all_from_paths(kind, paths).into_iter().next()
 }
 
 fn resolve_candidate_from_paths(
@@ -1331,6 +1499,42 @@ fn unavailable_status(
 }
 
 #[cfg(test)]
+fn discover_automatic_kind_with_runner(
+    kind: LocalAgentKind,
+    paths: &[PathBuf],
+    environment_path: &OsStr,
+    runner: &impl ProbeRunner,
+) -> LocalAgentStatus {
+    discover_automatic_kind_with_runner_and_deadline(kind, paths, environment_path, runner, None)
+}
+
+fn discover_automatic_kind_with_runner_and_deadline(
+    kind: LocalAgentKind,
+    paths: &[PathBuf],
+    environment_path: &OsStr,
+    runner: &impl ProbeRunner,
+    deadline: Option<Instant>,
+) -> LocalAgentStatus {
+    let mut first_failure = None;
+    for resolved in resolve_all_from_paths(kind, paths) {
+        let status = probe_resolved_agent_with_environment_path_and_deadline(
+            resolved,
+            environment_path,
+            runner,
+            LocalAgentStatusSource::Automatic,
+            deadline,
+        );
+        if status.compatible {
+            return status;
+        }
+        if first_failure.is_none() {
+            first_failure = Some(status);
+        }
+    }
+    first_failure.unwrap_or_else(|| unavailable_status(kind, LocalAgentError::NotInstalled, None))
+}
+
+#[cfg(test)]
 fn probe_resolved_agent(resolved: ResolvedAgent, runner: &impl ProbeRunner) -> LocalAgentStatus {
     let environment_path = sanitized_path_value(env::var_os("PATH").as_deref()).unwrap_or_default();
     probe_resolved_agent_with_environment_path(
@@ -1341,11 +1545,28 @@ fn probe_resolved_agent(resolved: ResolvedAgent, runner: &impl ProbeRunner) -> L
     )
 }
 
+#[cfg(test)]
 fn probe_resolved_agent_with_environment_path(
     resolved: ResolvedAgent,
     environment_path: &OsStr,
     runner: &impl ProbeRunner,
     source: LocalAgentStatusSource,
+) -> LocalAgentStatus {
+    probe_resolved_agent_with_environment_path_and_deadline(
+        resolved,
+        environment_path,
+        runner,
+        source,
+        None,
+    )
+}
+
+fn probe_resolved_agent_with_environment_path_and_deadline(
+    resolved: ResolvedAgent,
+    environment_path: &OsStr,
+    runner: &impl ProbeRunner,
+    source: LocalAgentStatusSource,
+    deadline: Option<Instant>,
 ) -> LocalAgentStatus {
     let kind = resolved.kind;
     let mut status = LocalAgentStatus {
@@ -1364,7 +1585,7 @@ fn probe_resolved_agent_with_environment_path(
         &resolved.path,
         environment_path.to_owned(),
         None,
-        None,
+        deadline,
     ) {
         Ok(proof) => proof,
         Err(error) => {
@@ -1376,7 +1597,7 @@ fn probe_resolved_agent_with_environment_path(
         inner: runner,
         proof: &proof,
         cancellation: None,
-        deadline: None,
+        deadline,
     };
 
     let version = match probe_version(&resolved, &runner) {
@@ -1859,14 +2080,18 @@ mod tests {
     use super::{
         BoundedProbeRunner, CAPABILITY_PROBE_TIMEOUT_REASON, CLAUDE_FLAGS_REASON,
         CLAUDE_REQUIRED_FLAGS, CODEX_FEATURES_REASON, CancellableProbeRunner, ExecutableProof,
+        LOGIN_SHELL_PATH_BEGIN, LOGIN_SHELL_PATH_COMMAND, LOGIN_SHELL_PATH_END,
         LOGIN_SHELL_PATH_LIMIT, MAX_EXECUTABLE_BYTES, OPEN_CODE_PERMISSIONS_REASON, PROBE_TIMEOUT,
-        ProbeOutput, ProbeRunner, codex_feature_probe_args, evaluate_claude_help,
+        ProbeOutput, ProbeRunner, STATUS_DISCOVERY_TIMEOUT, automatic_search_directories,
+        codex_feature_probe_args, discover_automatic_kind_with_runner, evaluate_claude_help,
         evaluate_codex_features, evaluate_codex_help, evaluate_opencode_help, executable_sha256,
         executable_sha256_exact, login_shell_path_value_with_runner,
-        opencode_permissions_are_denied, parse_shebang_interpreter, probe_agent,
-        probe_agent_with_proof, probe_resolved_agent, probe_resolved_agent_with_environment_path,
-        resolve_candidate_from_paths, resolve_from_paths, search_path_directories,
-        search_path_directories_with_runner,
+        opencode_permissions_are_denied, parse_login_shell_path_output, parse_shebang_interpreter,
+        probe_agent, probe_agent_with_proof, probe_resolved_agent,
+        probe_resolved_agent_with_environment_path,
+        probe_resolved_agent_with_environment_path_and_deadline, resolve_all_from_paths,
+        resolve_candidate_from_paths, resolve_compatible_from_paths_with_runner_and_proof,
+        resolve_from_paths, search_path_directories, search_path_directories_with_runner,
     };
     use crate::local_agents::{
         LocalAgentError, LocalAgentKind, LocalAgentStatusSource, ResolvedAgent,
@@ -3427,6 +3652,18 @@ Usage: opencode debug config
         calls: Mutex<Vec<ProbeCall>>,
     }
 
+    fn framed_login_path(path: &[u8]) -> Vec<u8> {
+        [
+            LOGIN_SHELL_PATH_BEGIN.as_bytes(),
+            b"\n",
+            path,
+            b"\n",
+            LOGIN_SHELL_PATH_END.as_bytes(),
+            b"\n",
+        ]
+        .concat()
+    }
+
     impl ProbeRunner for ShellOutputRunner {
         fn run(
             &self,
@@ -3459,7 +3696,12 @@ Usage: opencode debug config
         let shell = Path::new("/private/fake-login-shell");
         let runner = ShellOutputRunner {
             success: true,
-            stdout: login_path.to_string_lossy().as_bytes().to_vec(),
+            stdout: [
+                b"Welcome back\n".as_slice(),
+                framed_login_path(login_path.to_string_lossy().as_bytes()).as_slice(),
+                b"session ready\n".as_slice(),
+            ]
+            .concat(),
             calls: Mutex::new(Vec::new()),
         };
 
@@ -3473,11 +3715,121 @@ Usage: opencode debug config
                 vec![
                     OsString::from("-l"),
                     OsString::from("-c"),
-                    OsString::from("printf %s \"$PATH\"")
+                    OsString::from(LOGIN_SHELL_PATH_COMMAND)
                 ],
                 Vec::new()
             )]
         );
+    }
+
+    #[test]
+    fn login_shell_path_uses_the_final_complete_frame_and_ignores_noise() {
+        let output = [
+            b"banner with MARKDOWNER_PATH_BEGIN text\n".as_slice(),
+            framed_login_path(b"/decoy/bin").as_slice(),
+            b"MARKDOWNER_PATH_END before another frame\n".as_slice(),
+            framed_login_path(b"/final/bin:/usr/bin").as_slice(),
+            b"post-session output\n".as_slice(),
+        ]
+        .concat();
+
+        assert_eq!(
+            parse_login_shell_path_output(&output).unwrap(),
+            OsString::from("/final/bin:/usr/bin")
+        );
+    }
+
+    #[test]
+    fn login_shell_path_rejects_missing_reversed_empty_and_malformed_frames() {
+        let cases = [
+            b"no markers".to_vec(),
+            format!(
+                "{}\n/path\n{}\n",
+                LOGIN_SHELL_PATH_END, LOGIN_SHELL_PATH_BEGIN
+            )
+            .into_bytes(),
+            framed_login_path(b""),
+            framed_login_path(b"/ok\r:/bad"),
+            framed_login_path(b"/ok\0:/bad"),
+            framed_login_path(b"/ok\n/second-line"),
+            framed_login_path(b"/ok:\xff"),
+        ];
+
+        for output in cases {
+            assert_eq!(
+                parse_login_shell_path_output(&output),
+                Err(LocalAgentError::MalformedProbeOutput)
+            );
+        }
+
+        let invalid_noise = [
+            b"\xff banner\n".as_slice(),
+            framed_login_path(b"/valid/bin").as_slice(),
+            b"\xfe trailer\n".as_slice(),
+        ]
+        .concat();
+        assert_eq!(
+            parse_login_shell_path_output(&invalid_noise).unwrap(),
+            OsString::from("/valid/bin")
+        );
+    }
+
+    #[test]
+    fn automatic_search_directories_append_fixed_and_absolute_home_paths_in_order() {
+        let temp = tempdir().unwrap();
+        let gui = temp.path().join("gui");
+        let login = temp.path().join("login");
+        fs::create_dir_all(&gui).unwrap();
+        fs::create_dir_all(&login).unwrap();
+        let gui_path = std::env::join_paths([&gui, &gui]).unwrap();
+        let login_path = std::env::join_paths([&login, &gui]).unwrap();
+
+        assert_eq!(
+            automatic_search_directories(Some(&gui_path), Some(&login_path), Some(temp.path()),),
+            vec![
+                gui,
+                login,
+                PathBuf::from("/opt/homebrew/bin"),
+                PathBuf::from("/usr/local/bin"),
+                PathBuf::from("/usr/bin"),
+                PathBuf::from("/bin"),
+                temp.path().join(".local/bin"),
+                temp.path().join(".opencode/bin"),
+                temp.path().join(".bun/bin"),
+                temp.path().join(".cargo/bin"),
+                temp.path().join(".volta/bin"),
+                temp.path().join(".npm-global/bin"),
+                temp.path().join(".local/share/pnpm"),
+                temp.path().join("Library/pnpm"),
+            ]
+        );
+
+        let fixed_only = automatic_search_directories(None, None, Some(Path::new("relative")));
+        assert_eq!(
+            fixed_only,
+            vec![
+                PathBuf::from("/opt/homebrew/bin"),
+                PathBuf::from("/usr/local/bin"),
+                PathBuf::from("/usr/bin"),
+                PathBuf::from("/bin"),
+            ]
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn automatic_search_finds_an_agent_only_in_a_standard_home_directory() {
+        let home = tempdir().unwrap();
+        let bin = home.path().join(".local/bin");
+        fs::create_dir_all(&bin).unwrap();
+        let executable = bin.join("claude");
+        create_executable(&executable);
+
+        let paths = automatic_search_directories(None, None, Some(home.path()));
+        let candidates = resolve_all_from_paths(LocalAgentKind::Claude, &paths);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].path, executable.canonicalize().unwrap());
     }
 
     #[test]
@@ -3568,6 +3920,182 @@ Usage: opencode debug config
             *calls += 1;
             Ok(output)
         }
+    }
+
+    struct OrderedClaudeRunner {
+        compatible_parent: Option<PathBuf>,
+        calls: Mutex<BTreeMap<PathBuf, usize>>,
+    }
+
+    impl ProbeRunner for OrderedClaudeRunner {
+        fn run(
+            &self,
+            executable: &Path,
+            _args: &[OsString],
+            _env: &[(OsString, OsString)],
+        ) -> Result<ProbeOutput, LocalAgentError> {
+            let parent = executable.parent().unwrap().to_path_buf();
+            let mut calls = self.calls.lock().unwrap();
+            let call = calls.entry(parent.clone()).or_default();
+            let output = if *call == 0 {
+                let version = if parent.ends_with("first") {
+                    "claude 1.0.0\n"
+                } else {
+                    "claude 2.0.0\n"
+                };
+                version.as_bytes().to_vec()
+            } else if self.compatible_parent.as_ref() == Some(&parent) {
+                CLAUDE_HELP.as_bytes().to_vec()
+            } else {
+                CLAUDE_HELP
+                    .replace("--json-schema", "--json-schema-v2")
+                    .into_bytes()
+            };
+            *call += 1;
+            Ok(ProbeOutput {
+                success: true,
+                stdout: output,
+                stderr: Vec::new(),
+            })
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn automatic_discovery_skips_incompatible_candidates_and_keeps_first_failure() {
+        let temp = tempdir().unwrap();
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        create_executable(&first.join("claude"));
+        create_executable(&second.join("claude"));
+        let environment_path = std::env::join_paths([&first, &second]).unwrap();
+        let runner = OrderedClaudeRunner {
+            compatible_parent: Some(second.canonicalize().unwrap()),
+            calls: Mutex::new(BTreeMap::new()),
+        };
+
+        let status = discover_automatic_kind_with_runner(
+            LocalAgentKind::Claude,
+            &[first.clone(), second.clone()],
+            &environment_path,
+            &runner,
+        );
+        assert!(status.compatible);
+        assert_eq!(status.version.as_deref(), Some("2.0.0"));
+        assert_eq!(status.source, Some(LocalAgentStatusSource::Automatic));
+
+        let all_incompatible = OrderedClaudeRunner {
+            compatible_parent: None,
+            calls: Mutex::new(BTreeMap::new()),
+        };
+        let status = discover_automatic_kind_with_runner(
+            LocalAgentKind::Claude,
+            &[first, second],
+            &environment_path,
+            &all_incompatible,
+        );
+        assert!(!status.compatible);
+        assert_eq!(status.version.as_deref(), Some("1.0.0"));
+        assert_eq!(status.reason.as_deref(), Some(CLAUDE_FLAGS_REASON));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn automatic_discovery_skips_an_unsafe_executable_before_a_compatible_one() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempdir().unwrap();
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        let unsafe_executable = first.join("claude");
+        create_executable(&unsafe_executable);
+        fs::set_permissions(&unsafe_executable, fs::Permissions::from_mode(0o777)).unwrap();
+        create_executable(&second.join("claude"));
+        let environment_path = std::env::join_paths([&first, &second]).unwrap();
+        let runner = OrderedClaudeRunner {
+            compatible_parent: Some(second.canonicalize().unwrap()),
+            calls: Mutex::new(BTreeMap::new()),
+        };
+
+        let status = discover_automatic_kind_with_runner(
+            LocalAgentKind::Claude,
+            &[first.clone(), second.clone()],
+            &environment_path,
+            &runner,
+        );
+
+        assert!(status.compatible);
+        assert_eq!(status.version.as_deref(), Some("2.0.0"));
+        assert!(
+            !runner
+                .calls
+                .lock()
+                .unwrap()
+                .contains_key(&first.canonicalize().unwrap())
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn compatible_resolution_falls_back_automatically_but_never_after_manual_failure() {
+        let temp = tempdir().unwrap();
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        let manual = first.join("claude");
+        let automatic = second.join("claude");
+        create_executable(&manual);
+        create_executable(&automatic);
+        let paths = [first.clone(), second.clone()];
+        let environment_path = std::env::join_paths(&paths).unwrap();
+
+        let automatic_runner = OrderedClaudeRunner {
+            compatible_parent: Some(second.canonicalize().unwrap()),
+            calls: Mutex::new(BTreeMap::new()),
+        };
+        let (resolved, _) = resolve_compatible_from_paths_with_runner_and_proof(
+            LocalAgentKind::Claude,
+            None,
+            None,
+            &paths,
+            environment_path.clone(),
+            &automatic_runner,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(resolved.path, automatic.canonicalize().unwrap());
+
+        let manual_runner = OrderedClaudeRunner {
+            compatible_parent: Some(second.canonicalize().unwrap()),
+            calls: Mutex::new(BTreeMap::new()),
+        };
+        let error = match resolve_compatible_from_paths_with_runner_and_proof(
+            LocalAgentKind::Claude,
+            Some(manual.to_str().unwrap()),
+            None,
+            &paths,
+            environment_path,
+            &manual_runner,
+            None,
+            None,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("an incompatible manual path unexpectedly fell back"),
+        };
+        assert_eq!(error, LocalAgentError::Incompatible(CLAUDE_FLAGS_REASON));
+        assert!(
+            !manual_runner
+                .calls
+                .lock()
+                .unwrap()
+                .contains_key(&second.canonicalize().unwrap())
+        );
     }
 
     #[test]
@@ -3714,6 +4242,38 @@ Usage: opencode debug config
                 .unwrap()
                 .contains(temp.path().to_string_lossy().as_ref())
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn status_discovery_has_a_total_deadline_before_spawning_more_probes() {
+        assert_eq!(STATUS_DISCOVERY_TIMEOUT, Duration::from_secs(30));
+        let temp = tempdir().unwrap();
+        let executable = temp.path().join("claude");
+        create_executable(&executable);
+        let resolved = ResolvedAgent {
+            kind: LocalAgentKind::Claude,
+            path: executable.canonicalize().unwrap(),
+            path_label: "bin/claude".to_string(),
+        };
+        let runner = IncompatibleClaudeRunner {
+            calls: Mutex::new(0),
+        };
+
+        let status = probe_resolved_agent_with_environment_path_and_deadline(
+            resolved,
+            OsStr::new("/usr/bin:/bin"),
+            &runner,
+            LocalAgentStatusSource::Automatic,
+            Some(Instant::now()),
+        );
+
+        assert!(!status.compatible);
+        assert_eq!(
+            status.reason.as_deref(),
+            Some(CAPABILITY_PROBE_TIMEOUT_REASON)
+        );
+        assert_eq!(*runner.calls.lock().unwrap(), 0);
     }
 
     #[test]
