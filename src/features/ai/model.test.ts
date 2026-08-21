@@ -175,7 +175,7 @@ describe('AI estimates and run gates', () => {
     ).toBe('confirm');
   });
 
-  it('blocks unknown cost and never truncates scope limits', () => {
+  it('confirms unknown cost while never truncating scope limits', () => {
     expect(
       resolveRunGate({
         scope: 'document',
@@ -199,7 +199,7 @@ describe('AI estimates and run gates', () => {
         contextLength: 1_000_000,
         maxCostUsd: null,
       }),
-    ).toMatchObject({ kind: 'blocked', code: 'unknown_cost' });
+    ).toMatchObject({ kind: 'confirm', code: 'unknown_cost' });
   });
 });
 

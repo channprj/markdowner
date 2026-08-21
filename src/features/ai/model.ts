@@ -116,8 +116,12 @@ export interface AiRunGateInput {
 
 export type AiRunGate =
   | { kind: 'ready'; code: null; reason: null }
-  | { kind: 'confirm'; code: 'high_cost' | 'context_pressure'; reason: string }
-  | { kind: 'blocked'; code: 'input_limit' | 'unknown_cost'; reason: string };
+  | {
+      kind: 'confirm';
+      code: 'high_cost' | 'context_pressure' | 'unknown_cost';
+      reason: string;
+    }
+  | { kind: 'blocked'; code: 'input_limit'; reason: string };
 
 export interface TranslationLanguage {
   code: string;
@@ -280,9 +284,10 @@ export function resolveRunGate(input: AiRunGateInput): AiRunGate {
   }
   if (input.maxCostUsd === null) {
     return {
-      kind: 'blocked',
+      kind: 'confirm',
       code: 'unknown_cost',
-      reason: 'Eligible endpoint pricing is unavailable. Confirm pricing before running.',
+      reason:
+        'Eligible endpoint pricing is unavailable. Confirm that you want to run without a cost estimate.',
     };
   }
   if (input.maxCostUsd >= 1) {
