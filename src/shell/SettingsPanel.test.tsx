@@ -39,7 +39,7 @@ vi.mock('@/lib/desktop', () => ({
   aiSaveKey: vi.fn(),
   aiVerifyKey: vi.fn(),
   aiDeleteKey: vi.fn(),
-  localAgentStatuses: vi.fn(),
+  localAgentStatuses: vi.fn().mockResolvedValue([]),
 }));
 
 const availableUpdate: UpdateInfo = {

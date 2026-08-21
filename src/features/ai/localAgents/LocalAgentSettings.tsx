@@ -83,6 +83,7 @@ export function LocalAgentSettings({
     setError('');
     try {
       const next = await resolvedServices.listStatuses(paths);
+      if (!Array.isArray(next)) throw new Error('Malformed local agent status payload.');
       if (refreshGeneration.current === generation) setStatuses(next);
     } catch {
       if (refreshGeneration.current === generation) {

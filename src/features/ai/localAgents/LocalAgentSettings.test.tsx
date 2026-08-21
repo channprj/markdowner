@@ -147,14 +147,14 @@ describe('LocalAgentSettings', () => {
       expect.stringContaining('OpenCode'),
     ]);
 
-    await waitFor(() => expect(listStatuses).toHaveBeenCalledWith(executablePaths));
+    await waitFor(() => expect(screen.getByText('Compatible')).toBeInTheDocument());
 
     expect(screen.getAllByTestId('local-agent-status-row').map((row) => row.textContent)).toEqual([
       expect.stringContaining('Claude Code'),
       expect.stringContaining('Codex'),
       expect.stringContaining('OpenCode'),
     ]);
-    expect(screen.getByText('Compatible')).toBeInTheDocument();
+    expect(listStatuses).toHaveBeenCalledWith(executablePaths);
     expect(screen.getByText('Incompatible')).toBeInTheDocument();
     expect(screen.getByText('Not installed')).toBeInTheDocument();
     expect(screen.getAllByTestId('local-agent-status-row')[0]).toHaveTextContent('Version 2.1.0');
@@ -192,6 +192,23 @@ describe('LocalAgentSettings', () => {
       'Could not refresh local agent status.',
     );
     expect(alert).not.toHaveTextContent(/AcmeSensitiveProvider|sk-local-secret|private\/tmp/i);
+    expect(screen.getAllByTestId('local-agent-status-row')).toHaveLength(3);
+  });
+
+  it('fails safely when the desktop bridge returns a malformed status payload', async () => {
+    render(
+      <LocalAgentSettings
+        disclosureAccepted
+        onDisclosureAcceptedChange={vi.fn()}
+        executablePaths={executablePaths}
+        onExecutablePathsChange={vi.fn()}
+        services={{ listStatuses: vi.fn().mockResolvedValue(undefined) }}
+      />,
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not refresh local agent status.',
+    );
     expect(screen.getAllByTestId('local-agent-status-row')).toHaveLength(3);
   });
 
