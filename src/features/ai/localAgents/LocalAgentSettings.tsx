@@ -93,6 +93,10 @@ export function LocalAgentSettings({
     }
   };
 
+  useEffect(() => {
+    void refresh(executablePathsRef.current);
+  }, []);
+
   const persistExecutablePath = async (kind: LocalAgentKind, path: string) => {
     const trimmed = path.trim();
     dirtyPathsRef.current.delete(kind);

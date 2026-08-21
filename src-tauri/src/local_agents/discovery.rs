@@ -62,6 +62,8 @@ pub(super) const CODEX_DENIED_FEATURES: &[&str] = &[
     "hooks",
     "image_generation",
     "in_app_browser",
+    "in_app_chat",
+    "in_app_dictation",
     "in_app_updates",
     "memories",
     "multi_agent",
@@ -2130,6 +2132,8 @@ guardian_approval experimental false
 hooks experimental false
 image_generation experimental false
 in_app_browser experimental false
+in_app_chat stable false
+in_app_dictation stable false
 in_app_updates stable false
 memories experimental false
 multi_agent experimental false
@@ -2526,6 +2530,8 @@ Usage: opencode debug config
             "hooks",
             "image_generation",
             "in_app_browser",
+            "in_app_chat",
+            "in_app_dictation",
             "in_app_updates",
             "memories",
             "multi_agent",

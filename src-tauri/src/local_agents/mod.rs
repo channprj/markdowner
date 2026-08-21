@@ -1512,11 +1512,26 @@ mod tests {
     #[tokio::test]
     #[ignore = "live smoke test for locally authenticated agent CLIs"]
     async fn run_installed_agents_end_to_end() {
+        let selected_agent = std::env::var("MARKDOWNER_LIVE_AGENT").ok();
+        if let Some(selected_agent) = selected_agent.as_deref() {
+            assert!(
+                LocalAgentKind::ALL
+                    .iter()
+                    .any(|agent| agent.executable_basename() == selected_agent),
+                "MARKDOWNER_LIVE_AGENT must name a supported executable"
+            );
+        }
         for agent in [
             LocalAgentKind::Claude,
             LocalAgentKind::Codex,
             LocalAgentKind::Opencode,
         ] {
+            if selected_agent
+                .as_deref()
+                .is_some_and(|selected| selected != agent.executable_basename())
+            {
+                continue;
+            }
             eprintln!("running {agent:?} live smoke");
             let mut request = fixture_request(LocalAgentTargetKind::Document);
             request.request_id = format!("installed-{agent:?}-smoke").to_ascii_lowercase();

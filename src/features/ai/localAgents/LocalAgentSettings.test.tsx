@@ -45,7 +45,7 @@ const statuses = [
 ];
 
 describe('LocalAgentSettings', () => {
-  it('applies the first status refresh after StrictMode replays its effect cleanup', async () => {
+  it('applies the automatic status refresh after StrictMode replays its effect cleanup', async () => {
     const pending = deferred<typeof statuses>();
     const listStatuses = vi.fn().mockReturnValue(pending.promise);
     render(
@@ -61,7 +61,7 @@ describe('LocalAgentSettings', () => {
     );
 
     const button = screen.getByRole('button', { name: 'Refresh local agent status' });
-    fireEvent.click(button);
+    await waitFor(() => expect(listStatuses).toHaveBeenCalled());
     expect(button).toHaveAttribute('aria-busy', 'true');
 
     await act(async () => pending.resolve(statuses));
@@ -92,7 +92,6 @@ describe('LocalAgentSettings', () => {
 
     const button = screen.getByRole('button', { name: 'Refresh local agent status' });
     fireEvent.click(button);
-    fireEvent.click(button);
     await waitFor(() => expect(listStatuses).toHaveBeenCalledTimes(2));
 
     await act(async () => newer.resolve(latestStatuses));
@@ -103,7 +102,7 @@ describe('LocalAgentSettings', () => {
     expect(button).toHaveAttribute('aria-busy', 'false');
   });
 
-  it('does not update after an in-flight manual refresh unmounts', async () => {
+  it('does not update after an in-flight automatic refresh unmounts', async () => {
     const pending = deferred<typeof statuses>();
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { unmount } = render(
@@ -118,7 +117,9 @@ describe('LocalAgentSettings', () => {
       </StrictMode>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh local agent status' }));
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'Refresh local agent status',
+    })).toHaveAttribute('aria-busy', 'true'));
     unmount();
     await act(async () => pending.resolve(statuses));
 
@@ -139,7 +140,6 @@ describe('LocalAgentSettings', () => {
       />,
     );
 
-    expect(listStatuses).not.toHaveBeenCalled();
     expect(screen.getAllByTestId('local-agent-status-row')).toHaveLength(3);
     expect(screen.getAllByTestId('local-agent-status-row').map((row) => row.textContent)).toEqual([
       expect.stringContaining('Claude Code'),
@@ -147,7 +147,6 @@ describe('LocalAgentSettings', () => {
       expect.stringContaining('OpenCode'),
     ]);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh local agent status' }));
     await waitFor(() => expect(listStatuses).toHaveBeenCalledWith(executablePaths));
 
     expect(screen.getAllByTestId('local-agent-status-row').map((row) => row.textContent)).toEqual([
@@ -188,7 +187,6 @@ describe('LocalAgentSettings', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh local agent status' }));
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(
       'Could not refresh local agent status.',
@@ -218,6 +216,9 @@ describe('LocalAgentSettings', () => {
         services={{ listStatuses, selectExecutable }}
       />,
     );
+
+    await waitFor(() => expect(listStatuses).toHaveBeenCalledWith(configured));
+    listStatuses.mockClear();
 
     const codexInput = screen.getByLabelText('Codex executable path');
     fireEvent.blur(codexInput);
