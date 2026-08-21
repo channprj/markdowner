@@ -21,18 +21,20 @@ use self::{
     activity::{
         ActiveAiRun, ActiveStatus, ActivityProgress, ActivityRegistry, AiDocumentRef, AiRunScope,
     },
-    chunking::{TranslationChunk, plan_translation_chunks, subdivide_translation_chunk},
+    chunking::{
+        TranslationChunk, plan_structured_document_chunks, plan_translation_chunks,
+        subdivide_translation_chunk,
+    },
     history::{
         HistoryPage, HistoryRepository, RunStatus, StoredRun, StoredRunDetail,
         StoredTranslationChunk,
     },
-    interview::{
-        InterviewSession, InterviewStatus, PRD_INTERVIEW_PROMPT_VERSION,
-    },
+    interview::{InterviewSession, InterviewStatus, PRD_INTERVIEW_PROMPT_VERSION},
     keychain::{AiKeyStatus, KeychainService},
     openrouter::{
         AiCompletionRequest, AiKeyMetadata, AiModel, AiModelPricing, AiTask, AiUsage,
-        OpenRouterClient, PrdInterviewCompletionRequest, prompt_version_for_task, redact_sensitive,
+        OpenRouterClient, PrdInterviewCompletionRequest, SseComplete, prompt_version_for_task,
+        redact_sensitive,
     },
 };
 
@@ -47,6 +49,9 @@ pub mod openrouter;
 
 const AI_ACTIVITY_CHANGED_EVENT: &str = "markdowner://ai-activity-changed";
 const AI_HISTORY_CHANGED_EVENT: &str = "markdowner://ai-history-changed";
+const RECOVERY_CHUNK_INPUT_TOKENS: u32 = 4_000;
+const PROACTIVE_CHUNK_INPUT_TOKENS: u32 = 12_000;
+const MAX_OUTPUT_LIMIT_RECOVERY_ATTEMPTS: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -495,6 +500,15 @@ pub struct AiRunResult {
     pub raw_diagnostic: Option<String>,
     pub usage: Option<AiUsage>,
     pub retry_after_seconds: Option<u64>,
+}
+
+struct CompletionOutcome {
+    result: Option<ValidatedDocument>,
+    validation_issues: Vec<AiValidationIssue>,
+    raw_diagnostic: Option<String>,
+    generation_id: Option<String>,
+    usage: Option<AiUsage>,
+    content: String,
 }
 
 #[tauri::command]
@@ -1082,34 +1096,114 @@ pub async fn ai_run(
         )
         .await;
     }
-    let activity = state.activity.clone();
-    let activity_request_id = request.request_id.clone();
-    let activity_app = app.clone();
-    let completion = state
-        .client
-        .stream_completion(
-            &secret,
-            &completion_request,
-            &cancellation,
-            |received_characters| {
-                if received_characters >= last_progress + 64 {
-                    last_progress = received_characters;
-                    let _ = activity.progress(
-                        &activity_request_id,
-                        ActivityProgress::streaming(received_characters),
+    let proactive_chunks = should_prechunk_request(
+        request.task,
+        request.selection.is_some(),
+        request.source.len(),
+    );
+    let initial_outcome = if proactive_chunks {
+        None
+    } else {
+        let activity = state.activity.clone();
+        let activity_request_id = request.request_id.clone();
+        let activity_app = app.clone();
+        let completion = state
+            .client
+            .stream_completion(
+                &secret,
+                &completion_request,
+                &cancellation,
+                |received_characters| {
+                    if received_characters >= last_progress + 64 {
+                        last_progress = received_characters;
+                        let _ = activity.progress(
+                            &activity_request_id,
+                            ActivityProgress::streaming(received_characters),
+                        );
+                        emit_activity_changed(&activity_app);
+                        let _ = on_event.send(AiStreamEvent::Progress {
+                            request_id: request.request_id.clone(),
+                            received_characters,
+                        });
+                    }
+                },
+            )
+            .await;
+        let completion = match completion {
+            Ok(completion) => completion,
+            Err(error) if error.code == "cancelled" => {
+                let _ = on_event.send(AiStreamEvent::Cancelled {
+                    request_id: request.request_id.clone(),
+                });
+                if should_record {
+                    record_history_error(
+                        &state,
+                        &request.request_id,
+                        RunStatus::Cancelled,
+                        &error,
                     );
-                    emit_activity_changed(&activity_app);
-                    let _ = on_event.send(AiStreamEvent::Progress {
-                        request_id: request.request_id.clone(),
-                        received_characters,
-                    });
+                    restore_interview_for_retry(&state, request.interview_id.as_deref());
                 }
+                let _ = state.activity.finish(&request.request_id);
+                emit_activity_changed(&app);
+                if should_record {
+                    emit_history_changed(&app);
+                }
+                return Err(error);
+            }
+            Err(error) => {
+                let _ = on_event.send(AiStreamEvent::Failed {
+                    request_id: request.request_id.clone(),
+                    code: error.code.clone(),
+                    message: error.message.clone(),
+                });
+                if should_record {
+                    record_history_error(&state, &request.request_id, RunStatus::Failed, &error);
+                    restore_interview_for_retry(&state, request.interview_id.as_deref());
+                }
+                let _ = state.activity.finish(&request.request_id);
+                emit_activity_changed(&app);
+                if should_record {
+                    emit_history_changed(&app);
+                }
+                return Err(error);
+            }
+        };
+        Some(completion_outcome(&envelope, &request, completion))
+    };
+    let needs_recovery = proactive_chunks
+        || initial_outcome
+            .as_ref()
+            .is_some_and(|outcome| response_is_truncated(&outcome.validation_issues));
+    let outcome = if needs_recovery {
+        let _ = state.activity.progress(
+            &request.request_id,
+            ActivityProgress {
+                stage: "recovering".to_string(),
+                label: Some(if proactive_chunks {
+                    "Processing large document in chunks".to_string()
+                } else {
+                    "Retrying with smaller document chunks".to_string()
+                }),
+                ..ActivityProgress::default()
             },
+        );
+        emit_activity_changed(&app);
+        recover_truncated_completion(
+            &state,
+            &request,
+            &envelope,
+            &secret,
+            &cancellation,
+            initial_outcome.unwrap_or_else(empty_completion_outcome),
         )
-        .await;
+        .await
+    } else {
+        Ok(initial_outcome.unwrap_or_else(empty_completion_outcome))
+    };
     drop(secret);
-    let completion = match completion {
-        Ok(completion) => completion,
+    let outcome = match outcome {
+        Ok(outcome) => outcome,
         Err(error) if error.code == "cancelled" => {
             let _ = on_event.send(AiStreamEvent::Cancelled {
                 request_id: request.request_id.clone(),
@@ -1143,31 +1237,22 @@ pub async fn ai_run(
             return Err(error);
         }
     };
-    let (result, validation_issues) = validate_provider_result(
-        &envelope,
-        request.task,
-        &completion.content,
-        request.target_language.as_deref(),
-        completion.finish_reason.as_deref(),
-    );
-    if let Some(validated) = &result {
+    if let Some(validated) = &outcome.result {
         state
             .results
             .lock()
             .map_err(|_| AiError::new("result_unavailable", "Could not retain the AI result."))?
             .insert(request.request_id.clone(), validated.clone());
     }
-    let raw_diagnostic = result
-        .is_none()
-        .then(|| redact_sensitive(&completion.content, None));
     let _ = on_event.send(AiStreamEvent::Completed {
         request_id: request.request_id.clone(),
-        generation_id: completion.generation_id.clone(),
+        generation_id: outcome.generation_id.clone(),
     });
-    let history_result = result
+    let history_result = outcome
+        .result
         .as_ref()
         .and_then(|validated| serde_json::to_string(validated).ok());
-    let history_usage = completion
+    let history_usage = outcome
         .usage
         .as_ref()
         .and_then(|usage| serde_json::to_string(usage).ok());
@@ -1193,13 +1278,352 @@ pub async fn ai_run(
         document_id: request.document_id,
         task: request.task,
         model: request.model,
-        generation_id: completion.generation_id,
-        result,
-        validation_issues,
-        raw_diagnostic,
-        usage: completion.usage,
+        generation_id: outcome.generation_id,
+        result: outcome.result,
+        validation_issues: outcome.validation_issues,
+        raw_diagnostic: outcome.raw_diagnostic,
+        usage: outcome.usage,
         retry_after_seconds: None,
     })
+}
+
+fn completion_outcome(
+    envelope: &AiDocumentEnvelope,
+    request: &AiRunRequest,
+    completion: SseComplete,
+) -> CompletionOutcome {
+    let (result, validation_issues) = validate_provider_result(
+        envelope,
+        request.task,
+        &completion.content,
+        request.target_language.as_deref(),
+        completion.finish_reason.as_deref(),
+    );
+    CompletionOutcome {
+        raw_diagnostic: result
+            .is_none()
+            .then(|| redact_sensitive(&completion.content, None)),
+        result,
+        validation_issues,
+        generation_id: completion.generation_id,
+        usage: completion.usage,
+        content: completion.content,
+    }
+}
+
+fn empty_completion_outcome() -> CompletionOutcome {
+    CompletionOutcome {
+        result: None,
+        validation_issues: Vec::new(),
+        raw_diagnostic: None,
+        generation_id: None,
+        usage: None,
+        content: String::new(),
+    }
+}
+
+fn outcome_has_provider_attempt(outcome: &CompletionOutcome) -> bool {
+    !outcome.content.is_empty()
+        || outcome.generation_id.is_some()
+        || outcome.usage.is_some()
+        || outcome.result.is_some()
+        || !outcome.validation_issues.is_empty()
+        || outcome.raw_diagnostic.is_some()
+}
+
+fn response_is_truncated(issues: &[AiValidationIssue]) -> bool {
+    issues
+        .iter()
+        .any(|issue| issue.code == "response_truncated")
+}
+
+async fn recover_truncated_completion(
+    state: &AiState,
+    request: &AiRunRequest,
+    envelope: &AiDocumentEnvelope,
+    secret: &str,
+    cancellation: &CancellationToken,
+    initial: CompletionOutcome,
+) -> Result<CompletionOutcome, AiError> {
+    match request.task {
+        AiTask::Summary => {
+            recover_chunked_summary(state, request, envelope, secret, cancellation, initial).await
+        }
+        AiTask::Prd => {
+            recover_chunked_operations(state, request, envelope, secret, cancellation, initial)
+                .await
+        }
+        AiTask::Custom if envelope.selection.is_none() => {
+            recover_chunked_operations(state, request, envelope, secret, cancellation, initial)
+                .await
+        }
+        AiTask::Custom => {
+            retry_with_higher_output_limit(state, request, envelope, secret, cancellation, initial)
+                .await
+        }
+        AiTask::Translation => Ok(initial),
+    }
+}
+
+async fn recover_chunked_summary(
+    state: &AiState,
+    request: &AiRunRequest,
+    envelope: &AiDocumentEnvelope,
+    secret: &str,
+    cancellation: &CancellationToken,
+    initial: CompletionOutcome,
+) -> Result<CompletionOutcome, AiError> {
+    let planned =
+        plan_translation_chunks(&request.source, recovery_chunk_limit(request.source.len()))?;
+    if planned.len() < 2 {
+        return if outcome_has_provider_attempt(&initial) {
+            retry_with_higher_output_limit(
+                state,
+                request,
+                envelope,
+                secret,
+                cancellation,
+                initial,
+            )
+            .await
+        } else {
+            stream_with_output_limit_recovery(state, request, envelope, secret, cancellation).await
+        };
+    }
+
+    let mut usage = initial.usage;
+    let mut generation_id = initial.generation_id;
+    let mut responses = Vec::with_capacity(planned.len());
+    for chunk in planned {
+        let chunk_envelope = AiDocumentEnvelope::with_policy(
+            format!("{}#summary-{}", request.document_id, chunk.index),
+            chunk.source,
+            None,
+            protection_policy_for_task(AiTask::Summary),
+        )
+        .map_err(|error| AiError::new("invalid_document", error.to_string()))?;
+        let outcome = stream_with_output_limit_recovery(
+            state,
+            request,
+            &chunk_envelope,
+            secret,
+            cancellation,
+        )
+        .await?;
+        usage = merge_usage(usage, outcome.usage.clone());
+        generation_id = outcome.generation_id.clone().or(generation_id);
+        if outcome.result.is_none() {
+            return Ok(CompletionOutcome {
+                usage,
+                generation_id,
+                ..outcome
+            });
+        }
+        responses.push(
+            serde_json::from_str::<SummaryResponse>(&outcome.content).map_err(|_| {
+                AiError::new(
+                    "summary_recovery_failed",
+                    "A validated summary chunk could not be combined.",
+                )
+            })?,
+        );
+    }
+    let response = merge_chunked_summary_responses(responses)?;
+    match validate_summary_response(envelope, response, request.target_language.as_deref()) {
+        Ok(result) => Ok(CompletionOutcome {
+            result: Some(result),
+            validation_issues: Vec::new(),
+            raw_diagnostic: None,
+            generation_id,
+            usage,
+            content: String::new(),
+        }),
+        Err(error) => Ok(CompletionOutcome {
+            result: None,
+            validation_issues: validation_issues(error),
+            raw_diagnostic: None,
+            generation_id,
+            usage,
+            content: String::new(),
+        }),
+    }
+}
+
+async fn recover_chunked_operations(
+    state: &AiState,
+    request: &AiRunRequest,
+    envelope: &AiDocumentEnvelope,
+    secret: &str,
+    cancellation: &CancellationToken,
+    initial: CompletionOutcome,
+) -> Result<CompletionOutcome, AiError> {
+    let planned =
+        plan_structured_document_chunks(envelope, recovery_chunk_limit(request.source.len()))?;
+    if planned.len() < 2 {
+        return if outcome_has_provider_attempt(&initial) {
+            retry_with_higher_output_limit(
+                state,
+                request,
+                envelope,
+                secret,
+                cancellation,
+                initial,
+            )
+            .await
+        } else {
+            stream_with_output_limit_recovery(state, request, envelope, secret, cancellation).await
+        };
+    }
+
+    let mut usage = initial.usage;
+    let mut generation_id = initial.generation_id;
+    let mut responses = Vec::with_capacity(planned.len());
+    for chunk in planned {
+        let outcome = stream_with_output_limit_recovery(
+            state,
+            request,
+            &chunk.envelope,
+            secret,
+            cancellation,
+        )
+        .await?;
+        usage = merge_usage(usage, outcome.usage.clone());
+        generation_id = outcome.generation_id.clone().or(generation_id);
+        if outcome.result.is_none() {
+            return Ok(CompletionOutcome {
+                usage,
+                generation_id,
+                ..outcome
+            });
+        }
+        responses.push(
+            serde_json::from_str::<PrdResponse>(&outcome.content).map_err(|_| {
+                AiError::new(
+                    "document_recovery_failed",
+                    "A validated document chunk could not be combined.",
+                )
+            })?,
+        );
+    }
+    let response = merge_chunked_prd_responses(responses);
+    match validate_prd_response(envelope, response) {
+        Ok(result) => Ok(CompletionOutcome {
+            result: Some(result),
+            validation_issues: Vec::new(),
+            raw_diagnostic: None,
+            generation_id,
+            usage,
+            content: String::new(),
+        }),
+        Err(error) => Ok(CompletionOutcome {
+            result: None,
+            validation_issues: validation_issues(error),
+            raw_diagnostic: None,
+            generation_id,
+            usage,
+            content: String::new(),
+        }),
+    }
+}
+
+async fn stream_with_output_limit_recovery(
+    state: &AiState,
+    request: &AiRunRequest,
+    envelope: &AiDocumentEnvelope,
+    secret: &str,
+    cancellation: &CancellationToken,
+) -> Result<CompletionOutcome, AiError> {
+    let completion = stream_recovery_completion(
+        state,
+        request,
+        envelope,
+        secret,
+        cancellation,
+        request.max_output_tokens,
+    )
+    .await?;
+    let initial = completion_outcome(envelope, request, completion);
+    if response_is_truncated(&initial.validation_issues) {
+        retry_with_higher_output_limit(state, request, envelope, secret, cancellation, initial)
+            .await
+    } else {
+        Ok(initial)
+    }
+}
+
+async fn retry_with_higher_output_limit(
+    state: &AiState,
+    request: &AiRunRequest,
+    envelope: &AiDocumentEnvelope,
+    secret: &str,
+    cancellation: &CancellationToken,
+    mut outcome: CompletionOutcome,
+) -> Result<CompletionOutcome, AiError> {
+    let mut output_limit = request.max_output_tokens;
+    for _ in 0..MAX_OUTPUT_LIMIT_RECOVERY_ATTEMPTS {
+        if !response_is_truncated(&outcome.validation_issues) {
+            break;
+        }
+        let Some(next_limit) = next_output_limit(output_limit) else {
+            break;
+        };
+        let previous_usage = outcome.usage.take();
+        let previous_generation_id = outcome.generation_id.take();
+        let completion =
+            stream_recovery_completion(state, request, envelope, secret, cancellation, next_limit)
+                .await?;
+        outcome = completion_outcome(envelope, request, completion);
+        outcome.usage = merge_usage(previous_usage, outcome.usage);
+        outcome.generation_id = outcome.generation_id.or(previous_generation_id);
+        output_limit = next_limit;
+    }
+    Ok(outcome)
+}
+
+async fn stream_recovery_completion(
+    state: &AiState,
+    request: &AiRunRequest,
+    envelope: &AiDocumentEnvelope,
+    secret: &str,
+    cancellation: &CancellationToken,
+    max_output_tokens: u32,
+) -> Result<SseComplete, AiError> {
+    let document = serde_json::to_value(envelope).map_err(|_| {
+        AiError::new(
+            "invalid_document",
+            "Could not prepare a recovery chunk for OpenRouter.",
+        )
+    })?;
+    state
+        .client
+        .stream_completion(
+            secret,
+            &AiCompletionRequest {
+                task: request.task,
+                model: request.model.clone(),
+                document,
+                selection: envelope.selection.is_some(),
+                target_language: request.target_language.clone(),
+                instruction: request.instruction.clone(),
+                zdr_only: request.zdr_only,
+                max_output_tokens,
+            },
+            cancellation,
+            |_| {},
+        )
+        .await
+}
+
+fn recovery_chunk_limit(source_bytes: usize) -> u32 {
+    let estimated = u32::try_from(source_bytes.saturating_add(3) / 4).unwrap_or(u32::MAX);
+    (estimated / 2).clamp(1, RECOVERY_CHUNK_INPUT_TOKENS)
+}
+
+fn should_prechunk_request(task: AiTask, selection: bool, source_bytes: usize) -> bool {
+    !selection
+        && matches!(task, AiTask::Prd | AiTask::Summary | AiTask::Custom)
+        && u32::try_from(source_bytes.saturating_add(3) / 4).unwrap_or(u32::MAX)
+            > PROACTIVE_CHUNK_INPUT_TOKENS
 }
 
 async fn run_chunked_translation(
@@ -1879,6 +2303,112 @@ fn validate_provider_result(
     }
 }
 
+fn merge_chunked_prd_responses(responses: Vec<PrdResponse>) -> PrdResponse {
+    let mut summaries = Vec::new();
+    let mut findings = Vec::new();
+    let mut operations = Vec::new();
+    let mut assumptions = Vec::new();
+    for (chunk_index, response) in responses.into_iter().enumerate() {
+        let prefix = format!("chunk-{}", chunk_index + 1);
+        let finding_ids = response
+            .findings
+            .iter()
+            .enumerate()
+            .map(|(finding_index, finding)| {
+                let suffix = if finding.id.trim().is_empty() {
+                    format!("finding-{}", finding_index + 1)
+                } else {
+                    finding.id.clone()
+                };
+                (finding.id.clone(), format!("{prefix}:{suffix}"))
+            })
+            .collect::<HashMap<_, _>>();
+        summaries.extend(
+            (!response.summary.trim().is_empty()).then_some(response.summary.trim().to_string()),
+        );
+        findings.extend(response.findings.into_iter().map(|mut finding| {
+            finding.id = finding_ids
+                .get(&finding.id)
+                .cloned()
+                .unwrap_or_else(|| format!("{prefix}:finding"));
+            finding
+        }));
+        operations.extend(response.operations.into_iter().enumerate().map(
+            |(operation_index, mut operation)| {
+                let suffix = if operation.id.trim().is_empty() {
+                    format!("operation-{}", operation_index + 1)
+                } else {
+                    operation.id.clone()
+                };
+                operation.id = format!("{prefix}:{suffix}");
+                operation.finding_ids = operation
+                    .finding_ids
+                    .into_iter()
+                    .map(|finding_id| {
+                        finding_ids
+                            .get(&finding_id)
+                            .cloned()
+                            .unwrap_or_else(|| format!("{prefix}:{finding_id}"))
+                    })
+                    .collect();
+                operation
+            },
+        ));
+        assumptions.extend(response.assumptions);
+    }
+    PrdResponse {
+        schema_version: 1,
+        summary: summaries.join("\n\n"),
+        findings,
+        operations,
+        assumptions,
+    }
+}
+
+fn merge_chunked_summary_responses(
+    responses: Vec<SummaryResponse>,
+) -> Result<SummaryResponse, AiError> {
+    let mut responses = responses.into_iter();
+    let Some(first) = responses.next() else {
+        return Err(AiError::new(
+            "summary_recovery_failed",
+            "The document could not be divided into summary chunks.",
+        ));
+    };
+    let mut summaries = vec![first.summary_markdown.trim().to_string()];
+    let mut warnings = first.warnings;
+    let detected_source_language = first.detected_source_language;
+    let summary_language = first.summary_language;
+    for response in responses {
+        if !response
+            .summary_language
+            .eq_ignore_ascii_case(&summary_language)
+        {
+            return Err(AiError::new(
+                "summary_recovery_failed",
+                "Summary chunks used inconsistent output languages.",
+            ));
+        }
+        summaries.push(response.summary_markdown.trim().to_string());
+        warnings.extend(response.warnings);
+    }
+    Ok(SummaryResponse {
+        schema_version: 1,
+        detected_source_language,
+        summary_language,
+        summary_markdown: summaries
+            .into_iter()
+            .filter(|summary| !summary.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n"),
+        warnings,
+    })
+}
+
+fn next_output_limit(current: u32) -> Option<u32> {
+    (current < 100_000).then(|| current.saturating_mul(2).min(100_000))
+}
+
 fn is_valid_language_identifier(language: &str) -> bool {
     let trimmed = language.trim();
     !trimmed.is_empty()
@@ -1944,12 +2474,17 @@ mod tests {
     use super::chunking::TranslationChunk;
     use super::{
         AiRunRequest, AiState, CatalogCache, RequestScheduler, SchemaFailure,
-        classify_schema_error,
+        classify_schema_error, empty_completion_outcome, merge_chunked_prd_responses,
+        merge_chunked_summary_responses, next_output_limit, outcome_has_provider_attempt,
+        should_prechunk_request,
         openrouter::{AiModel, AiModelPricing, AiTask, SUMMARY_PROMPT_VERSION},
         prepare_run_envelope, prepare_translation_resume, record_history_start,
         translation_retry_subdivision, validate_provider_result, validate_run_request,
     };
-    use markdowner_core::ai_document::{AiDocumentEnvelope, ByteRange};
+    use markdowner_core::ai_document::{
+        AiDocumentEnvelope, ByteRange, OperationKind, PrdFinding, PrdOperation, PrdResponse,
+        SummaryResponse, validate_prd_response,
+    };
 
     fn summary_run_request() -> AiRunRequest {
         AiRunRequest {
@@ -2343,6 +2878,122 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
+    }
+
+    #[test]
+    fn merged_structured_chunk_responses_keep_global_targets_and_unique_ids() {
+        let source = "First requirement.\nSecond requirement.\nThird requirement.\n";
+        let envelope = AiDocumentEnvelope::new("doc-1", source, None).unwrap();
+        let chunks = super::chunking::plan_structured_document_chunks(&envelope, 5).unwrap();
+        assert!(chunks.len() > 1);
+        let responses = chunks
+            .iter()
+            .enumerate()
+            .map(|(index, chunk)| {
+                let segment = chunk.envelope.segments.first().unwrap();
+                let target = segment.id.clone();
+                let protected_suffix = segment
+                    .text
+                    .find('⟪')
+                    .map(|offset| &segment.text[offset..])
+                    .unwrap_or_default();
+                PrdResponse {
+                    schema_version: 1,
+                    summary: format!("Chunk {} reviewed.", index + 1),
+                    findings: vec![PrdFinding {
+                        id: "finding".to_string(),
+                        severity: "medium".to_string(),
+                        category: "clarity".to_string(),
+                        evidence_segment_id: Some(target.clone()),
+                        rationale: "Make the requirement explicit.".to_string(),
+                    }],
+                    operations: vec![PrdOperation {
+                        id: "replace".to_string(),
+                        kind: OperationKind::Replace,
+                        target_segment_id: target,
+                        markdown: format!("Clarified requirement {}.{protected_suffix}", index + 1),
+                        finding_ids: vec!["finding".to_string()],
+                    }],
+                    assumptions: vec![format!("Assumption {}", index + 1)],
+                }
+            })
+            .collect();
+
+        let merged = merge_chunked_prd_responses(responses);
+        let validated = validate_prd_response(&envelope, merged).unwrap();
+
+        assert_eq!(validated.operations.len(), chunks.len());
+        assert_eq!(
+            validated
+                .operations
+                .iter()
+                .map(|operation| operation.id.as_str())
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            chunks.len()
+        );
+        assert!(
+            validated
+                .proposed_markdown
+                .contains("Clarified requirement 1.")
+        );
+        assert!(
+            validated
+                .proposed_markdown
+                .contains(&format!("Clarified requirement {}.", chunks.len()))
+        );
+    }
+
+    #[test]
+    fn truncation_retry_limit_grows_without_exceeding_the_request_ceiling() {
+        assert_eq!(next_output_limit(4_096), Some(8_192));
+        assert_eq!(next_output_limit(70_000), Some(100_000));
+        assert_eq!(next_output_limit(100_000), None);
+    }
+
+    #[test]
+    fn large_whole_document_requests_start_with_chunks_but_selections_do_not() {
+        let large_source_bytes = 48_001;
+        assert!(should_prechunk_request(AiTask::Prd, false, large_source_bytes));
+        assert!(should_prechunk_request(AiTask::Summary, false, large_source_bytes));
+        assert!(should_prechunk_request(AiTask::Custom, false, large_source_bytes));
+        assert!(!should_prechunk_request(AiTask::Custom, true, large_source_bytes));
+        assert!(!should_prechunk_request(AiTask::Translation, false, large_source_bytes));
+        assert!(!should_prechunk_request(AiTask::Prd, false, 48_000));
+    }
+
+    #[test]
+    fn proactive_chunk_fallback_knows_that_no_provider_attempt_has_run() {
+        assert!(!outcome_has_provider_attempt(&empty_completion_outcome()));
+    }
+
+    #[test]
+    fn merged_chunk_summaries_keep_order_language_and_warnings() {
+        let merged = merge_chunked_summary_responses(vec![
+            SummaryResponse {
+                schema_version: 1,
+                detected_source_language: "en".to_string(),
+                summary_language: "ko".to_string(),
+                summary_markdown: "# 첫 부분\n\n첫 요약".to_string(),
+                warnings: vec!["First warning".to_string()],
+            },
+            SummaryResponse {
+                schema_version: 1,
+                detected_source_language: "en".to_string(),
+                summary_language: "ko".to_string(),
+                summary_markdown: "# 둘째 부분\n\n둘째 요약".to_string(),
+                warnings: vec!["Second warning".to_string()],
+            },
+        ])
+        .unwrap();
+
+        assert_eq!(merged.detected_source_language, "en");
+        assert_eq!(merged.summary_language, "ko");
+        assert_eq!(
+            merged.summary_markdown,
+            "# 첫 부분\n\n첫 요약\n\n# 둘째 부분\n\n둘째 요약"
+        );
+        assert_eq!(merged.warnings, ["First warning", "Second warning"]);
     }
 
     #[test]
