@@ -36,6 +36,7 @@ use super::{
 pub(super) const MAX_PROCESS_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
 pub(super) const MAX_PROCESS_STDIN_BYTES: usize = 8 * 1024 * 1024;
 pub(super) const STDERR_TAIL_BYTES: usize = 64 * 1024;
+const OPENCODE_CHILD_FILE_SIZE_LIMIT: usize = 8 * 1024 * 1024;
 
 const PROCESS_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 const PROCESS_GROUP_POLL_INTERVAL: Duration = Duration::from_millis(5);
@@ -46,7 +47,9 @@ const OPENCODE_CACHE_DIRECTORY: &str = "opencode-cache";
 const OPENCODE_DATA_DIRECTORY: &str = "opencode-data";
 const OPENCODE_STATE_DIRECTORY: &str = "opencode-state";
 const OPENCODE_DATA_AGENT_DIRECTORY: &str = "opencode";
+const OPENCODE_STATE_AGENT_DIRECTORY: &str = "opencode";
 const OPENCODE_AUTH_FILE: &str = "auth.json";
+const OPENCODE_MODEL_STATE_FILE: &str = "model.json";
 const CLAUDE_HOME_DIRECTORY: &str = "claude-home";
 const CLAUDE_CONFIG_DIRECTORY: &str = "claude-config";
 const CLAUDE_XDG_CONFIG_DIRECTORY: &str = "claude-xdg-config";
@@ -55,12 +58,13 @@ const CLAUDE_DATA_DIRECTORY: &str = "claude-data";
 const CLAUDE_STATE_DIRECTORY: &str = "claude-state";
 const CODEX_HOME_DIRECTORY: &str = "codex-home";
 const CODEX_AUTH_FILE: &str = "auth.json";
-const MAX_AGENT_AUTH_BYTES: usize = 1024 * 1024;
+const MAX_AGENT_PRIVATE_FILE_BYTES: usize = 1024 * 1024;
 const MAX_TEMP_CLEANUP_ENTRIES: usize = 16 * 1024;
 const MAX_TEMP_CLEANUP_DEPTH: usize = 32;
 const ALLOWED_INHERITED_ENVIRONMENT: &[&str] = &["HOME", "PATH", "LANG", "LC_ALL"];
 const FINAL_COMMON_ENVIRONMENT: &[&str] = &["HOME", "LANG", "LC_ALL"];
 const CLAUDE_ENVIRONMENT: &[&str] = &[
+    "USER",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_WORKSPACE_ID",
@@ -664,7 +668,7 @@ pub(super) struct OwnedProcessInvocation {
     _executable_handle: File,
     owned_files: Vec<OwnedFile>,
     owned_directories: Vec<OwnedDirectory>,
-    retained_auth_sources: Vec<RetainedSourceFile>,
+    retained_private_sources: Vec<RetainedSourceFile>,
     result_path: Option<PathBuf>,
     cleanup_activity: Option<CleanupActivityGuard>,
     cleanup_cancellation: CancellationToken,
@@ -718,8 +722,8 @@ impl fmt::Debug for OwnedProcessInvocation {
             .field("owned_file_count", &self.owned_files.len())
             .field("owned_directory_count", &self.owned_directories.len())
             .field(
-                "retained_auth_source_count",
-                &self.retained_auth_sources.len(),
+                "retained_private_source_count",
+                &self.retained_private_sources.len(),
             )
             .field("has_result_file", &self.result_path.is_some())
             .finish_non_exhaustive()
@@ -807,7 +811,7 @@ impl OwnedProcessInvocation {
 
         let mut owned_files = Vec::new();
         let mut owned_directories = Vec::new();
-        let mut retained_auth_sources = Vec::new();
+        let mut retained_private_sources = Vec::new();
         if agent_kind == LocalAgentKind::Claude {
             for name in [
                 CLAUDE_HOME_DIRECTORY,
@@ -836,29 +840,52 @@ impl OwnedProcessInvocation {
                 Path::new(OPENCODE_DATA_DIRECTORY).join(OPENCODE_DATA_AGENT_DIRECTORY);
             let agent_data_directory =
                 temp_dir.create_directory(&agent_data_relative, Some(data_directory))?;
-            if let Some((source, auth_file)) = copy_auth_file(
+            if let Some((source, auth_file)) = copy_private_json_file(
                 opencode_auth_source(&inherited_environment)?,
+                FileRole::OwnedFile,
                 &temp_dir,
                 &agent_data_relative.join(OPENCODE_AUTH_FILE),
                 &agent_data_directory,
                 cancellation,
                 deadline,
             )? {
-                retained_auth_sources.push(source);
+                retained_private_sources.push(source);
                 owned_files.push(auth_file);
             }
+            let state_directory = owned_directories
+                .iter()
+                .find(|directory| directory.path == temp_path.join(OPENCODE_STATE_DIRECTORY))
+                .ok_or_else(invalid_environment_error)?;
+            let agent_state_relative =
+                Path::new(OPENCODE_STATE_DIRECTORY).join(OPENCODE_STATE_AGENT_DIRECTORY);
+            let agent_state_directory =
+                temp_dir.create_directory(&agent_state_relative, Some(state_directory))?;
+            if let Some((source, model_state_file)) = copy_private_json_file(
+                opencode_model_state_source(&inherited_environment)?,
+                FileRole::SourceFile,
+                &temp_dir,
+                &agent_state_relative.join(OPENCODE_MODEL_STATE_FILE),
+                &agent_state_directory,
+                cancellation,
+                deadline,
+            )? {
+                retained_private_sources.push(source);
+                owned_files.push(model_state_file);
+            }
             owned_directories.push(agent_data_directory);
+            owned_directories.push(agent_state_directory);
         } else if agent_kind == LocalAgentKind::Codex {
             let codex_home = temp_dir.create_directory(Path::new(CODEX_HOME_DIRECTORY), None)?;
-            if let Some((source, auth_file)) = copy_auth_file(
+            if let Some((source, auth_file)) = copy_private_json_file(
                 home_auth_source(&inherited_environment, &[".codex", CODEX_AUTH_FILE])?,
+                FileRole::OwnedFile,
                 &temp_dir,
                 &Path::new(CODEX_HOME_DIRECTORY).join(CODEX_AUTH_FILE),
                 &codex_home,
                 cancellation,
                 deadline,
             )? {
-                retained_auth_sources.push(source);
+                retained_private_sources.push(source);
                 owned_files.push(auth_file);
             }
             owned_directories.push(codex_home);
@@ -914,7 +941,7 @@ impl OwnedProcessInvocation {
             _executable_handle: executable_handle,
             owned_files: parts.adapter_files,
             owned_directories,
-            retained_auth_sources,
+            retained_private_sources,
             result_path,
             cleanup_activity: Some(parts.cleanup_activity),
             cleanup_cancellation: parts.cleanup_cancellation,
@@ -950,7 +977,7 @@ impl OwnedProcessInvocation {
         for directory in &self.owned_directories {
             directory.verify_identity()?;
         }
-        for source in &self.retained_auth_sources {
+        for source in &self.retained_private_sources {
             source.verify_identity()?;
         }
         Ok(())
@@ -1492,13 +1519,14 @@ struct RetainedSourceFile {
     path: PathBuf,
     handle: File,
     identity: FileIdentity,
+    role: FileRole,
     content_sha256: [u8; 32],
 }
 
 impl RetainedSourceFile {
     fn verify_identity(&self) -> Result<(), LocalAgentError> {
         self.identity
-            .verify_handle_and_path(&self.handle, &self.path, FileRole::OwnedFile)
+            .verify_handle_and_path(&self.handle, &self.path, self.role)
             .map_err(|_| invalid_environment_error())?;
         let mut handle = self
             .handle
@@ -1509,10 +1537,10 @@ impl RetainedSourceFile {
             .map_err(|_| invalid_environment_error())?;
         let mut bytes = Vec::new();
         Read::by_ref(&mut handle)
-            .take((MAX_AGENT_AUTH_BYTES + 1) as u64)
+            .take((MAX_AGENT_PRIVATE_FILE_BYTES + 1) as u64)
             .read_to_end(&mut bytes)
             .map_err(|_| invalid_environment_error())?;
-        let matches = bytes.len() <= MAX_AGENT_AUTH_BYTES
+        let matches = bytes.len() <= MAX_AGENT_PRIVATE_FILE_BYTES
             && <[u8; 32]>::from(Sha256::digest(&bytes)) == self.content_sha256;
         bytes.fill(0);
         if matches {
@@ -1523,8 +1551,9 @@ impl RetainedSourceFile {
     }
 }
 
-fn copy_auth_file(
+fn copy_private_json_file(
     source: Option<PathBuf>,
+    source_role: FileRole,
     workspace: &OwnedTempCapability,
     destination: &Path,
     destination_parent: &OwnedDirectory,
@@ -1535,32 +1564,39 @@ fn copy_auth_file(
         return Ok(None);
     };
     workspace.verify_path_identity()?;
-    match fs::symlink_metadata(&source) {
+    let source_metadata = match fs::symlink_metadata(&source) {
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err(invalid_environment_error()),
-        Ok(_) => {}
+        Ok(metadata) => metadata,
+    };
+    if source_metadata.file_type().is_symlink() {
+        return Err(invalid_environment_error());
     }
+    let source_name = source.file_name().ok_or_else(invalid_environment_error)?;
+    let source_parent = source.parent().ok_or_else(invalid_environment_error)?;
+    let source_parent =
+        canonical_safe_directory(source_parent, false).ok_or_else(invalid_environment_error)?;
+    let source = source_parent.join(source_name);
     workspace.verify_path_identity()?;
     ensure_process_active(cancellation, deadline)?;
     workspace.verify_path_identity()?;
     let mut source_handle =
         open_no_follow(&source, false).map_err(|_| invalid_environment_error())?;
-    let source_identity =
-        FileIdentity::from_handle_and_path(&source_handle, &source, FileRole::OwnedFile)
-            .map_err(|_| invalid_environment_error())?;
+    let source_identity = FileIdentity::from_handle_and_path(&source_handle, &source, source_role)
+        .map_err(|_| invalid_environment_error())?;
     let source_size = source_handle
         .metadata()
         .map_err(|_| invalid_environment_error())?
         .len();
-    if source_size > MAX_AGENT_AUTH_BYTES as u64 {
+    if source_size > MAX_AGENT_PRIVATE_FILE_BYTES as u64 {
         return Err(invalid_environment_error());
     }
     let mut bytes = Vec::with_capacity(source_size as usize);
     Read::by_ref(&mut source_handle)
-        .take((MAX_AGENT_AUTH_BYTES + 1) as u64)
+        .take((MAX_AGENT_PRIVATE_FILE_BYTES + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(|_| invalid_environment_error())?;
-    if bytes.len() > MAX_AGENT_AUTH_BYTES
+    if bytes.len() > MAX_AGENT_PRIVATE_FILE_BYTES
         || bytes.len() as u64 != source_size
         || source_handle
             .metadata()
@@ -1577,7 +1613,7 @@ fn copy_auth_file(
         return Err(invalid_environment_error());
     }
     source_identity
-        .verify_handle_and_path(&source_handle, &source, FileRole::OwnedFile)
+        .verify_handle_and_path(&source_handle, &source, source_role)
         .map_err(|_| invalid_environment_error())?;
     workspace.verify_path_identity()?;
     ensure_process_active(cancellation, deadline)?;
@@ -1592,6 +1628,7 @@ fn copy_auth_file(
             path: source,
             handle: source_handle,
             identity: source_identity,
+            role: source_role,
             content_sha256: source_sha256,
         },
         destination,
@@ -1630,6 +1667,28 @@ fn opencode_auth_source(
     )
 }
 
+fn opencode_model_state_source(
+    inherited: &BTreeMap<OsString, OsString>,
+) -> Result<Option<PathBuf>, LocalAgentError> {
+    if let Some(state_home) = inherited.get(OsStr::new("XDG_STATE_HOME")) {
+        let state_home = PathBuf::from(normalized_safe_home(state_home)?);
+        return Ok(Some(
+            state_home
+                .join(OPENCODE_STATE_AGENT_DIRECTORY)
+                .join(OPENCODE_MODEL_STATE_FILE),
+        ));
+    }
+    home_auth_source(
+        inherited,
+        &[
+            ".local",
+            "state",
+            OPENCODE_STATE_AGENT_DIRECTORY,
+            OPENCODE_MODEL_STATE_FILE,
+        ],
+    )
+}
+
 impl OwnedFile {
     fn verify_identity(&self) -> Result<(), LocalAgentError> {
         self.identity
@@ -1652,6 +1711,7 @@ enum FileRole {
     Executable,
     OwnedDirectory,
     OwnedFile,
+    SourceFile,
 }
 
 #[derive(Clone)]
@@ -1716,6 +1776,13 @@ impl FileIdentity {
                 }
                 FileRole::OwnedFile
                     if mode & 0o077 != 0
+                        || metadata.uid() != unsafe { libc::geteuid() }
+                        || metadata.nlink() != 1 =>
+                {
+                    return Err(identity_error(role));
+                }
+                FileRole::SourceFile
+                    if mode & 0o022 != 0
                         || metadata.uid() != unsafe { libc::geteuid() }
                         || metadata.nlink() != 1 =>
                 {
@@ -1872,7 +1939,8 @@ impl FileIdentity {
                 && self.inode == metadata.ino()
                 && self.owner == metadata.uid()
                 && self.mode == mode
-                && (!matches!(role, FileRole::OwnedFile) || metadata.nlink() == 1)
+                && (!matches!(role, FileRole::OwnedFile | FileRole::SourceFile)
+                    || metadata.nlink() == 1)
         }
         #[cfg(not(unix))]
         {
@@ -1899,6 +1967,7 @@ fn identity_error(role: FileRole) -> LocalAgentError {
             "invalid_temp_file",
             "A local agent temporary file is invalid.",
         ),
+        FileRole::SourceFile => invalid_environment_error(),
     }
 }
 
@@ -2112,6 +2181,11 @@ fn controlled_environment_for_agent(
     agent_kind: LocalAgentKind,
     proof_environment_path: &OsStr,
 ) -> Result<BTreeMap<OsString, OsString>, LocalAgentError> {
+    let claude_config_directory = if agent_kind == LocalAgentKind::Claude {
+        validated_explicit_claude_config_directory(&inherited)?
+    } else {
+        None
+    };
     let mut environment = BTreeMap::new();
     for name in FINAL_COMMON_ENVIRONMENT
         .iter()
@@ -2194,15 +2268,19 @@ fn controlled_environment_for_agent(
             OsString::from("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"),
             OsString::from("1"),
         );
+        environment
+            .entry(OsString::from("HOME"))
+            .or_insert_with(|| OsString::from(CLAUDE_HOME_DIRECTORY));
         for (name, directory) in [
-            ("HOME", CLAUDE_HOME_DIRECTORY),
-            ("CLAUDE_CONFIG_DIR", CLAUDE_CONFIG_DIRECTORY),
             ("XDG_CONFIG_HOME", CLAUDE_XDG_CONFIG_DIRECTORY),
             ("XDG_CACHE_HOME", CLAUDE_CACHE_DIRECTORY),
             ("XDG_DATA_HOME", CLAUDE_DATA_DIRECTORY),
             ("XDG_STATE_HOME", CLAUDE_STATE_DIRECTORY),
         ] {
             environment.insert(OsString::from(name), OsString::from(directory));
+        }
+        if let Some(config_directory) = claude_config_directory {
+            environment.insert(OsString::from("CLAUDE_CONFIG_DIR"), config_directory);
         }
         for name in [
             "CLAUDE_CODE_SAFE_MODE",
@@ -2238,6 +2316,18 @@ fn controlled_environment_for_agent(
     Ok(environment)
 }
 
+fn validated_explicit_claude_config_directory(
+    inherited: &BTreeMap<OsString, OsString>,
+) -> Result<Option<OsString>, LocalAgentError> {
+    let Some(config_directory) = inherited
+        .get(OsStr::new("CLAUDE_CONFIG_DIR"))
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    normalized_safe_home(config_directory).map(Some)
+}
+
 fn environment_value_is_nonempty(environment: &BTreeMap<OsString, OsString>, name: &str) -> bool {
     environment
         .get(OsStr::new(name))
@@ -2271,6 +2361,7 @@ fn protected_final_environment_name(name: &OsStr) -> bool {
         name.to_str(),
         Some(
             "HOME"
+                | "USER"
                 | "PATH"
                 | "TMPDIR"
                 | "PWD"
@@ -2463,6 +2554,8 @@ async fn run_process_inner(
     )?;
     #[cfg(unix)]
     let child_workspace_fd = child_workspace.as_raw_fd();
+    #[cfg(unix)]
+    let child_agent_kind = owned.agent_kind;
     let mut command = Command::new(&owned.invocation.executable);
     command
         .args(&owned.invocation.args)
@@ -2480,7 +2573,7 @@ async fn run_process_inner(
         unsafe {
             command
                 .as_std_mut()
-                .pre_exec(move || configure_child_process(child_workspace_fd));
+                .pre_exec(move || configure_child_process(child_workspace_fd, child_agent_kind));
         }
     }
 
@@ -2527,7 +2620,7 @@ async fn run_process_inner(
         cleanup?;
         return Err(error);
     }
-    owned.retained_auth_sources.clear();
+    owned.retained_private_sources.clear();
     let (stdin, stdout, stderr) =
         take_child_pipes_or_cleanup(&mut child, &mut process_group).await?;
     let stdin_bytes = std::mem::take(&mut owned.invocation.stdin);
@@ -2729,8 +2822,8 @@ fn duplicate_owned_root_fd(root: &File, identity: &FileIdentity) -> Result<File,
 }
 
 #[cfg(unix)]
-fn configure_child_process(root_fd: i32) -> std::io::Result<()> {
-    configure_child_file_size_limit()?;
+fn configure_child_process(root_fd: i32, agent_kind: LocalAgentKind) -> std::io::Result<()> {
+    configure_child_file_size_limit(agent_kind)?;
     if root_fd < 3 {
         return Err(std::io::Error::from_raw_os_error(libc::EBADF));
     }
@@ -2746,8 +2839,11 @@ fn configure_child_process(root_fd: i32) -> std::io::Result<()> {
 }
 
 #[cfg(unix)]
-fn configure_child_file_size_limit() -> std::io::Result<()> {
-    let limit = (MAX_PROCESS_OUTPUT_BYTES + 1) as libc::rlim_t;
+fn configure_child_file_size_limit(agent_kind: LocalAgentKind) -> std::io::Result<()> {
+    let limit = match agent_kind {
+        LocalAgentKind::Opencode => OPENCODE_CHILD_FILE_SIZE_LIMIT,
+        LocalAgentKind::Claude | LocalAgentKind::Codex => MAX_PROCESS_OUTPUT_BYTES + 1,
+    } as libc::rlim_t;
     let limits = libc::rlimit {
         rlim_cur: limit,
         rlim_max: limit,
@@ -3530,14 +3626,15 @@ mod tests {
     };
     #[cfg(unix)]
     use super::{
-        ProcessActivityGuard, ProcessGroupRegistry, RegisteredProcessGroup,
-        process_group_is_registered, terminate_and_reap, wait_for_group_exit,
-        wait_for_registry_idle,
+        OPENCODE_CHILD_FILE_SIZE_LIMIT, ProcessActivityGuard, ProcessGroupRegistry,
+        RegisteredProcessGroup, process_group_is_registered, terminate_and_reap,
+        wait_for_group_exit, wait_for_registry_idle,
     };
     use crate::local_agents::{
         LocalAgentKind, LocalAgentRunRequest, LocalAgentTargetKind, ResolvedAgent,
         adapters::{AdapterInvocation, build_invocation},
         discovery::ExecutableProof,
+        owned_opencode_environment,
     };
     use markdowner_core::ai_document::ByteRange;
 
@@ -3647,6 +3744,35 @@ mod tests {
         )
         .unwrap();
         (executable_dir, owned_path, prepared)
+    }
+
+    #[cfg(unix)]
+    async fn regular_file_size_written_by(
+        agent_kind: LocalAgentKind,
+        requested_size: usize,
+    ) -> usize {
+        let script = format!(
+            "#!/bin/sh\n/bin/cat >/dev/null\n/usr/bin/head -c {requested_size} /dev/zero > output.bin || true\n/usr/bin/wc -c < output.bin"
+        );
+        let (_executable_dir, executable) = fake_executable(&script);
+        let owned_temp = create_owned_temp_dir().unwrap();
+        let owned_path = owned_temp.path().to_path_buf();
+        let prepared = prepare_owned_for_kind_with_environment(
+            invocation(executable, &owned_path, Vec::new(), None),
+            owned_temp,
+            agent_kind,
+            BTreeMap::new(),
+        )
+        .unwrap();
+        let output = run_process(prepared, CancellationToken::new(), Duration::from_secs(2))
+            .await
+            .unwrap();
+
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .trim()
+            .parse::<usize>()
+            .unwrap()
     }
 
     #[cfg(unix)]
@@ -4170,22 +4296,33 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn child_regular_files_cannot_grow_beyond_the_kernel_file_size_limit() {
-        let script = format!(
-            "#!/bin/sh\n/usr/bin/head -c {} /dev/zero > capped.bin || true\n/usr/bin/wc -c < capped.bin",
-            MAX_PROCESS_OUTPUT_BYTES + 4096
-        );
-        let (_executable_dir, _owned_path, prepared) = prepared(&script);
-
-        let output = run_process(prepared, CancellationToken::new(), Duration::from_secs(2))
-            .await
-            .unwrap();
-        let capped_size = std::str::from_utf8(&output.stdout)
-            .unwrap()
-            .trim()
-            .parse::<usize>()
-            .unwrap();
+        let capped_size =
+            regular_file_size_written_by(LocalAgentKind::Claude, MAX_PROCESS_OUTPUT_BYTES + 4096)
+                .await;
 
         assert!(capped_size <= MAX_PROCESS_OUTPUT_BYTES + 1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn opencode_can_write_bootstrap_files_larger_than_the_output_cap() {
+        let required_size = 4 * 1024 * 1024;
+        let written_size =
+            regular_file_size_written_by(LocalAgentKind::Opencode, required_size).await;
+
+        assert_eq!(written_size, required_size);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn opencode_regular_files_remain_bounded_by_the_agent_limit() {
+        let capped_size = regular_file_size_written_by(
+            LocalAgentKind::Opencode,
+            OPENCODE_CHILD_FILE_SIZE_LIMIT + 4096,
+        )
+        .await;
+
+        assert!(capped_size <= OPENCODE_CHILD_FILE_SIZE_LIMIT);
     }
 
     #[cfg(unix)]
@@ -5335,7 +5472,7 @@ mod tests {
         .unwrap();
         let opencode = controlled_environment_for_agent(
             inherited,
-            &[],
+            &owned_opencode_environment(),
             cwd,
             LocalAgentKind::Opencode,
             proof_path,
@@ -5374,6 +5511,19 @@ mod tests {
             opencode.get(OsStr::new("XDG_DATA_HOME")),
             Some(&OsString::from("opencode-data"))
         );
+        for name in [
+            "OPENCODE_DISABLE_PROJECT_CONFIG",
+            "OPENCODE_DISABLE_EXTERNAL_SKILLS",
+            "OPENCODE_DISABLE_LSP_DOWNLOAD",
+            "OPENCODE_DISABLE_MODELS_FETCH",
+            "OPENCODE_DISABLE_SHARE",
+        ] {
+            assert_eq!(
+                opencode.get(OsStr::new(name)),
+                Some(&OsString::from("true")),
+                "missing fixed OpenCode control {name}"
+            );
+        }
         for environment in [&claude, &codex, &opencode] {
             assert_eq!(
                 environment.get(OsStr::new("TMPDIR")),
@@ -5381,6 +5531,69 @@ mod tests {
             );
             assert!(!environment.contains_key(OsStr::new("PWD")));
         }
+    }
+
+    #[test]
+    fn claude_keeps_validated_home_without_overriding_keychain_config_lookup() {
+        let home = tempdir().unwrap();
+        let source_config = home.path().join(".claude");
+        fs::create_dir(&source_config).unwrap();
+        let environment = controlled_environment_for_agent(
+            BTreeMap::from([
+                (OsString::from("HOME"), home.path().as_os_str().to_owned()),
+                (OsString::from("USER"), OsString::from("test-user")),
+                (
+                    OsString::from("PATH"),
+                    OsString::from("/untrusted/path-that-must-not-win"),
+                ),
+            ]),
+            &[],
+            Path::new("/private/owned-agent-dir"),
+            LocalAgentKind::Claude,
+            OsStr::new("/usr/bin:/bin"),
+        )
+        .unwrap();
+
+        assert!(!environment.contains_key(OsStr::new("CLAUDE_CONFIG_DIR")));
+        assert_eq!(
+            environment.get(OsStr::new("HOME")),
+            Some(&home.path().canonicalize().unwrap().into_os_string())
+        );
+        assert_eq!(
+            environment.get(OsStr::new("USER")),
+            Some(&OsString::from("test-user"))
+        );
+        assert_eq!(
+            environment.get(OsStr::new("XDG_CONFIG_HOME")),
+            Some(&OsString::from("claude-xdg-config"))
+        );
+        assert_eq!(
+            environment.get(OsStr::new("PATH")),
+            Some(&OsString::from("/usr/bin:/bin"))
+        );
+        assert_eq!(
+            environment.get(OsStr::new("CLAUDE_CODE_SAFE_MODE")),
+            Some(&OsString::from("1"))
+        );
+
+        let explicit_environment = controlled_environment_for_agent(
+            BTreeMap::from([
+                (OsString::from("HOME"), home.path().as_os_str().to_owned()),
+                (
+                    OsString::from("CLAUDE_CONFIG_DIR"),
+                    source_config.as_os_str().to_owned(),
+                ),
+            ]),
+            &[],
+            Path::new("/private/owned-agent-dir"),
+            LocalAgentKind::Claude,
+            OsStr::new("/usr/bin:/bin"),
+        )
+        .unwrap();
+        assert_eq!(
+            explicit_environment.get(OsStr::new("CLAUDE_CONFIG_DIR")),
+            Some(&source_config.canonicalize().unwrap().into_os_string())
+        );
     }
 
     #[test]
@@ -5401,24 +5614,16 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn claude_run_uses_only_private_home_and_config_roots() {
-        let hostile_home = tempdir().unwrap();
-        let hostile_claude = hostile_home.path().join(".claude");
-        fs::create_dir(&hostile_claude).unwrap();
-        fs::write(hostile_claude.join("CLAUDE.md"), b"hostile instructions").unwrap();
-        fs::write(
-            hostile_claude.join("settings.json"),
-            b"{\"hooks\":{\"PreToolUse\":[{\"command\":\"steal\"}]}}",
-        )
-        .unwrap();
-        fs::create_dir(hostile_claude.join("plugins")).unwrap();
-        fs::write(hostile_claude.join("plugins/hostile"), b"plugin").unwrap();
+    async fn claude_run_preserves_validated_home_with_private_xdg_roots() {
+        let user_home = tempdir().unwrap();
+        let claude_config = user_home.path().join(".claude");
+        fs::create_dir(&claude_config).unwrap();
         let snapshot_dir = tempdir().unwrap();
         let snapshot = snapshot_dir.path().join("environment");
         let (executable_dir, executable) = fake_executable(
             "#!/bin/sh\n\
-             [ \"$HOME\" = claude-home ] || exit 10\n\
-             [ \"$CLAUDE_CONFIG_DIR\" = claude-config ] || exit 11\n\
+             [ \"$USER\" = test-user ] || exit 10\n\
+             [ -z \"${CLAUDE_CONFIG_DIR+x}\" ] || exit 11\n\
              [ \"$XDG_CONFIG_HOME\" = claude-xdg-config ] || exit 12\n\
              [ \"$XDG_CACHE_HOME\" = claude-cache ] || exit 13\n\
              [ \"$XDG_DATA_HOME\" = claude-data ] || exit 14\n\
@@ -5427,9 +5632,7 @@ mod tests {
              [ \"$CLAUDE_CODE_DISABLE_AUTO_MEMORY\" = 1 ] || exit 17\n\
              [ \"$CLAUDE_CODE_DISABLE_CLAUDE_MDS\" = 1 ] || exit 18\n\
              [ \"$CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS\" = 1 ] || exit 19\n\
-             [ ! -e \"$HOME/.claude/CLAUDE.md\" ] || exit 20\n\
-             [ ! -e \"$CLAUDE_CONFIG_DIR/settings.json\" ] || exit 21\n\
-             /usr/bin/printf '%s\\n%s\\n' \"$HOME\" \"$CLAUDE_CONFIG_DIR\" > \"$SNAPSHOT\"\n\
+             /usr/bin/printf '%s\\n' \"$HOME\" > \"$SNAPSHOT\"\n\
              /bin/cat >/dev/null\n\
              printf valid",
         );
@@ -5459,10 +5662,13 @@ mod tests {
             ),
             owned_temp,
             LocalAgentKind::Claude,
-            BTreeMap::from([(
-                OsString::from("HOME"),
-                hostile_home.path().as_os_str().to_owned(),
-            )]),
+            BTreeMap::from([
+                (
+                    OsString::from("HOME"),
+                    user_home.path().as_os_str().to_owned(),
+                ),
+                (OsString::from("USER"), OsString::from("test-user")),
+            ]),
         )
         .unwrap();
 
@@ -5472,7 +5678,10 @@ mod tests {
 
         assert_eq!(output.stdout, b"valid");
         let captured = fs::read_to_string(&snapshot).unwrap();
-        assert!(!captured.contains(hostile_home.path().to_str().unwrap()));
+        assert_eq!(
+            captured,
+            format!("{}\n", user_home.path().canonicalize().unwrap().display())
+        );
         output.close_temp_dir().await.unwrap();
         assert!(!owned_path.exists());
         assert!(executable_dir.path().exists());
@@ -5653,7 +5862,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn opencode_uses_private_xdg_roots_and_a_bounded_owned_auth_copy() {
+    async fn opencode_uses_bounded_owned_auth_and_model_state_copies() {
         let home = tempdir().unwrap();
         let source_directory = home.path().join(".local/share/opencode");
         fs::create_dir_all(&source_directory).unwrap();
@@ -5662,6 +5871,17 @@ mod tests {
         let mut source_options = fs::OpenOptions::new();
         source_options.write(true).create_new(true).mode(0o600);
         std::io::Write::write_all(&mut source_options.open(&source_auth).unwrap(), secret).unwrap();
+        let source_state_directory = home.path().join(".local/state/opencode");
+        fs::create_dir_all(&source_state_directory).unwrap();
+        let source_model_state = source_state_directory.join("model.json");
+        let model_state = br#"{"recent":[{"providerID":"configured-provider","modelID":"configured-model"}],"favorite":[],"variant":{}}"#;
+        let mut state_options = fs::OpenOptions::new();
+        state_options.write(true).create_new(true).mode(0o600);
+        std::io::Write::write_all(
+            &mut state_options.open(&source_model_state).unwrap(),
+            model_state,
+        )
+        .unwrap();
         let (executable_dir, executable) = fake_executable(
             "#!/bin/sh\n\
              /bin/cat >/dev/null\n\
@@ -5672,6 +5892,7 @@ mod tests {
              [ \"$OPENCODE_DISABLE_CLAUDE_CODE\" = 1 ] || exit 15\n\
              [ \"$OPENCODE_DISABLE_DEFAULT_PLUGINS\" = true ] || exit 16\n\
              [ -f \"$XDG_DATA_HOME/opencode/auth.json\" ] || exit 17\n\
+             [ -f \"$XDG_STATE_HOME/opencode/model.json\" ] || exit 18\n\
              /bin/rm \"$XDG_DATA_HOME/opencode/auth.json\"\n\
              printf '{\"rotated\":true}' > \"$XDG_DATA_HOME/opencode/auth.json\"\n\
              /bin/chmod 600 \"$XDG_DATA_HOME/opencode/auth.json\"\n\
@@ -5698,6 +5919,7 @@ mod tests {
             "opencode-data",
             "opencode-state",
             "opencode-data/opencode",
+            "opencode-state/opencode",
         ] {
             assert_eq!(
                 fs::metadata(owned_path.join(directory))
@@ -5715,6 +5937,16 @@ mod tests {
             0o600
         );
         assert!(!format!("{prepared:?}").contains("private-opencode-auth"));
+        let copied_model_state = owned_path.join("opencode-state/opencode/model.json");
+        assert_eq!(fs::read(&copied_model_state).unwrap(), model_state);
+        assert_eq!(
+            fs::metadata(&copied_model_state)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
 
         let mut output = run_process(prepared, CancellationToken::new(), Duration::from_secs(1))
             .await
@@ -5722,6 +5954,7 @@ mod tests {
 
         assert_eq!(output.stdout, b"isolated");
         assert_eq!(fs::read(&source_auth).unwrap(), secret);
+        assert_eq!(fs::read(&source_model_state).unwrap(), model_state);
         output.close_temp_dir().await.unwrap();
         assert!(!owned_path.exists());
         assert!(executable_dir.path().exists());
@@ -6185,7 +6418,7 @@ mod tests {
         source_options.write(true).create_new(true).mode(0o600);
         std::io::Write::write_all(
             &mut source_options.open(&source_auth).unwrap(),
-            &vec![b'x'; super::MAX_AGENT_AUTH_BYTES + 1],
+            &vec![b'x'; super::MAX_AGENT_PRIVATE_FILE_BYTES + 1],
         )
         .unwrap();
         let (_executable_dir, executable) = fake_executable("#!/bin/sh\nexit 0");
@@ -6203,6 +6436,43 @@ mod tests {
         assert_eq!(error.code, "invalid_environment");
         wait_for_temp_path_removal(&owned_path).await;
         assert!(!owned_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_copies_auth_from_a_validated_symlinked_config_directory() {
+        let home = tempdir().unwrap();
+        let config_root = tempdir().unwrap();
+        let source_directory = config_root.path().join("codex-config");
+        fs::create_dir(&source_directory).unwrap();
+        fs::set_permissions(&source_directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let source_auth = source_directory.join("auth.json");
+        let secret = br#"{"tokens":{"access_token":"symlinked-codex-auth"}}"#;
+        let mut source_options = fs::OpenOptions::new();
+        source_options.write(true).create_new(true).mode(0o600);
+        std::io::Write::write_all(&mut source_options.open(&source_auth).unwrap(), secret).unwrap();
+        std::os::unix::fs::symlink(&source_directory, home.path().join(".codex")).unwrap();
+        let (_executable_dir, executable) = fake_executable("#!/bin/sh\nexit 0");
+        let owned_temp = create_owned_temp_dir().unwrap();
+        let owned_path = owned_temp.path().to_path_buf();
+
+        let prepared = prepare_owned_for_kind_with_environment(
+            invocation(executable, &owned_path, Vec::new(), None),
+            owned_temp,
+            LocalAgentKind::Codex,
+            BTreeMap::from([(OsString::from("HOME"), home.path().as_os_str().to_owned())]),
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read(owned_path.join("codex-home/auth.json")).unwrap(),
+            secret
+        );
+        assert!(!format!("{prepared:?}").contains("symlinked-codex-auth"));
+        drop(prepared);
+        wait_for_temp_path_removal(&owned_path).await;
+        assert!(!owned_path.exists());
+        assert_eq!(fs::read(source_auth).unwrap(), secret);
     }
 
     #[cfg(unix)]
@@ -6303,7 +6573,7 @@ mod tests {
     async fn malformed_or_oversized_codex_auth_fails_closed_without_private_copies() {
         for bytes in [
             b"[] trailing".to_vec(),
-            vec![b'x'; super::MAX_AGENT_AUTH_BYTES + 1],
+            vec![b'x'; super::MAX_AGENT_PRIVATE_FILE_BYTES + 1],
         ] {
             let home = tempdir().unwrap();
             let source_directory = home.path().join(".codex");

@@ -96,6 +96,7 @@ pub(super) const PASSIVE_CODEX_FEATURES: &[&str] = &[
     "terminal_resize_reflow",
     "tool_search_always_defer_mcp_tools",
     "tui_app_server",
+    "unbounded_connection_retries",
 ];
 
 const CLAUDE_REQUIRED_FLAGS: &[&str] = &[
@@ -105,6 +106,7 @@ const CLAUDE_REQUIRED_FLAGS: &[&str] = &[
     "--disable-slash-commands",
     "--print",
     "--tools",
+    "--allowedTools",
     "--permission-mode",
     "--strict-mcp-config",
     "--mcp-config",
@@ -2183,6 +2185,7 @@ Usage: claude [options]
   --disable-slash-commands
   --print
   --tools <tools>
+  --allowedTools <tools>
   --permission-mode <mode>
   --strict-mcp-config
   --mcp-config <config>
@@ -2572,6 +2575,14 @@ Usage: opencode debug config
 
         assert!(!evaluation.compatible);
         assert_eq!(evaluation.reason, Some(CODEX_FEATURES_REASON));
+    }
+
+    #[test]
+    fn codex_features_allow_enabled_connection_retry_policy() {
+        let installed_output =
+            format!("{SAFE_CODEX_FEATURES}unbounded_connection_retries stable true\n");
+
+        assert!(evaluate_codex_features(&installed_output).compatible);
     }
 
     #[test]
@@ -4226,12 +4237,27 @@ Usage: opencode debug config
         .unwrap();
 
         assert_eq!(config["share"], "disabled");
+        assert!(config.get("enabled_providers").is_none());
+        assert!(config.get("model").is_none());
         assert!(opencode_permissions_are_denied(&config));
         assert_eq!(
             environment.get(OsStr::new("OPENCODE_DISABLE_AUTOUPDATE")),
             Some(&OsString::from("true"))
         );
-        assert_eq!(environment.len(), 2);
+        for name in [
+            "OPENCODE_DISABLE_PROJECT_CONFIG",
+            "OPENCODE_DISABLE_EXTERNAL_SKILLS",
+            "OPENCODE_DISABLE_LSP_DOWNLOAD",
+            "OPENCODE_DISABLE_MODELS_FETCH",
+            "OPENCODE_DISABLE_SHARE",
+        ] {
+            assert_eq!(
+                environment.get(OsStr::new(name)),
+                Some(&OsString::from("true")),
+                "missing fixed OpenCode probe control {name}"
+            );
+        }
+        assert_eq!(environment.len(), 7);
     }
 
     #[test]

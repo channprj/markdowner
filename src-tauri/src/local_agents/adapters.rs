@@ -2,7 +2,7 @@ use std::{collections::HashSet, ffi::OsString, path::PathBuf};
 
 use markdowner_core::ai_document::AiDocumentEnvelope;
 use serde::{Deserialize, de::DeserializeOwned};
-use serde_json::json;
+use serde_json::{json, value::RawValue};
 
 use super::{
     LocalAgentError, LocalAgentKind, LocalAgentRunRequest, LocalAgentTargetKind, ResolvedAgent,
@@ -10,6 +10,7 @@ use super::{
 };
 
 pub const MAX_ADAPTER_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
+const MAX_CLAUDE_JSON_EVENTS: usize = 4096;
 pub const LOCAL_AGENT_PAYLOAD_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["schemaVersion","markdown","summary","warnings"],"properties":{"schemaVersion":{"type":"integer","const":1},"markdown":{"type":"string","minLength":1},"summary":{"type":"string","minLength":1},"warnings":{"type":"array","items":{"type":"string"}}}}"#;
 
 const EMPTY_MCP_CONFIG: &str = r#"{"mcpServers":{}}"#;
@@ -59,6 +60,8 @@ pub(super) fn build_invocation(
                 "--print",
                 "--no-session-persistence",
                 "--tools",
+                "",
+                "--allowedTools",
                 "",
                 "--permission-mode",
                 "dontAsk",
@@ -274,7 +277,24 @@ pub fn parse_adapter_result(
 
 fn parse_claude_result(bytes: &[u8]) -> Result<LocalAgentPayload, LocalAgentError> {
     let text = checked_text(bytes)?;
-    let output: ClaudeResultEnvelope = deserialize_exact(text)?;
+    let output = match text.trim_start().as_bytes().first() {
+        Some(b'{') => deserialize_exact::<ClaudeResultEnvelope>(text)?,
+        Some(b'[') => {
+            let mut events = deserialize_exact::<Vec<Box<RawValue>>>(text)?;
+            if events.is_empty() || events.len() > MAX_CLAUDE_JSON_EVENTS {
+                return Err(LocalAgentError::InvalidAdapterResult);
+            }
+            let result = events.pop().ok_or(LocalAgentError::InvalidAdapterResult)?;
+            for event in events {
+                deserialize_exact::<DuplicateSafeObject>(event.get())?;
+                if deserialize_exact::<ClaudeResultEnvelope>(event.get()).is_ok() {
+                    return Err(LocalAgentError::InvalidAdapterResult);
+                }
+            }
+            deserialize_exact::<ClaudeResultEnvelope>(result.get())?
+        }
+        _ => return Err(LocalAgentError::InvalidAdapterResult),
+    };
     if output.result_type != "result"
         || output.subtype != "success"
         || output.is_error
@@ -597,6 +617,12 @@ struct ClaudeResultEnvelope {
     fast_mode_disabled_reason: Option<ClaudeFastModeDisabledReason>,
     #[serde(default, deserialize_with = "deserialize_non_null_optional")]
     origin: Option<ClaudeMessageOrigin>,
+    #[serde(
+        default,
+        rename = "subagent_stats",
+        deserialize_with = "deserialize_non_null_optional"
+    )]
+    _subagent_stats: Option<DuplicateSafeObject>,
     uuid: String,
     session_id: String,
 }
@@ -1128,7 +1154,7 @@ mod tests {
 
     fn claude_success(payload: &str) -> String {
         format!(
-            r#"{{"type":"result","subtype":"success","duration_ms":20,"duration_api_ms":15,"ttft_ms":8,"ttft_stream_ms":9,"time_to_request_ms":3,"user_message_uuid":"user-message-1","request_sent_wall_ms":1720000000000.5,"time_to_request_from_spawn_ms":2,"warm_spare_claimed":true,"time_origin_ms":1720000000000.25,"is_error":false,"api_error_status":null,"num_turns":1,"result":"ignored prose","stop_reason":null,"total_cost_usd":0.01,"usage":{{"input_tokens":4,"output_tokens":2}},"modelUsage":{{"claude-test":{{"inputTokens":4,"outputTokens":2}}}},"permission_denials":[],"structured_output":{payload},"terminal_reason":"completed","fast_mode_state":"off","fast_mode_disabled_reason":"preference","origin":{{"kind":"human"}},"uuid":"result-1","session_id":"session-1"}}"#
+            r#"{{"type":"result","subtype":"success","duration_ms":20,"duration_api_ms":15,"ttft_ms":8,"ttft_stream_ms":9,"time_to_request_ms":3,"user_message_uuid":"user-message-1","request_sent_wall_ms":1720000000000.5,"time_to_request_from_spawn_ms":2,"warm_spare_claimed":true,"time_origin_ms":1720000000000.25,"is_error":false,"api_error_status":null,"num_turns":1,"result":"ignored prose","stop_reason":null,"total_cost_usd":0.01,"usage":{{"input_tokens":4,"output_tokens":2}},"modelUsage":{{"claude-test":{{"inputTokens":4,"outputTokens":2}}}},"permission_denials":[],"structured_output":{payload},"terminal_reason":"completed","fast_mode_state":"off","fast_mode_disabled_reason":"preference","origin":{{"kind":"human"}},"subagent_stats":{{"spawned":0}},"uuid":"result-1","session_id":"session-1"}}"#
         )
     }
 
@@ -1239,6 +1265,8 @@ mod tests {
                 "--print",
                 "--no-session-persistence",
                 "--tools",
+                "",
+                "--allowedTools",
                 "",
                 "--permission-mode",
                 "dontAsk",
@@ -1454,6 +1482,26 @@ mod tests {
                 ),
                 (
                     OsString::from("OPENCODE_DISABLE_AUTOUPDATE"),
+                    OsString::from("true"),
+                ),
+                (
+                    OsString::from("OPENCODE_DISABLE_PROJECT_CONFIG"),
+                    OsString::from("true"),
+                ),
+                (
+                    OsString::from("OPENCODE_DISABLE_EXTERNAL_SKILLS"),
+                    OsString::from("true"),
+                ),
+                (
+                    OsString::from("OPENCODE_DISABLE_LSP_DOWNLOAD"),
+                    OsString::from("true"),
+                ),
+                (
+                    OsString::from("OPENCODE_DISABLE_MODELS_FETCH"),
+                    OsString::from("true"),
+                ),
+                (
+                    OsString::from("OPENCODE_DISABLE_SHARE"),
                     OsString::from("true"),
                 ),
             ]
@@ -1839,6 +1887,26 @@ mod tests {
             assert!(
                 parse_adapter_result(LocalAgentKind::Claude, wrapper.as_bytes(), None).is_err(),
                 "accepted invalid Claude wrapper: {wrapper}"
+            );
+        }
+    }
+
+    #[test]
+    fn claude_accepts_only_one_final_result_in_json_event_arrays() {
+        let valid = claude_success(VALID_PAYLOAD);
+        let event = r#"{"type":"system","subtype":"init","metadata":{"tools":[]}}"#;
+        let wrapped = format!("[{event},{valid}]");
+
+        assert!(parse_adapter_result(LocalAgentKind::Claude, wrapped.as_bytes(), None).is_ok());
+        for invalid in [
+            "[]".to_string(),
+            format!("[{valid},{event}]"),
+            format!("[{event},{valid},{valid}]"),
+            format!(r#"[{{"type":"system","type":"system"}},{valid}]"#),
+        ] {
+            assert!(
+                parse_adapter_result(LocalAgentKind::Claude, invalid.as_bytes(), None).is_err(),
+                "accepted invalid Claude event array: {invalid}"
             );
         }
     }

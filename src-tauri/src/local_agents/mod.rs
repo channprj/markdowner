@@ -71,6 +71,26 @@ pub(super) fn owned_opencode_environment() -> Vec<(OsString, OsString)> {
             OsString::from("OPENCODE_DISABLE_AUTOUPDATE"),
             OsString::from("true"),
         ),
+        (
+            OsString::from("OPENCODE_DISABLE_PROJECT_CONFIG"),
+            OsString::from("true"),
+        ),
+        (
+            OsString::from("OPENCODE_DISABLE_EXTERNAL_SKILLS"),
+            OsString::from("true"),
+        ),
+        (
+            OsString::from("OPENCODE_DISABLE_LSP_DOWNLOAD"),
+            OsString::from("true"),
+        ),
+        (
+            OsString::from("OPENCODE_DISABLE_MODELS_FETCH"),
+            OsString::from("true"),
+        ),
+        (
+            OsString::from("OPENCODE_DISABLE_SHARE"),
+            OsString::from("true"),
+        ),
     ]
 }
 
@@ -1463,8 +1483,9 @@ mod tests {
         LocalAgentError, LocalAgentKind, LocalAgentRunRequest, LocalAgentState, LocalAgentStatus,
         LocalAgentStatusSource, LocalAgentStreamEvent, LocalAgentTargetKind, MAX_ID_BYTES,
         MAX_INSTRUCTION_BYTES, MAX_PROCESS_STDIN_BYTES, MAX_SOURCE_BYTES, finish_post_processing,
-        map_resolution_error, prepared_request_size, remaining_run_time, validate_agent_payload,
-        validate_request, validate_window_label,
+        map_resolution_error, prepared_request_size, remaining_run_time,
+        run_registered_local_agent, validate_agent_payload, validate_request,
+        validate_window_label,
     };
     use markdowner_core::ai_document::{AiDocumentEnvelope, ByteRange, ProtectedKind};
 
@@ -1485,6 +1506,43 @@ mod tests {
             cursor,
             instruction: "Rewrite clearly.".to_string(),
             executable_path: None,
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "live smoke test for locally authenticated agent CLIs"]
+    async fn run_installed_agents_end_to_end() {
+        for agent in [
+            LocalAgentKind::Claude,
+            LocalAgentKind::Codex,
+            LocalAgentKind::Opencode,
+        ] {
+            eprintln!("running {agent:?} live smoke");
+            let mut request = fixture_request(LocalAgentTargetKind::Document);
+            request.request_id = format!("installed-{agent:?}-smoke").to_ascii_lowercase();
+            request.document_id = "smoke-document".to_string();
+            request.agent = agent;
+            request.source = "Local agent smoke test.\n".to_string();
+            request.instruction = "Return the source Markdown unchanged.".to_string();
+            let state = LocalAgentState::default();
+            let run = state.begin("smoke", &request.request_id).unwrap();
+            let channel = Channel::new(|_| Ok(()));
+
+            let result = run_registered_local_agent(
+                &state,
+                "smoke",
+                run.generation(),
+                &request,
+                &channel,
+                &run.cancellation_token(),
+                StdInstant::now() + Duration::from_secs(5 * 60),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{agent:?} live smoke failed: {error:?}"));
+
+            assert_eq!(result.agent, agent);
+            assert!(!result.markdown.trim().is_empty());
+            eprintln!("completed {agent:?} live smoke");
         }
     }
 
