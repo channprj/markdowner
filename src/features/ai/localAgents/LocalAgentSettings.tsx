@@ -206,7 +206,7 @@ export function LocalAgentSettings({
                   ) : null}
                 </div>
                 <span className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${statusClass(status)}`}>
-                  {statusLabel(status)}
+                  {statusLabel(status, loading)}
                 </span>
               </div>
               <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
@@ -275,8 +275,8 @@ export function LocalAgentSettings({
   );
 }
 
-function statusLabel(status: LocalAgentStatus | undefined): string {
-  if (!status) return 'Not checked';
+function statusLabel(status: LocalAgentStatus | undefined, loading = false): string {
+  if (!status) return loading ? 'Checking…' : 'Not checked';
   if (!status.installed) return 'Not installed';
   return status.compatible ? 'Compatible' : 'Incompatible';
 }

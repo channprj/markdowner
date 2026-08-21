@@ -63,6 +63,8 @@ describe('LocalAgentSettings', () => {
     const button = screen.getByRole('button', { name: 'Refresh local agent status' });
     await waitFor(() => expect(listStatuses).toHaveBeenCalled());
     expect(button).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getAllByText('Checking…')).toHaveLength(3);
+    expect(screen.queryByText('Not checked')).not.toBeInTheDocument();
 
     await act(async () => pending.resolve(statuses));
 

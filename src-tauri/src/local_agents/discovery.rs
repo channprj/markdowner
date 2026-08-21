@@ -1086,48 +1086,60 @@ pub(super) fn resolve_compatible_agent_cancellable(
 }
 
 fn discover_all_with_runner_and_paths(
-    runner: &impl ProbeRunner,
+    runner: &(impl ProbeRunner + Sync),
     executable_paths: &markdowner_core::settings::LocalAgentExecutablePaths,
     deadline: Option<Instant>,
 ) -> Vec<LocalAgentStatus> {
     let paths = current_search_path_directories_with_runner(runner);
     let environment_path = env::join_paths(&paths).unwrap_or_default();
     let home = env::var_os("HOME").map(PathBuf::from);
-    LocalAgentKind::ALL
-        .into_iter()
-        .map(|kind| {
+    thread::scope(|scope| {
+        let probes = LocalAgentKind::ALL.map(|kind| {
             let manual_path = match kind {
                 LocalAgentKind::Claude => &executable_paths.claude,
                 LocalAgentKind::Codex => &executable_paths.codex,
                 LocalAgentKind::Opencode => &executable_paths.opencode,
             };
-            if manual_path.trim().is_empty() {
-                discover_automatic_kind_with_runner_and_deadline(
-                    kind,
-                    &paths,
-                    &environment_path,
-                    runner,
-                    deadline,
-                )
-            } else {
-                match resolve_candidate_from_paths(kind, Some(manual_path), home.as_deref(), &paths)
-                {
-                    Ok((resolved, source)) => {
-                        probe_resolved_agent_with_environment_path_and_deadline(
-                            resolved,
-                            &environment_path,
-                            runner,
-                            source,
-                            deadline,
-                        )
-                    }
-                    Err(error) => {
-                        unavailable_status(kind, error, Some(LocalAgentStatusSource::Manual))
+            let paths = &paths;
+            let environment_path = &environment_path;
+            let home = home.as_deref();
+            scope.spawn(move || {
+                if manual_path.trim().is_empty() {
+                    discover_automatic_kind_with_runner_and_deadline(
+                        kind,
+                        paths,
+                        environment_path,
+                        runner,
+                        deadline,
+                    )
+                } else {
+                    match resolve_candidate_from_paths(kind, Some(manual_path), home, paths) {
+                        Ok((resolved, source)) => {
+                            probe_resolved_agent_with_environment_path_and_deadline(
+                                resolved,
+                                environment_path,
+                                runner,
+                                source,
+                                deadline,
+                            )
+                        }
+                        Err(error) => {
+                            unavailable_status(kind, error, Some(LocalAgentStatusSource::Manual))
+                        }
                     }
                 }
-            }
-        })
-        .collect()
+            })
+        });
+        LocalAgentKind::ALL
+            .into_iter()
+            .zip(probes)
+            .map(|(kind, probe)| {
+                probe.join().unwrap_or_else(|_| {
+                    unavailable_status(kind, LocalAgentError::ProbeFailed, None)
+                })
+            })
+            .collect()
+    })
 }
 
 fn resolve_compatible_agent_with_runner(
@@ -2085,7 +2097,10 @@ mod tests {
         fs,
         io::{self, Read},
         path::{Path, PathBuf},
-        sync::Mutex,
+        sync::{
+            Mutex,
+            atomic::{AtomicUsize, Ordering},
+        },
         thread,
         time::{Duration, Instant},
     };
@@ -2101,12 +2116,12 @@ mod tests {
         LOGIN_SHELL_PATH_COMMAND, LOGIN_SHELL_PATH_END, LOGIN_SHELL_PATH_LIMIT,
         MAX_EXECUTABLE_BYTES, OPEN_CODE_PERMISSIONS_REASON, PROBE_TIMEOUT, ProbeOutput,
         ProbeRunner, STATUS_DISCOVERY_TIMEOUT, automatic_search_directories,
-        codex_feature_probe_args, discover_automatic_kind_with_runner, evaluate_claude_help,
-        evaluate_codex_features, evaluate_codex_help, evaluate_opencode_help, executable_sha256,
-        executable_sha256_exact, login_shell_path_value_with_runner,
-        opencode_permissions_are_denied, parse_login_shell_path_output, parse_shebang_interpreter,
-        probe_agent, probe_agent_with_proof, probe_resolved_agent,
-        probe_resolved_agent_with_environment_path,
+        codex_feature_probe_args, discover_all_with_runner_and_paths,
+        discover_automatic_kind_with_runner, evaluate_claude_help, evaluate_codex_features,
+        evaluate_codex_help, evaluate_opencode_help, executable_sha256, executable_sha256_exact,
+        login_shell_path_value_with_runner, opencode_permissions_are_denied,
+        parse_login_shell_path_output, parse_shebang_interpreter, probe_agent,
+        probe_agent_with_proof, probe_resolved_agent, probe_resolved_agent_with_environment_path,
         probe_resolved_agent_with_environment_path_and_deadline, resolve_all_from_paths,
         resolve_candidate_from_paths, resolve_compatible_from_paths_with_runner_and_proof,
         resolve_from_paths, search_path_directories, search_path_directories_with_runner,
@@ -2115,6 +2130,7 @@ mod tests {
         LocalAgentError, LocalAgentKind, LocalAgentStatusSource, ResolvedAgent,
         owned_opencode_environment,
     };
+    use markdowner_core::settings::LocalAgentExecutablePaths;
 
     const SAFE_CODEX_FEATURES: &str = "\
 apps stable false
@@ -4324,6 +4340,104 @@ Usage: opencode debug config
             Some(CAPABILITY_PROBE_TIMEOUT_REASON)
         );
         assert_eq!(*runner.calls.lock().unwrap(), 0);
+    }
+
+    struct ConcurrentStatusRunner {
+        active: AtomicUsize,
+        max_active: AtomicUsize,
+        calls: Mutex<BTreeMap<String, usize>>,
+    }
+
+    impl ProbeRunner for ConcurrentStatusRunner {
+        fn run(
+            &self,
+            executable: &Path,
+            args: &[OsString],
+            _environment: &[(OsString, OsString)],
+        ) -> Result<ProbeOutput, LocalAgentError> {
+            let basename = executable
+                .file_name()
+                .and_then(OsStr::to_str)
+                .unwrap_or_default();
+            if !matches!(basename, "claude" | "codex" | "opencode") {
+                return Ok(ProbeOutput {
+                    success: true,
+                    stdout: framed_login_path(b"/usr/bin:/bin"),
+                    stderr: Vec::new(),
+                });
+            }
+
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_active.fetch_max(active, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(40));
+
+            let mut calls = self.calls.lock().unwrap();
+            let call = calls.entry(basename.to_string()).or_default();
+            let stdout = match (basename, *call, args.first().and_then(|arg| arg.to_str())) {
+                ("claude", 0, Some("--version")) => b"claude 2.1.239\n".to_vec(),
+                ("claude", 1, Some("--help")) => CLAUDE_HELP.as_bytes().to_vec(),
+                ("codex", 0, Some("--version")) => b"codex-cli 0.149.0\n".to_vec(),
+                ("codex", 1, Some("exec")) => CODEX_EXEC_HELP.as_bytes().to_vec(),
+                ("codex", 2, Some("features")) => SAFE_CODEX_FEATURES.as_bytes().to_vec(),
+                ("opencode", 0, Some("--version")) => b"opencode 1.18.21\n".to_vec(),
+                ("opencode", 1, Some("run")) => OPEN_CODE_RUN_HELP.as_bytes().to_vec(),
+                ("opencode", 2, Some("debug")) => OPEN_CODE_DEBUG_CONFIG_HELP.as_bytes().to_vec(),
+                ("opencode", 3, Some("debug")) => {
+                    fully_denied_open_code_config().to_string().into_bytes()
+                }
+                unexpected => panic!("unexpected status probe: {unexpected:?}"),
+            };
+            *call += 1;
+            drop(calls);
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            Ok(ProbeOutput {
+                success: true,
+                stdout,
+                stderr: Vec::new(),
+            })
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn status_discovery_probes_installed_agents_concurrently() {
+        let temp = tempdir().unwrap();
+        for basename in ["claude", "codex", "opencode"] {
+            create_executable(&temp.path().join(basename));
+        }
+        let executable_paths = LocalAgentExecutablePaths {
+            claude: temp.path().join("claude").to_string_lossy().into_owned(),
+            codex: temp.path().join("codex").to_string_lossy().into_owned(),
+            opencode: temp.path().join("opencode").to_string_lossy().into_owned(),
+        };
+        let runner = ConcurrentStatusRunner {
+            active: AtomicUsize::new(0),
+            max_active: AtomicUsize::new(0),
+            calls: Mutex::new(BTreeMap::new()),
+        };
+
+        let statuses = discover_all_with_runner_and_paths(&runner, &executable_paths, None);
+
+        assert!(statuses.iter().all(|status| status.compatible));
+        assert!(
+            runner.max_active.load(Ordering::SeqCst) >= 2,
+            "installed agent probes ran sequentially"
+        );
+    }
+
+    #[test]
+    #[ignore = "live smoke test for locally installed agent CLIs"]
+    fn live_installed_agents_are_discovered_together() {
+        let statuses = super::discover_all();
+        eprintln!("installed local agent statuses: {statuses:#?}");
+
+        for status in statuses {
+            assert!(
+                status.compatible,
+                "{} was not detected as compatible: {:?}",
+                status.label, status.reason
+            );
+        }
     }
 
     #[test]
