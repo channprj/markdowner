@@ -7,11 +7,18 @@ import {
   aiCancel,
   aiKeyStatus,
   aiListModels,
+  aiModelPricing,
   aiRun,
 } from '@/lib/desktop';
 import type { Settings } from '@/lib/settings';
 
-import { orderModels, resolveUsageCost } from './model';
+import {
+  hasNoZdrEndpoint,
+  NON_ZDR_CONFIRMATION_LABEL,
+  NO_ZDR_ENDPOINT_REASON,
+  orderModels,
+  resolveUsageCost,
+} from './model';
 import type { AiSelectionSnapshot } from './selection';
 import {
   resolveSelectionInstruction,
@@ -21,6 +28,7 @@ import {
 import type {
   AiKeyStatus,
   AiModel,
+  AiModelPricing,
   AiRunRequest,
   AiRunResult,
   AiStreamEvent,
@@ -29,6 +37,10 @@ import type {
 export interface AiSelectionServices {
   keyStatus: () => Promise<AiKeyStatus>;
   listModels: () => Promise<AiModel[]>;
+  modelPricing?: (
+    modelId: string,
+    zdrOnly: boolean,
+  ) => Promise<AiModelPricing>;
   run: (
     request: AiRunRequest,
     onEvent: (event: AiStreamEvent) => void,
@@ -52,6 +64,7 @@ export interface AiSelectionPopoverProps {
 const DEFAULT_SERVICES: AiSelectionServices = {
   keyStatus: aiKeyStatus,
   listModels: aiListModels,
+  modelPricing: aiModelPricing,
   run: aiRun,
   cancel: aiCancel,
 };
@@ -69,6 +82,12 @@ export function AiSelectionPopover({
   const [models, setModels] = useState<AiModel[]>([]);
   const [model, setModel] = useState(settings.aiCustomPromptModel);
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [livePricing, setLivePricing] = useState<{
+    modelId: string;
+    pricing: AiModelPricing;
+  } | null>(null);
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [confirmedNonZdr, setConfirmedNonZdr] = useState(false);
   const [runningRequestId, setRunningRequestId] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -115,12 +134,72 @@ export function AiSelectionPopover({
     modelOptions.find((candidate) => candidate.id === model) ??
     modelOptions[0] ??
     null;
+  const selectedModelId = selectedModel?.id ?? null;
+
+  useEffect(() => {
+    setConfirmedNonZdr(false);
+    if (
+      configured !== true ||
+      !selectedModelId ||
+      !settings.aiZdrOnly ||
+      !services.modelPricing
+    ) {
+      setLivePricing(null);
+      setPricingLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLivePricing(null);
+    setPricingLoading(true);
+    services
+      .modelPricing(selectedModelId, true)
+      .then((pricing) => {
+        if (!cancelled) setLivePricing({ modelId: selectedModelId, pricing });
+      })
+      .catch((reason) => {
+        if (!cancelled) {
+          setLivePricing({
+            modelId: selectedModelId,
+            pricing: {
+              prompt: null,
+              completion: null,
+              updatedAt: '',
+              eligibleEndpointCount: null,
+            },
+          });
+          setError(errorMessage(reason));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPricingLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [configured, selectedModelId, services, settings.aiZdrOnly]);
+
+  const pricingReady =
+    !settings.aiZdrOnly ||
+    !services.modelPricing ||
+    livePricing?.modelId === selectedModelId;
+  const noZdrEndpoint = hasNoZdrEndpoint(
+    settings.aiZdrOnly,
+    livePricing?.modelId === selectedModelId
+      ? livePricing.pricing.eligibleEndpointCount
+      : null,
+  );
+  const requestZdrOnly = settings.aiZdrOnly && !noZdrEndpoint;
   const instruction = resolveSelectionInstruction(actionId, prompt);
   const canRun =
     configured === true &&
+    !pricingLoading &&
+    pricingReady &&
     settings.aiCloudDisclosureAccepted &&
     instruction !== null &&
     selectedModel?.enabled === true &&
+    (!noZdrEndpoint || confirmedNonZdr) &&
     !runningRequestId;
 
   const handleRun = async () => {
@@ -135,7 +214,7 @@ export function AiSelectionPopover({
       model: selectedModel.id,
       targetLanguage: null,
       instruction,
-      zdrOnly: settings.aiZdrOnly,
+      zdrOnly: requestZdrOnly,
       maxOutputTokens: 4_096,
       recordHistory: settings.aiHistoryEnabled,
     };
@@ -271,7 +350,10 @@ export function AiSelectionPopover({
             id="ai-selection-model"
             value={selectedModel?.id ?? model}
             disabled={Boolean(runningRequestId)}
-            onChange={(event) => setModel(event.target.value)}
+            onChange={(event) => {
+              setModel(event.target.value);
+              setConfirmedNonZdr(false);
+            }}
             className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {modelOptions.map((option) => (
@@ -295,6 +377,19 @@ export function AiSelectionPopover({
           <p className="text-xs text-amber-800 dark:text-amber-200">
             Approve cloud AI processing in Settings before running.
           </p>
+        ) : null}
+        {noZdrEndpoint ? (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-200">
+            {NO_ZDR_ENDPOINT_REASON}
+            <label className="mt-2 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={confirmedNonZdr}
+                onChange={(event) => setConfirmedNonZdr(event.target.checked)}
+              />
+              {NON_ZDR_CONFIRMATION_LABEL}
+            </label>
+          </div>
         ) : null}
 
         <div className="flex items-center gap-2">
@@ -329,7 +424,9 @@ export function AiSelectionPopover({
             </>
           )}
           <span className="text-[11px] text-muted-foreground">
-            {settings.aiZdrOnly ? 'ZDR only' : 'Provider retention allowed'}
+            {requestZdrOnly
+              ? 'ZDR only'
+              : 'Provider retention allowed for this request'}
           </span>
         </div>
 

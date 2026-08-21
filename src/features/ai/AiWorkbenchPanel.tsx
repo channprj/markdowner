@@ -21,6 +21,7 @@ import { AiPrdInterview, type AiPrdInterviewServices } from './AiPrdInterview';
 import {
   detectDocumentLanguage,
   estimateAiRun,
+  NON_ZDR_CONFIRMATION_LABEL,
   outputTokenLimitForTask,
   orderModels,
   resolveUsageCost,
@@ -265,12 +266,15 @@ export function AiWorkbenchPanel({
             prompt: null,
             completion: null,
             updatedAt: '',
+            eligibleEndpointCount: null,
           }
       : selectedModel?.pricing ?? null;
   const pricedSelectedModel =
     selectedModel && selectedPricing
       ? { ...selectedModel, pricing: selectedPricing }
       : selectedModel;
+  const pricingReady =
+    !services.modelPricing || livePricing?.modelId === selectedModelId;
 
   useEffect(() => {
     if (!configured || !selectedModelId || !services.modelPricing) {
@@ -297,6 +301,7 @@ export function AiWorkbenchPanel({
             prompt: null,
             completion: null,
             updatedAt: '',
+            eligibleEndpointCount: null,
           },
         });
         setError(errorMessage(reason));
@@ -336,8 +341,13 @@ export function AiWorkbenchPanel({
           inputTokens: estimate.inputTokens,
           contextLength: selectedModel.contextLength,
           maxCostUsd: estimate.maxCostUsd,
+          zdrOnly: settings.aiZdrOnly,
+          eligibleEndpointCount:
+            selectedPricing?.eligibleEndpointCount ?? null,
         })
       : null;
+  const requestZdrOnly =
+    settings.aiZdrOnly && gate?.code !== 'no_zdr_endpoint';
   const languages = searchLanguages(languageQuery).slice(0, 12);
   const requiresInstruction = task === 'custom';
   const targetRequired = task === 'translation';
@@ -358,6 +368,7 @@ export function AiWorkbenchPanel({
   const canRun =
     !runningRequestId &&
     !pricingLoading &&
+    pricingReady &&
     configured &&
     disclosureAccepted &&
     (effectiveRunScope.kind === 'document' ||
@@ -427,7 +438,7 @@ export function AiWorkbenchPanel({
             ? summaryLanguage
             : null,
       instruction: instruction.trim() || null,
-      zdrOnly: settings.aiZdrOnly,
+      zdrOnly: requestZdrOnly,
       maxOutputTokens,
       recordHistory: settings.aiHistoryEnabled,
       scope: effectiveRunScope,
@@ -441,7 +452,7 @@ export function AiWorkbenchPanel({
             model: selectedModel.id,
             targetLanguage,
             instruction: instruction.trim() || null,
-            zdrOnly: settings.aiZdrOnly,
+            zdrOnly: requestZdrOnly,
           })
         : null;
     if (resumable) {
@@ -528,7 +539,7 @@ export function AiWorkbenchPanel({
             model: selectedModelId,
             targetLanguage,
             instruction: instruction.trim() || null,
-            zdrOnly: settings.aiZdrOnly,
+            zdrOnly: requestZdrOnly,
           })
         : null;
       if (resumable) persistTranslationResume(resumable);
@@ -552,7 +563,7 @@ export function AiWorkbenchPanel({
           model: selectedModelId,
           targetLanguage,
           instruction: instruction.trim() || null,
-          zdrOnly: settings.aiZdrOnly,
+          zdrOnly: requestZdrOnly,
           maxOutputTokens: 4_096,
           recordHistory: settings.aiHistoryEnabled,
           scope: {
@@ -1090,7 +1101,9 @@ export function AiWorkbenchPanel({
                   checked={confirmed}
                   onChange={(event) => setConfirmed(event.target.checked)}
                 />
-                I understand and want to run this request.
+                {gate.code === 'no_zdr_endpoint'
+                  ? NON_ZDR_CONFIRMATION_LABEL
+                  : 'I understand and want to run this request.'}
               </label>
             ) : null}
           </div>
@@ -1126,7 +1139,7 @@ export function AiWorkbenchPanel({
             model={selectedModel.id}
             instruction={instruction.trim() || null}
             scope={runScope}
-            zdrOnly={settings.aiZdrOnly}
+            zdrOnly={requestZdrOnly}
             recordHistory={settings.aiHistoryEnabled}
             disabled={!canRun}
             resumeRequestId={
@@ -1154,12 +1167,12 @@ export function AiWorkbenchPanel({
             </Button>
           )}
           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-            {settings.aiZdrOnly ? (
+            {requestZdrOnly ? (
               'ZDR only'
             ) : (
               <>
                 <Ban className="size-3" />
-                Retention allowed
+                Retention allowed for this request
               </>
             )}
           </span>

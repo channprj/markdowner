@@ -18,6 +18,7 @@ use super::{AiError, interview::{ModelTurn, PRD_INTERVIEW_PROMPT_VERSION}};
 const OPENROUTER_API_BASE: &str = "https://openrouter.ai/api/v1";
 const OPENROUTER_APP_TITLE: &str = "Markdowner";
 const OPENROUTER_APP_REFERER: &str = "https://markdowner.chann.dev";
+const OPENROUTER_PRIVACY_SETTINGS_URL: &str = "https://openrouter.ai/settings/privacy";
 pub(crate) const PROMPT_VERSION: &str = "2026-07-31.v1";
 pub(crate) const SUMMARY_PROMPT_VERSION: &str = "2026-08-07.summary.v1";
 
@@ -156,7 +157,7 @@ impl SseDecoder {
                 .get("message")
                 .and_then(Value::as_str)
                 .unwrap_or("OpenRouter reported a streaming error.");
-            let mut result = AiError::new("provider_error", redact_sensitive(message, None));
+            let mut result = provider_message_error("provider_error", message, None);
             result.generation_id = payload
                 .get("id")
                 .and_then(Value::as_str)
@@ -482,6 +483,8 @@ pub struct AiModelPricing {
     pub prompt: Option<f64>,
     pub completion: Option<f64>,
     pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eligible_endpoint_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -656,6 +659,7 @@ impl OpenRouterClient {
             prompt,
             completion,
             updated_at: pricing_timestamp(),
+            eligible_endpoint_count: Some(endpoints.len()),
         })
     }
 
@@ -798,10 +802,7 @@ async fn checked_response(response: Response, secret: &str) -> Result<Response, 
         .and_then(Value::as_str)
         .map(str::to_string)
         .or(generation_header);
-    let mut error = AiError::new(
-        status_error_code(status),
-        redact_sensitive(message, Some(secret)),
-    );
+    let mut error = provider_message_error(status_error_code(status), message, Some(secret));
     error.retry_after_seconds = retry_after_seconds;
     error.generation_id = generation_id;
     Err(error)
@@ -828,6 +829,26 @@ fn default_status_message(status: StatusCode) -> &'static str {
         StatusCode::SERVICE_UNAVAILABLE => "No OpenRouter provider is currently available.",
         _ => "OpenRouter could not complete the request.",
     }
+}
+
+fn provider_message_error(
+    default_code: &str,
+    message: &str,
+    explicit_secret: Option<&str>,
+) -> AiError {
+    let redacted = redact_sensitive(message, explicit_secret);
+    let normalized = redacted.to_ascii_lowercase();
+    if normalized.contains("no endpoints found matching your data policy")
+        && normalized.contains("zero data retention")
+    {
+        return AiError::new(
+            "zdr_policy_blocked",
+            format!(
+                "OpenRouter still requires Zero Data Retention for this account or API key. Disable the applicable policy at {OPENROUTER_PRIVACY_SETTINGS_URL}, or choose a model with a ZDR endpoint."
+            ),
+        );
+    }
+    AiError::new(default_code, redacted)
 }
 
 fn network_error(error: reqwest::Error) -> AiError {
@@ -889,6 +910,7 @@ fn parse_model(value: &Value, updated_at: &str) -> Option<AiModel> {
             prompt: value.pointer("/pricing/prompt").and_then(value_as_f64),
             completion: value.pointer("/pricing/completion").and_then(value_as_f64),
             updated_at: updated_at.to_string(),
+            eligible_endpoint_count: None,
         },
         id,
     })
@@ -1122,6 +1144,17 @@ mod tests {
     }
 
     #[test]
+    fn structured_request_can_explicitly_allow_a_non_zdr_endpoint() {
+        let mut completion = fixture_request(AiTask::Translation);
+        completion.zdr_only = false;
+
+        let request = build_chat_request(&completion);
+
+        assert_eq!(request["provider"]["zdr"], false);
+        assert_eq!(request["provider"]["require_parameters"], true);
+    }
+
+    #[test]
     fn document_prompt_is_delimited_as_untrusted_data() {
         let messages = build_messages(&fixture_request(AiTask::Prd));
 
@@ -1272,7 +1305,58 @@ mod tests {
 
         assert_eq!(pricing.prompt, Some(0.000_005));
         assert_eq!(pricing.completion, Some(0.000_004));
+        assert_eq!(pricing.eligible_endpoint_count, Some(2));
         assert!(request.starts_with("GET /api/v1/endpoints/zdr "));
+    }
+
+    #[tokio::test]
+    async fn zdr_pricing_reports_when_no_matching_endpoint_exists() {
+        let (base_url, _request_rx) = spawn_mock_response(
+            200,
+            "application/json",
+            r#"{"data":[{"model_id":"moonshotai/kimi-k3","pricing":{"prompt":"0.9","completion":"0.9"}}]}"#,
+        );
+        let client = OpenRouterClient::with_base_url(&base_url).unwrap();
+
+        let pricing = client
+            .model_pricing("sk-or-v1-test", "upstage/solar-pro4", true)
+            .await
+            .unwrap();
+        let serialized = serde_json::to_value(pricing).unwrap();
+
+        assert_eq!(serialized["eligibleEndpointCount"], json!(0));
+    }
+
+    #[tokio::test]
+    async fn explains_when_an_openrouter_zdr_policy_still_blocks_routing() {
+        let (base_url, _request) = spawn_mock_response(
+            404,
+            "application/json",
+            r#"{"error":{"message":"No endpoints found matching your data policy (Zero data retention). Configure: https://openrouter.ai/settings/privacy"}}"#,
+        );
+        let client = OpenRouterClient::with_base_url(&base_url).unwrap();
+
+        let error = client.verify_key("sk-or-v1-test", None).await.unwrap_err();
+
+        assert_eq!(error.code, "zdr_policy_blocked");
+        assert!(error.message.contains("https://openrouter.ai/settings/privacy"));
+        assert!(error.message.contains("account or API key"));
+    }
+
+    #[test]
+    fn streaming_errors_explain_an_openrouter_zdr_policy_block() {
+        let mut decoder = SseDecoder::default();
+        let error = decoder
+            .push(
+                br#"data: {"id":"gen-zdr","error":{"message":"No endpoints found matching your data policy (Zero data retention)."}}
+
+"#,
+            )
+            .unwrap_err();
+
+        assert_eq!(error.code, "zdr_policy_blocked");
+        assert_eq!(error.generation_id.as_deref(), Some("gen-zdr"));
+        assert!(error.message.contains("https://openrouter.ai/settings/privacy"));
     }
 
     #[tokio::test]

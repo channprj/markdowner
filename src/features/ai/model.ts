@@ -45,6 +45,10 @@ export const SELECTION_TOKEN_LIMIT = 20_000;
 export const DEFAULT_AI_OUTPUT_TOKEN_LIMIT = 4_096;
 export const PRD_AI_OUTPUT_TOKEN_LIMIT = 16_384;
 export const SUMMARY_SOURCE_LANGUAGE = 'source';
+export const NO_ZDR_ENDPOINT_REASON =
+  'The selected model has no Zero Data Retention endpoint on OpenRouter. Confirm to run this request with provider retention allowed.';
+export const NON_ZDR_CONFIRMATION_LABEL =
+  'I understand provider retention may apply and want to run this request without Zero Data Retention.';
 
 const COMMON_LANGUAGE_CODES = [
   'ko',
@@ -112,13 +116,19 @@ export interface AiRunGateInput {
   inputTokens: number;
   contextLength: number;
   maxCostUsd: number | null;
+  zdrOnly: boolean;
+  eligibleEndpointCount: number | null;
 }
 
 export type AiRunGate =
   | { kind: 'ready'; code: null; reason: null }
   | {
       kind: 'confirm';
-      code: 'high_cost' | 'context_pressure' | 'unknown_cost';
+      code:
+        | 'high_cost'
+        | 'context_pressure'
+        | 'unknown_cost'
+        | 'no_zdr_endpoint';
       reason: string;
     }
   | { kind: 'blocked'; code: 'input_limit'; reason: string };
@@ -282,6 +292,13 @@ export function resolveRunGate(input: AiRunGateInput): AiRunGate {
       reason: `The input exceeds the ${limit.toLocaleString()} token limit. Select a smaller range; Markdowner will not truncate it.`,
     };
   }
+  if (hasNoZdrEndpoint(input.zdrOnly, input.eligibleEndpointCount)) {
+    return {
+      kind: 'confirm',
+      code: 'no_zdr_endpoint',
+      reason: NO_ZDR_ENDPOINT_REASON,
+    };
+  }
   if (input.maxCostUsd === null) {
     return {
       kind: 'confirm',
@@ -308,6 +325,13 @@ export function resolveRunGate(input: AiRunGateInput): AiRunGate {
     };
   }
   return { kind: 'ready', code: null, reason: null };
+}
+
+export function hasNoZdrEndpoint(
+  zdrOnly: boolean,
+  eligibleEndpointCount: number | null | undefined,
+): boolean {
+  return zdrOnly && eligibleEndpointCount === 0;
 }
 
 export function searchLanguages(

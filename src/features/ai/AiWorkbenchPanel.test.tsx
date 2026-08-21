@@ -463,7 +463,7 @@ describe('AiWorkbenchPanel', () => {
     expect(screen.getByText(/2026-07-31T01:00:00Z/)).toBeInTheDocument();
   });
 
-  it('allows an explicitly confirmed run when endpoint pricing is unavailable', async () => {
+  it('runs without request-level ZDR only after confirming that the model has no ZDR endpoint', async () => {
     const run = vi.fn().mockImplementation(async (request: AiRunRequest) => runResult(request));
     render(
       <AiWorkbenchPanel
@@ -486,6 +486,7 @@ describe('AiWorkbenchPanel', () => {
             prompt: null,
             completion: null,
             updatedAt: '',
+            eligibleEndpointCount: 0,
           }),
           run,
           cancel: vi.fn(),
@@ -495,9 +496,9 @@ describe('AiWorkbenchPanel', () => {
 
     const runButton = await screen.findByRole('button', { name: 'Run' });
     const confirmation = await screen.findByRole('checkbox', {
-      name: 'I understand and want to run this request.',
+      name: /run this request without Zero Data Retention/i,
     });
-    expect(screen.getByText(/endpoint pricing is unavailable/i)).toBeVisible();
+    expect(screen.getByText(/has no Zero Data Retention endpoint/i)).toBeVisible();
     expect(runButton).toBeDisabled();
 
     fireEvent.click(confirmation);
@@ -506,7 +507,57 @@ describe('AiWorkbenchPanel', () => {
 
     await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
     expect(run).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'upstage/solar-pro4' }),
+      expect.objectContaining({
+        model: 'upstage/solar-pro4',
+        zdrOnly: false,
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it('keeps request-level ZDR when endpoint pricing is unknown but an endpoint exists', async () => {
+    const run = vi.fn().mockImplementation(async (request: AiRunRequest) => runResult(request));
+    render(
+      <AiWorkbenchPanel
+        documentId="doc-1"
+        source="A requirement."
+        selection={null}
+        settings={{
+          ...DEFAULT_SETTINGS,
+          aiCloudDisclosureAccepted: true,
+        }}
+        onSettingsChange={vi.fn()}
+        onResult={vi.fn()}
+        services={{
+          keyStatus: vi.fn().mockResolvedValue({
+            configured: true,
+            maskedLabel: '••••secret',
+          }),
+          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          modelPricing: vi.fn().mockResolvedValue({
+            prompt: null,
+            completion: null,
+            updatedAt: '',
+            eligibleEndpointCount: 1,
+          }),
+          run,
+          cancel: vi.fn(),
+        }}
+      />,
+    );
+
+    const runButton = await screen.findByRole('button', { name: 'Run' });
+    fireEvent.click(
+      await screen.findByRole('checkbox', {
+        name: 'I understand and want to run this request.',
+      }),
+    );
+    await waitFor(() => expect(runButton).toBeEnabled());
+    fireEvent.click(runButton);
+
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ zdrOnly: true }),
       expect.any(Function),
     );
   });

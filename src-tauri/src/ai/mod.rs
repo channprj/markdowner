@@ -2205,6 +2205,7 @@ mod tests {
                 prompt: Some(0.000_001),
                 completion: Some(0.000_002),
                 updated_at: "now".to_string(),
+                eligible_endpoint_count: None,
             },
         }];
 

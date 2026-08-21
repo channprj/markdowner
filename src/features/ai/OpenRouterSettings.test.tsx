@@ -25,6 +25,26 @@ const defaultProps = {
 };
 
 describe('OpenRouterSettings', () => {
+  it('explains the per-request confirmation used when a model has no ZDR endpoint', () => {
+    render(
+      <OpenRouterSettings
+        {...defaultProps}
+        zdrOnly
+        disclosureAccepted
+        onZdrOnlyChange={vi.fn()}
+        onDisclosureAcceptedChange={vi.fn()}
+        services={{
+          keyStatus: vi.fn().mockResolvedValue({ configured: false, maskedLabel: null }),
+          saveKey: vi.fn(),
+          verifyKey: vi.fn(),
+          deleteKey: vi.fn(),
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/asks before allowing provider retention/i)).toBeVisible();
+  });
+
   it('offers popular OpenRouter models for every task default', () => {
     render(
       <OpenRouterSettings

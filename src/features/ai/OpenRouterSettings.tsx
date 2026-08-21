@@ -398,7 +398,8 @@ export function OpenRouterSettings({
           >
             <span>Zero Data Retention endpoints only</span>
             <span className="text-xs font-normal leading-relaxed text-muted-foreground">
-              Requests fail instead of silently relaxing this provider policy.
+              If a model has no ZDR endpoint, Markdowner asks before allowing
+              provider retention for that request.
             </span>
           </Label>
           <Switch id="ai-zdr-only" checked={zdrOnly} onCheckedChange={onZdrOnlyChange} />

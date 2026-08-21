@@ -22,6 +22,8 @@ export interface AiModelPricing {
   /** USD per token. */
   completion: number | null;
   updatedAt: string;
+  /** Present for live endpoint lookups; absent for catalog-level pricing. */
+  eligibleEndpointCount?: number | null;
 }
 
 export interface AiModel {

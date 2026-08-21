@@ -163,6 +163,8 @@ describe('AI estimates and run gates', () => {
         inputTokens: 800,
         contextLength: 1_000,
         maxCostUsd: 0.2,
+        zdrOnly: false,
+        eligibleEndpointCount: null,
       }).kind,
     ).toBe('confirm');
     expect(
@@ -171,6 +173,8 @@ describe('AI estimates and run gates', () => {
         inputTokens: 100,
         contextLength: 1_000,
         maxCostUsd: 1,
+        zdrOnly: false,
+        eligibleEndpointCount: null,
       }).kind,
     ).toBe('confirm');
   });
@@ -182,6 +186,8 @@ describe('AI estimates and run gates', () => {
         inputTokens: 50_001,
         contextLength: 1_000_000,
         maxCostUsd: 0.2,
+        zdrOnly: false,
+        eligibleEndpointCount: null,
       }),
     ).toMatchObject({ kind: 'blocked', code: 'input_limit' });
     expect(
@@ -190,6 +196,8 @@ describe('AI estimates and run gates', () => {
         inputTokens: 20_001,
         contextLength: 1_000_000,
         maxCostUsd: 0.2,
+        zdrOnly: false,
+        eligibleEndpointCount: null,
       }),
     ).toMatchObject({ kind: 'blocked', code: 'input_limit' });
     expect(
@@ -198,6 +206,31 @@ describe('AI estimates and run gates', () => {
         inputTokens: 100,
         contextLength: 1_000_000,
         maxCostUsd: null,
+        zdrOnly: true,
+        eligibleEndpointCount: null,
+      }),
+    ).toMatchObject({ kind: 'confirm', code: 'unknown_cost' });
+  });
+
+  it('distinguishes a missing ZDR endpoint from merely unknown pricing', () => {
+    expect(
+      resolveRunGate({
+        scope: 'document',
+        inputTokens: 100,
+        contextLength: 1_000_000,
+        maxCostUsd: null,
+        zdrOnly: true,
+        eligibleEndpointCount: 0,
+      }),
+    ).toMatchObject({ kind: 'confirm', code: 'no_zdr_endpoint' });
+    expect(
+      resolveRunGate({
+        scope: 'document',
+        inputTokens: 100,
+        contextLength: 1_000_000,
+        maxCostUsd: null,
+        zdrOnly: true,
+        eligibleEndpointCount: 1,
       }),
     ).toMatchObject({ kind: 'confirm', code: 'unknown_cost' });
   });
