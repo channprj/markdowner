@@ -245,6 +245,10 @@ export interface AiHistorySummary {
   scopeJson: string;
   sourceHash: string;
   promptVersion: string;
+  instruction: string | null;
+  targetLanguage: string | null;
+  maxOutputTokens: number | null;
+  zdrOnly: boolean | null;
   resultJson: string | null;
   errorJson: string | null;
   usageJson: string | null;

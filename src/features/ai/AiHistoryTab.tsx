@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, LoaderCircle, Trash2 } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Copy, LoaderCircle, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -18,12 +18,14 @@ export interface AiHistoryServices {
   detail: (requestId: string) => Promise<AiHistoryDetail | null>;
   deleteRun: (requestId: string) => Promise<boolean>;
   clear: () => Promise<number>;
+  copyPrompt: (prompt: string) => Promise<void>;
 }
 
 const DEFAULT_SERVICES: AiHistoryServices = {
   detail: aiHistoryDetail,
   deleteRun: aiHistoryDelete,
   clear: aiHistoryClear,
+  copyPrompt: async (prompt) => navigator.clipboard.writeText(prompt),
 };
 
 export function AiHistoryTab({
@@ -48,6 +50,7 @@ export function AiHistoryTab({
   const [detail, setDetail] = useState<AiHistoryDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
   const totalPages = Math.max(1, Math.ceil(history.total / history.pageSize));
 
   const openDetail = async (requestId: string) => {
@@ -55,10 +58,22 @@ export function AiHistoryTab({
     setActionError(null);
     try {
       setDetail(await services.detail(requestId));
+      setCopiedPromptId(null);
     } catch (reason) {
       setActionError(errorMessage(reason));
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const copyPrompt = async (run: AiHistoryDetail) => {
+    if (!run.instruction) return;
+    setActionError(null);
+    try {
+      await services.copyPrompt(run.instruction);
+      setCopiedPromptId(run.id);
+    } catch (reason) {
+      setActionError(errorMessage(reason));
     }
   };
 
@@ -132,6 +147,8 @@ export function AiHistoryTab({
             detail={detail}
             resumableDocumentIds={resumableDocumentIds}
             onResumeInterview={onResumeInterview}
+            promptCopied={copiedPromptId === detail.id}
+            onCopyPrompt={() => void copyPrompt(detail)}
           />
         ) : null}
       </div>
@@ -211,10 +228,14 @@ function HistoryDetail({
   detail,
   resumableDocumentIds,
   onResumeInterview,
+  promptCopied,
+  onCopyPrompt,
 }: {
   detail: AiHistoryDetail;
   resumableDocumentIds: readonly string[];
   onResumeInterview?: (requestId: string, documentId: string) => void;
+  promptCopied: boolean;
+  onCopyPrompt: () => void;
 }) {
   const scope = parseObject(detail.scopeJson);
   const result = parseObject(detail.resultJson);
@@ -237,6 +258,58 @@ function HistoryDetail({
         <dt className="text-muted-foreground">Scope</dt><dd>{scopeLabel(scope)}</dd>
         <dt className="text-muted-foreground">Duration</dt><dd>{duration === null ? 'In progress' : `${duration} seconds`}</dd>
       </dl>
+      <div className="mt-3 rounded-md border border-border bg-muted/20 p-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="font-medium">User prompt</h4>
+          {detail.instruction ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              aria-label="Copy user prompt"
+              onClick={onCopyPrompt}
+            >
+              {promptCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+              {promptCopied ? 'Copied' : 'Copy'}
+            </Button>
+          ) : null}
+        </div>
+        {detail.instruction ? (
+          <p className="mt-2 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
+            {detail.instruction}
+          </p>
+        ) : (
+          <p className="mt-1 text-muted-foreground">No additional user prompt was provided.</p>
+        )}
+      </div>
+      <div className="mt-3">
+        <h4 className="font-medium">Request details</h4>
+        <dl className="mt-1 grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-2 gap-y-1">
+          <dt className="text-muted-foreground">Request ID</dt>
+          <dd className="break-all font-mono text-[11px]">{detail.id}</dd>
+          <dt className="text-muted-foreground">Prompt version</dt>
+          <dd className="break-all">{detail.promptVersion}</dd>
+          <dt className="text-muted-foreground">Source revision</dt>
+          <dd className="break-all font-mono text-[11px]">{detail.sourceHash}</dd>
+          <dt className="text-muted-foreground">Target language</dt>
+          <dd>{detail.targetLanguage || 'Source language'}</dd>
+          <dt className="text-muted-foreground">Output limit</dt>
+          <dd>
+            {detail.maxOutputTokens === null
+              ? 'Not recorded'
+              : `${detail.maxOutputTokens.toLocaleString()} tokens`}
+          </dd>
+          <dt className="text-muted-foreground">Data retention</dt>
+          <dd>
+            {detail.zdrOnly === null
+              ? 'Not recorded'
+              : detail.zdrOnly
+                ? 'Zero Data Retention only'
+                : 'Provider retention allowed'}
+          </dd>
+        </dl>
+      </div>
       {resumable && documentIsOpen && onResumeInterview ? (
         <Button
           type="button"
@@ -264,7 +337,9 @@ function HistoryDetail({
         </div>
       ) : null}
       {result ? <DetailJson heading="Validated result" value={result} preferred="summary" /> : null}
-      {error ? <DetailJson heading="Error" value={error} preferred="message" /> : null}
+      {error ? (
+        <DetailJson heading="Error" value={error} preferred="message" showDetails />
+      ) : null}
       {usage ? (
         <div className="mt-3">
           <h4 className="font-medium">Usage</h4>
@@ -284,13 +359,31 @@ function scopeDocumentId(scope: Record<string, unknown> | null): string | null {
   return typeof target.documentId === 'string' ? target.documentId : null;
 }
 
-function DetailJson({ heading, value, preferred }: { heading: string; value: Record<string, unknown>; preferred: string }) {
+function DetailJson({
+  heading,
+  value,
+  preferred,
+  showDetails = false,
+}: {
+  heading: string;
+  value: Record<string, unknown>;
+  preferred: string;
+  showDetails?: boolean;
+}) {
+  const details = Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== preferred),
+  );
   return (
     <div className="mt-3">
       <h4 className="font-medium">{heading}</h4>
       <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">
         {typeof value[preferred] === 'string' ? value[preferred] : JSON.stringify(value, null, 2)}
       </p>
+      {showDetails && Object.keys(details).length > 0 ? (
+        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/30 p-2 font-mono text-[11px] text-muted-foreground">
+          {JSON.stringify(details, null, 2)}
+        </pre>
+      ) : null}
     </div>
   );
 }

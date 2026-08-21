@@ -130,6 +130,10 @@ describe('AiFeaturePanel', () => {
       scopeJson: JSON.stringify(scope),
       sourceHash: 'hash',
       promptVersion: 'prd-interview-v1',
+      instruction: null,
+      targetLanguage: null,
+      maxOutputTokens: 16384,
+      zdrOnly: true,
       resultJson: null,
       errorJson: null,
       usageJson: null,
@@ -190,6 +194,7 @@ describe('AiFeaturePanel', () => {
           detail: vi.fn().mockResolvedValue(interrupted),
           deleteRun: vi.fn(),
           clear: vi.fn(),
+          copyPrompt: vi.fn(),
         }}
         services={{
           keyStatus: vi.fn().mockResolvedValue({

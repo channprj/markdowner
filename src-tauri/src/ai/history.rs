@@ -88,6 +88,13 @@ const MIGRATION_4: &str = r#"
 ALTER TABLE ai_interview_turns ADD COLUMN recommended_answer TEXT NOT NULL DEFAULT '';
 "#;
 
+const MIGRATION_5: &str = r#"
+ALTER TABLE ai_runs ADD COLUMN instruction TEXT;
+ALTER TABLE ai_runs ADD COLUMN target_language TEXT;
+ALTER TABLE ai_runs ADD COLUMN max_output_tokens INTEGER;
+ALTER TABLE ai_runs ADD COLUMN zdr_only INTEGER;
+"#;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RunStatus {
@@ -108,6 +115,10 @@ pub struct StoredRun {
     pub scope_json: String,
     pub source_hash: String,
     pub prompt_version: String,
+    pub instruction: Option<String>,
+    pub target_language: Option<String>,
+    pub max_output_tokens: Option<u32>,
+    pub zdr_only: Option<bool>,
     pub result_json: Option<String>,
     pub error_json: Option<String>,
     pub usage_json: Option<String>,
@@ -229,9 +240,12 @@ impl HistoryStore {
             .execute(
                 r#"INSERT INTO ai_runs (
                     id, task, model, status, scope_json, source_hash,
-                    prompt_version, result_json, error_json, usage_json,
-                    started_at, finished_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"#,
+                    prompt_version, instruction, target_language, max_output_tokens,
+                    zdr_only, result_json, error_json, usage_json, started_at, finished_at
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+                    ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16
+                )"#,
                 params![
                     run.id,
                     task_name(run.task),
@@ -240,6 +254,10 @@ impl HistoryStore {
                     run.scope_json,
                     run.source_hash,
                     run.prompt_version,
+                    run.instruction,
+                    run.target_language,
+                    run.max_output_tokens,
+                    run.zdr_only,
                     run.result_json,
                     run.error_json,
                     run.usage_json,
@@ -333,8 +351,9 @@ impl HistoryStore {
         let run = connection
             .query_row(
                 r#"SELECT id, task, model, status, scope_json, source_hash,
-                          prompt_version, result_json, error_json, usage_json,
-                          started_at, finished_at
+                          prompt_version, instruction, target_language,
+                          max_output_tokens, zdr_only, result_json, error_json,
+                          usage_json, started_at, finished_at
                    FROM ai_runs WHERE id = ?1"#,
                 [run_id],
                 stored_run_from_row,
@@ -512,8 +531,9 @@ impl HistoryStore {
         let mut statement = connection
             .prepare(
                 r#"SELECT id, task, model, status, scope_json, source_hash,
-                          prompt_version, result_json, error_json, usage_json,
-                          started_at, finished_at
+                          prompt_version, instruction, target_language,
+                          max_output_tokens, zdr_only, result_json, error_json,
+                          usage_json, started_at, finished_at
                    FROM ai_runs
                    ORDER BY started_at DESC, rowid DESC
                    LIMIT ?1 OFFSET ?2"#,
@@ -538,8 +558,9 @@ impl HistoryStore {
         let run = connection
             .query_row(
                 r#"SELECT id, task, model, status, scope_json, source_hash,
-                          prompt_version, result_json, error_json, usage_json,
-                          started_at, finished_at
+                          prompt_version, instruction, target_language,
+                          max_output_tokens, zdr_only, result_json, error_json,
+                          usage_json, started_at, finished_at
                    FROM ai_runs WHERE id = ?1"#,
                 [id],
                 stored_run_from_row,
@@ -636,6 +657,24 @@ fn migrate_and_recover(connection: &mut Connection) -> Result<(), AiError> {
             )
             .map_err(|_| history_unavailable())?;
     }
+    let migration_5_applied = transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM ai_schema_migrations WHERE version = 5)",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|_| history_unavailable())?;
+    if !migration_5_applied {
+        transaction
+            .execute_batch(MIGRATION_5)
+            .map_err(|_| history_unavailable())?;
+        transaction
+            .execute(
+                "INSERT INTO ai_schema_migrations (version, applied_at) VALUES (5, ?1)",
+                [unix_timestamp()],
+            )
+            .map_err(|_| history_unavailable())?;
+    }
     transaction
         .execute(
             r#"UPDATE ai_runs
@@ -653,9 +692,12 @@ fn insert_run(transaction: &Transaction<'_>, run: &StoredRun) -> Result<(), AiEr
         .execute(
             r#"INSERT INTO ai_runs (
                 id, task, model, status, scope_json, source_hash,
-                prompt_version, result_json, error_json, usage_json,
-                started_at, finished_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"#,
+                prompt_version, instruction, target_language, max_output_tokens,
+                zdr_only, result_json, error_json, usage_json, started_at, finished_at
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+                ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16
+            )"#,
             params![
                 run.id,
                 task_name(run.task),
@@ -664,6 +706,10 @@ fn insert_run(transaction: &Transaction<'_>, run: &StoredRun) -> Result<(), AiEr
                 run.scope_json,
                 run.source_hash,
                 run.prompt_version,
+                run.instruction,
+                run.target_language,
+                run.max_output_tokens,
+                run.zdr_only,
                 run.result_json,
                 run.error_json,
                 run.usage_json,
@@ -801,11 +847,15 @@ fn stored_run_from_row(row: &Row<'_>) -> rusqlite::Result<StoredRun> {
         scope_json: row.get(4)?,
         source_hash: row.get(5)?,
         prompt_version: row.get(6)?,
-        result_json: row.get(7)?,
-        error_json: row.get(8)?,
-        usage_json: row.get(9)?,
-        started_at: row.get(10)?,
-        finished_at: row.get(11)?,
+        instruction: row.get(7)?,
+        target_language: row.get(8)?,
+        max_output_tokens: row.get(9)?,
+        zdr_only: row.get(10)?,
+        result_json: row.get(11)?,
+        error_json: row.get(12)?,
+        usage_json: row.get(13)?,
+        started_at: row.get(14)?,
+        finished_at: row.get(15)?,
     })
 }
 
@@ -889,6 +939,10 @@ mod tests {
             scope_json: r#"{"kind":"document"}"#.to_string(),
             source_hash: format!("hash-{id}"),
             prompt_version: "2026-08-02.test".to_string(),
+            instruction: None,
+            target_language: None,
+            max_output_tokens: None,
+            zdr_only: None,
             result_json: None,
             error_json: None,
             usage_json: None,
@@ -910,6 +964,27 @@ mod tests {
             store.detail(&run.id).unwrap().unwrap().task,
             AiTask::Summary
         );
+    }
+
+    #[test]
+    fn history_round_trips_user_prompt_and_request_settings_without_source() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = HistoryStore::open(&directory.path().join("history.sqlite3")).unwrap();
+        let mut run = fixture_run("custom-run", 10);
+        run.task = AiTask::Custom;
+        run.instruction = Some("Rewrite this as a release note.".to_string());
+        run.target_language = Some("ko".to_string());
+        run.max_output_tokens = Some(8_192);
+        run.zdr_only = Some(false);
+
+        store.insert_run(&run).unwrap();
+        let detail = store.detail(&run.id).unwrap().unwrap();
+
+        assert_eq!(detail.instruction, run.instruction);
+        assert_eq!(detail.target_language, run.target_language);
+        assert_eq!(detail.max_output_tokens, Some(8_192));
+        assert_eq!(detail.zdr_only, Some(false));
+        assert!(!serde_json::to_string(&detail).unwrap().contains("full source body"));
     }
 
     #[test]

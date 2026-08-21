@@ -646,6 +646,10 @@ pub async fn ai_interview_start(
             .map_err(|_| AiError::new("invalid_scope", "Could not save the PRD interview scope."))?,
         source_hash: envelope.revision_hash.clone(),
         prompt_version: PRD_INTERVIEW_PROMPT_VERSION.to_string(),
+        instruction: request.instruction.clone(),
+        target_language: None,
+        max_output_tokens: Some(request.max_output_tokens),
+        zdr_only: Some(request.zdr_only),
         result_json: None,
         error_json: None,
         usage_json: None,
@@ -1256,16 +1260,26 @@ pub async fn ai_run(
         .usage
         .as_ref()
         .and_then(|usage| serde_json::to_string(usage).ok());
+    let (history_status, history_error) =
+        history_record_for_validation(outcome.result.is_some(), &outcome.validation_issues);
     if should_record && let Ok(store) = state.history.store() {
         let _ = store.finish_run_with_usage(
             &request.request_id,
-            RunStatus::Completed,
+            history_status,
             history_result.as_deref(),
-            None,
+            history_error.as_deref(),
             history_usage.as_deref(),
         );
         if let Some(interview_id) = request.interview_id.as_deref() {
-            let _ = store.set_interview_status(interview_id, InterviewStatus::Completed.as_str());
+            if history_status == RunStatus::Completed {
+                let _ =
+                    store.set_interview_status(interview_id, InterviewStatus::Completed.as_str());
+            } else {
+                let _ = store.set_interview_status(
+                    interview_id,
+                    InterviewStatus::ReadyToGenerate.as_str(),
+                );
+            }
         }
     }
     let _ = state.activity.finish(&request.request_id);
@@ -1957,11 +1971,13 @@ fn finish_invalid_translation(
             .usage
             .as_ref()
             .and_then(|value| serde_json::to_string(value).ok());
+        let (history_status, history_error) =
+            history_record_for_validation(false, &validation_issues);
         let _ = store.finish_run_with_usage(
             &request.request_id,
-            RunStatus::Completed,
+            history_status,
             None,
-            None,
+            history_error.as_deref(),
             history_usage.as_deref(),
         );
     }
@@ -2065,6 +2081,10 @@ fn record_history_start(state: &AiState, request: &AiRunRequest, envelope: &AiDo
         scope_json,
         source_hash: envelope.revision_hash.clone(),
         prompt_version: prompt_version_for_task(request.task).to_string(),
+        instruction: request.instruction.clone(),
+        target_language: request.target_language.clone(),
+        max_output_tokens: Some(request.max_output_tokens),
+        zdr_only: Some(request.zdr_only),
         result_json: None,
         error_json: None,
         usage_json: None,
@@ -2128,6 +2148,21 @@ fn record_history_error(state: &AiState, request_id: &str, status: RunStatus, er
     if let Ok(store) = state.history.store() {
         let _ = store.finish_run(request_id, status, None, error_json.as_deref());
     }
+}
+
+fn history_record_for_validation(
+    has_result: bool,
+    issues: &[AiValidationIssue],
+) -> (RunStatus, Option<String>) {
+    if has_result {
+        return (RunStatus::Completed, None);
+    }
+    let error = serde_json::json!({
+        "code": "local_validation_failed",
+        "message": "Markdowner rejected the provider response during local validation.",
+        "issues": issues,
+    });
+    (RunStatus::Failed, Some(error.to_string()))
 }
 
 fn prepare_interview_generation(
@@ -2475,8 +2510,8 @@ mod tests {
     use super::{
         AiRunRequest, AiState, CatalogCache, RequestScheduler, SchemaFailure,
         classify_schema_error, empty_completion_outcome, merge_chunked_prd_responses,
-        merge_chunked_summary_responses, next_output_limit, outcome_has_provider_attempt,
-        should_prechunk_request,
+        merge_chunked_summary_responses, history_record_for_validation, next_output_limit,
+        outcome_has_provider_attempt, should_prechunk_request,
         openrouter::{AiModel, AiModelPricing, AiTask, SUMMARY_PROMPT_VERSION},
         prepare_run_envelope, prepare_translation_resume, record_history_start,
         translation_retry_subdivision, validate_provider_result, validate_run_request,
@@ -2762,6 +2797,29 @@ mod tests {
         assert!(result.is_none());
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].code, "invalid_schema");
+    }
+
+    #[test]
+    fn validation_failure_history_record_is_failed_and_preserves_issue_details() {
+        let issues = vec![super::AiValidationIssue {
+            code: "invalid_schema".to_string(),
+            message: "Missing required document segments.".to_string(),
+            segment_id: Some("segment-2".to_string()),
+        }];
+
+        let (status, error_json) = history_record_for_validation(false, &issues);
+
+        assert_eq!(status, super::history::RunStatus::Failed);
+        let error: serde_json::Value = serde_json::from_str(&error_json.unwrap()).unwrap();
+        assert_eq!(error["code"], "local_validation_failed");
+        assert_eq!(error["issues"][0]["code"], "invalid_schema");
+        assert_eq!(error["issues"][0]["segmentId"], "segment-2");
+        assert!(!error.to_string().contains("provider response body"));
+
+        assert_eq!(
+            history_record_for_validation(true, &issues),
+            (super::history::RunStatus::Completed, None)
+        );
     }
 
     #[test]

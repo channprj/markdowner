@@ -17,8 +17,16 @@ const run: AiHistoryDetail = {
   scopeJson: JSON.stringify({ kind: 'document', target: { label: 'PRD.md' } }),
   sourceHash: 'sha256-only',
   promptVersion: 'ai-v2',
+  instruction: 'Rewrite this as a concise release note.',
+  targetLanguage: 'ko',
+  maxOutputTokens: 8192,
+  zdrOnly: false,
   resultJson: JSON.stringify({ summary: 'Validated PRD result' }),
-  errorJson: JSON.stringify({ message: 'No error' }),
+  errorJson: JSON.stringify({
+    code: 'local_validation_failed',
+    message: 'Markdowner rejected the provider response during local validation.',
+    issues: [{ code: 'invalid_schema', segmentId: 'segment-2' }],
+  }),
   usageJson: JSON.stringify({
     promptTokens: 120,
     completionTokens: 30,
@@ -40,6 +48,7 @@ describe('AiHistoryTab', () => {
     const detail = vi.fn().mockResolvedValue(run);
     const deleteRun = vi.fn().mockResolvedValue(true);
     const clear = vi.fn().mockResolvedValue(1);
+    const copyPrompt = vi.fn().mockResolvedValue(undefined);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     render(
@@ -49,7 +58,7 @@ describe('AiHistoryTab', () => {
         error={null}
         onPageChange={onPageChange}
         onReload={vi.fn()}
-        services={{ detail, deleteRun, clear }}
+        services={{ detail, deleteRun, clear, copyPrompt }}
       />,
     );
 
@@ -63,11 +72,24 @@ describe('AiHistoryTab', () => {
     expect(screen.getByText('Who is this for?')).toBeInTheDocument();
     expect(screen.getByText('Product teams')).toBeInTheDocument();
     expect(screen.getByText('Validated PRD result')).toBeInTheDocument();
-    expect(screen.getByText('No error')).toBeInTheDocument();
+    expect(screen.getByText(/rejected the provider response/i)).toBeInTheDocument();
     expect(screen.getByText(/120 prompt · 30 completion/i)).toBeInTheDocument();
     expect(screen.getByText(/USD 0.0042/i)).toBeInTheDocument();
     expect(screen.getByText('3 seconds')).toBeInTheDocument();
+    expect(screen.getByText('Rewrite this as a concise release note.')).toBeInTheDocument();
+    expect(screen.getByText('ai-v2')).toBeInTheDocument();
+    expect(screen.getByText('sha256-only')).toBeInTheDocument();
+    expect(screen.getByText('ko')).toBeInTheDocument();
+    expect(screen.getByText('8,192 tokens')).toBeInTheDocument();
+    expect(screen.getByText('Provider retention allowed')).toBeInTheDocument();
+    expect(screen.getByText(/invalid_schema/)).toBeInTheDocument();
+    expect(screen.getByText(/segment-2/)).toBeInTheDocument();
     expect(screen.queryByText(/full source body/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy user prompt' }));
+    await waitFor(() => {
+      expect(copyPrompt).toHaveBeenCalledWith('Rewrite this as a concise release note.');
+    });
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete run run-1' }));
     await waitFor(() => expect(deleteRun).toHaveBeenCalledWith('run-1'));
@@ -95,6 +117,7 @@ describe('AiHistoryTab', () => {
           detail: vi.fn().mockResolvedValue(summaryRun),
           deleteRun: vi.fn(),
           clear: vi.fn(),
+          copyPrompt: vi.fn(),
         }}
       />,
     );
@@ -129,6 +152,7 @@ describe('AiHistoryTab', () => {
           detail: vi.fn().mockResolvedValue(interrupted),
           deleteRun: vi.fn(),
           clear: vi.fn(),
+          copyPrompt: vi.fn(),
         }}
       />,
     );
