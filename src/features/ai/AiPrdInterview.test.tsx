@@ -73,6 +73,7 @@ function renderInterview(
       documentId="doc-1"
       source="# Draft PRD"
       model="z-ai/glm-5.2"
+      maxOutputTokens={65_536}
       instruction={null}
       scope={scope}
       zdrOnly
@@ -167,7 +168,7 @@ describe('AiPrdInterview', () => {
     await waitFor(() => expect(interviewServices.run).toHaveBeenCalledWith(
       expect.objectContaining({
         task: 'prd',
-        maxOutputTokens: 16_384,
+        maxOutputTokens: 65_536,
       }),
       expect.any(Function),
     ));

@@ -38,12 +38,17 @@ export const PINNED_AI_MODEL_CHOICES = [
   { id: 'x-ai/grok-4.5', label: 'Grok 4.5', contextLength: 500_000 },
 ] as const;
 type PinnedAiModelId = (typeof PINNED_AI_MODEL_CHOICES)[number]['id'];
+const PINNED_MAX_COMPLETION_TOKENS: Partial<Record<PinnedAiModelId, number>> = {
+  'upstage/solar-pro4': 131_072,
+};
 export const PINNED_AI_MODELS: readonly PinnedAiModelId[] =
   PINNED_AI_MODEL_CHOICES.map((choice) => choice.id);
 export const WHOLE_DOCUMENT_TOKEN_LIMIT = 50_000;
 export const SELECTION_TOKEN_LIMIT = 20_000;
-export const DEFAULT_AI_OUTPUT_TOKEN_LIMIT = 4_096;
-export const PRD_AI_OUTPUT_TOKEN_LIMIT = 16_384;
+export const AI_INTERVIEW_OUTPUT_TOKEN_LIMIT = 4_096;
+export const MAX_AI_OUTPUT_TOKEN_LIMIT = 100_000;
+const STANDARD_AI_OUTPUT_TOKEN_FLOOR = 32_768;
+const EXPANSIVE_AI_OUTPUT_TOKEN_FLOOR = 65_536;
 export const SUMMARY_SOURCE_LANGUAGE = 'source';
 export const NO_ZDR_ENDPOINT_REASON =
   'The selected model has no Zero Data Retention endpoint on OpenRouter. Confirm to run this request with provider retention allowed.';
@@ -148,6 +153,7 @@ function fallbackPinnedModel(id: PinnedAiModelId): AiModel {
     name: choice.label,
     description: 'Pinned OpenRouter model; live availability is checked before running.',
     contextLength: choice.contextLength,
+    maxCompletionTokens: PINNED_MAX_COMPLETION_TOKENS[id] ?? null,
     inputModalities: ['text'],
     outputModalities: ['text'],
     supportedParameters: ['response_format', 'structured_outputs'],
@@ -230,10 +236,35 @@ export function estimateInputTokens(source: string): number {
   return contentEstimate + 1_200;
 }
 
-export function outputTokenLimitForTask(task: AiTask): number {
-  return task === 'prd'
-    ? PRD_AI_OUTPUT_TOKEN_LIMIT
-    : DEFAULT_AI_OUTPUT_TOKEN_LIMIT;
+export function outputTokenLimitForTask(
+  task: AiTask,
+  source: string,
+  model: Pick<AiModel, 'contextLength' | 'maxCompletionTokens'>,
+): number {
+  const inputTokens = estimateInputTokens(source);
+  const expansive = task === 'prd' || task === 'custom';
+  const multiplier = expansive ? 4 : task === 'translation' ? 2 : 1;
+  const floor = expansive
+    ? EXPANSIVE_AI_OUTPUT_TOKEN_FLOOR
+    : STANDARD_AI_OUTPUT_TOKEN_FLOOR;
+  const desired = Math.min(
+    MAX_AI_OUTPUT_TOKEN_LIMIT,
+    Math.max(floor, Math.ceil(inputTokens * multiplier)),
+  );
+  const providerLimit =
+    typeof model.maxCompletionTokens === 'number' &&
+    Number.isFinite(model.maxCompletionTokens) &&
+    model.maxCompletionTokens > 0
+      ? Math.floor(model.maxCompletionTokens)
+      : MAX_AI_OUTPUT_TOKEN_LIMIT;
+  const contextLimit =
+    model.contextLength > 0
+      ? Math.max(1, Math.floor(model.contextLength - inputTokens))
+      : MAX_AI_OUTPUT_TOKEN_LIMIT;
+  return Math.max(
+    1,
+    Math.min(desired, providerLimit, contextLimit, MAX_AI_OUTPUT_TOKEN_LIMIT),
+  );
 }
 
 export function estimateAiRun({

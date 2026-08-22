@@ -165,6 +165,7 @@ describe('AiSelectionPopover', () => {
               name: 'GLM 5.2',
               description: null,
               contextLength: 131_072,
+              maxCompletionTokens: 131_072,
               inputModalities: ['text'],
               outputModalities: ['text'],
               supportedParameters: ['structured_outputs'],
@@ -197,6 +198,7 @@ describe('AiSelectionPopover', () => {
       selection: { start: 6, end: 10 },
       task: 'custom',
       instruction: 'Make this uppercase',
+      maxOutputTokens: 65_536,
     });
     expect(onResult).toHaveBeenCalledTimes(1);
   });

@@ -6,6 +6,7 @@ import {
   SUMMARY_SOURCE_LANGUAGE,
   detectDocumentLanguage,
   estimateAiRun,
+  estimateInputTokens,
   orderModels,
   outputTokenLimitForTask,
   resolveUsageCost,
@@ -19,6 +20,7 @@ function model(overrides: Partial<AiModel>): AiModel {
     id: 'vendor/model',
     name: 'Model',
     contextLength: 100_000,
+    maxCompletionTokens: 100_000,
     inputModalities: ['text'],
     outputModalities: ['text'],
     supportedParameters: ['response_format', 'structured_outputs'],
@@ -87,7 +89,7 @@ describe('AI model policy', () => {
     expect(option.enabled).toBe(true);
   });
 
-  it('requires structured output and the standard token budget for Summary', () => {
+  it('requires structured output and gives structured tasks enough output headroom', () => {
     const structured = orderModels(
       [model({ id: 'structured/text' })],
       'summary',
@@ -99,9 +101,41 @@ describe('AI model policy', () => {
 
     expect(structured?.enabled).toBe(true);
     expect(plain?.disabledReason).toMatch(/Structured output/);
-    expect(outputTokenLimitForTask('summary')).toBe(4_096);
-    expect(outputTokenLimitForTask('prd')).toBe(16_384);
+    expect(
+      outputTokenLimitForTask(
+        'summary',
+        '# Source\n\nOriginal facts.',
+        model({ contextLength: 524_288, maxCompletionTokens: 131_072 }),
+      ),
+    ).toBe(32_768);
+    expect(
+      outputTokenLimitForTask(
+        'prd',
+        '# Product\n\nClear requirements.',
+        model({ contextLength: 524_288, maxCompletionTokens: 131_072 }),
+      ),
+    ).toBe(65_536);
     expect(SUMMARY_SOURCE_LANGUAGE).toBe('source');
+  });
+
+  it('clamps adaptive output headroom to the provider and remaining context', () => {
+    expect(
+      outputTokenLimitForTask(
+        'custom',
+        'Expand this.',
+        model({ contextLength: 524_288, maxCompletionTokens: 8_192 }),
+      ),
+    ).toBe(8_192);
+
+    const source = 'A'.repeat(12_000);
+    const contextLength = 8_000;
+    expect(
+      outputTokenLimitForTask(
+        'translation',
+        source,
+        model({ contextLength, maxCompletionTokens: 131_072 }),
+      ),
+    ).toBe(contextLength - estimateInputTokens(source));
   });
 });
 

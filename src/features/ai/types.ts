@@ -31,6 +31,8 @@ export interface AiModel {
   name: string;
   description?: string | null;
   contextLength: number;
+  /** Maximum completion size reported by OpenRouter's preferred provider. */
+  maxCompletionTokens?: number | null;
   inputModalities: string[];
   outputModalities: string[];
   supportedParameters: string[];

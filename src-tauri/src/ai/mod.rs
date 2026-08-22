@@ -2768,6 +2768,7 @@ mod tests {
             name: "GLM 5.2".to_string(),
             description: None,
             context_length: 1_048_576,
+            max_completion_tokens: Some(131_072),
             input_modalities: vec!["text".to_string()],
             output_modalities: vec!["text".to_string()],
             supported_parameters: vec!["structured_outputs".to_string()],

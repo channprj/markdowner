@@ -494,6 +494,8 @@ pub struct AiModel {
     pub name: String,
     pub description: Option<String>,
     pub context_length: u64,
+    #[serde(default)]
+    pub max_completion_tokens: Option<u64>,
     pub input_modalities: Vec<String>,
     pub output_modalities: Vec<String>,
     pub supported_parameters: Vec<String>,
@@ -903,6 +905,9 @@ fn parse_model(value: &Value, updated_at: &str) -> Option<AiModel> {
             .get("context_length")
             .and_then(Value::as_u64)
             .unwrap_or_default(),
+        max_completion_tokens: value
+            .pointer("/top_provider/max_completion_tokens")
+            .and_then(Value::as_u64),
         input_modalities: string_array(architecture, "input_modalities"),
         output_modalities: string_array(architecture, "output_modalities"),
         supported_parameters: string_array(value, "supported_parameters"),
@@ -959,8 +964,8 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{
-        build_chat_request, build_interview_chat_request, build_messages, redact_sensitive,
-        parse_interview_turn, prompt_version_for_task, AiCompletionRequest, AiTask,
+        build_chat_request, build_interview_chat_request, build_messages, parse_interview_turn,
+        parse_model, prompt_version_for_task, redact_sensitive, AiCompletionRequest, AiTask,
         OpenRouterClient, PrdInterviewCompletionRequest, SseDecoder, SUMMARY_PROMPT_VERSION,
     };
 
@@ -1286,6 +1291,31 @@ mod tests {
         assert_eq!(models[0].id, "z-ai/glm-5.2");
         assert_eq!(models[0].pricing.completion, Some(0.000_002));
         assert!(request.starts_with("GET /api/v1/models/user "));
+    }
+
+    #[test]
+    fn model_catalog_preserves_the_provider_completion_limit() {
+        let model = parse_model(
+            &json!({
+                "id": "upstage/solar-pro4",
+                "context_length": 524_288,
+                "top_provider": { "max_completion_tokens": 131_072 },
+                "architecture": {
+                    "input_modalities": ["text"],
+                    "output_modalities": ["text"]
+                },
+                "supported_parameters": ["structured_outputs"],
+                "pricing": {}
+            }),
+            "now",
+        )
+        .unwrap();
+
+        assert_eq!(model.max_completion_tokens, Some(131_072));
+        assert_eq!(
+            serde_json::to_value(model).unwrap()["maxCompletionTokens"],
+            131_072
+        );
     }
 
     #[tokio::test]

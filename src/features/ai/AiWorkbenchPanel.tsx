@@ -21,6 +21,7 @@ import { AiPrdInterview, type AiPrdInterviewServices } from './AiPrdInterview';
 import {
   detectDocumentLanguage,
   estimateAiRun,
+  MAX_AI_OUTPUT_TOKEN_LIMIT,
   NON_ZDR_CONFIRMATION_LABEL,
   outputTokenLimitForTask,
   orderModels,
@@ -325,7 +326,9 @@ export function AiWorkbenchPanel({
     targetDocument.documentId === documentId
       ? source
       : documentSources[targetDocument.documentId] ?? '';
-  const maxOutputTokens = outputTokenLimitForTask(task);
+  const maxOutputTokens = selectedModel
+    ? outputTokenLimitForTask(task, scopedSource, selectedModel)
+    : 0;
   const estimate = pricedSelectedModel
     ? estimateAiRun({
         source: scopedSource,
@@ -417,7 +420,7 @@ export function AiWorkbenchPanel({
   const handleRun = async () => {
     if (!canRun || !selectedModel) return;
     if (task === 'translation' && runScope.kind === 'workspace') {
-      await handleWorkspaceTranslation(selectedModel.id);
+      await handleWorkspaceTranslation(selectedModel);
       return;
     }
     const requestId = createRequestId();
@@ -453,6 +456,7 @@ export function AiWorkbenchPanel({
             targetLanguage,
             instruction: instruction.trim() || null,
             zdrOnly: requestZdrOnly,
+            maxOutputTokens,
           })
         : null;
     if (resumable) {
@@ -509,7 +513,7 @@ export function AiWorkbenchPanel({
     }
   };
 
-  const handleWorkspaceTranslation = async (selectedModelId: string) => {
+  const handleWorkspaceTranslation = async (selectedModel: AiModelOption) => {
     const readDocuments = services.readDocuments ?? DEFAULT_SERVICES.readDocuments;
     if (!readDocuments) return;
     const batchId = createRequestId();
@@ -536,10 +540,11 @@ export function AiWorkbenchPanel({
               };
             }),
             scope: runScope,
-            model: selectedModelId,
+            model: selectedModel.id,
             targetLanguage,
             instruction: instruction.trim() || null,
             zdrOnly: requestZdrOnly,
+            maxOutputTokens,
           })
         : null;
       if (resumable) persistTranslationResume(resumable);
@@ -560,11 +565,15 @@ export function AiWorkbenchPanel({
           source: latestSource,
           selection: null,
           task: 'translation',
-          model: selectedModelId,
+          model: selectedModel.id,
           targetLanguage,
           instruction: instruction.trim() || null,
           zdrOnly: requestZdrOnly,
-          maxOutputTokens: 4_096,
+          maxOutputTokens: outputTokenLimitForTask(
+            'translation',
+            latestSource,
+            selectedModel,
+          ),
           recordHistory: settings.aiHistoryEnabled,
           scope: {
             ...runScope,
@@ -580,6 +589,7 @@ export function AiWorkbenchPanel({
             ...resumable,
             nextIndex: index,
             currentStarted: true,
+            maxOutputTokens: request.maxOutputTokens,
           });
         }
         setRunningRequestId(requestId);
@@ -601,6 +611,7 @@ export function AiWorkbenchPanel({
               ...resumable,
               nextIndex: index + 1,
               currentStarted: false,
+              maxOutputTokens: request.maxOutputTokens,
             });
           }
         } catch (reason) {
@@ -631,6 +642,9 @@ export function AiWorkbenchPanel({
       );
       const loaded = paths.length > 0 ? await readDocuments(paths) : [];
       const diskSources = new Map(loaded.map((document) => [document.path, document.contents]));
+      const resumeModel = modelOptions.find(
+        (candidate) => candidate.id === translationResume.model,
+      );
       for (
         let index = translationResume.nextIndex;
         index < translationResume.documents.length;
@@ -660,7 +674,9 @@ export function AiWorkbenchPanel({
           targetLanguage: translationResume.targetLanguage,
           instruction: translationResume.instruction,
           zdrOnly: translationResume.zdrOnly,
-          maxOutputTokens: translationResume.maxOutputTokens,
+          maxOutputTokens: resumeModel
+            ? outputTokenLimitForTask('translation', latestSource, resumeModel)
+            : translationResume.maxOutputTokens,
           recordHistory: true,
           scope:
             translationResume.scope.kind === 'workspace'
@@ -672,6 +688,7 @@ export function AiWorkbenchPanel({
           ...translationResume,
           nextIndex: index,
           currentStarted: true,
+          maxOutputTokens: request.maxOutputTokens,
         });
         setRunningRequestId(requestId);
         setStatus(
@@ -695,6 +712,7 @@ export function AiWorkbenchPanel({
           ...translationResume,
           nextIndex: index + 1,
           currentStarted: false,
+          maxOutputTokens: request.maxOutputTokens,
         });
       }
       persistTranslationResume(null);
@@ -1137,6 +1155,7 @@ export function AiWorkbenchPanel({
             documentId={targetDocument.documentId}
             source={scopedSource}
             model={selectedModel.id}
+            maxOutputTokens={maxOutputTokens}
             instruction={instruction.trim() || null}
             scope={runScope}
             zdrOnly={requestZdrOnly}
@@ -1235,7 +1254,8 @@ function translationResumeRecord({
   targetLanguage,
   instruction,
   zdrOnly,
-}: Omit<TranslationResumeRecord, 'version' | 'nextIndex' | 'currentStarted' | 'maxOutputTokens'>): TranslationResumeRecord {
+  maxOutputTokens,
+}: Omit<TranslationResumeRecord, 'version' | 'nextIndex' | 'currentStarted'>): TranslationResumeRecord {
   return {
     version: 1,
     batchId,
@@ -1247,7 +1267,7 @@ function translationResumeRecord({
     targetLanguage,
     instruction,
     zdrOnly,
-    maxOutputTokens: 4_096,
+    maxOutputTokens,
   };
 }
 
@@ -1272,7 +1292,9 @@ function loadTranslationResume(): TranslationResumeRecord | null {
       typeof value.targetLanguage !== 'string' ||
       !(value.instruction === null || typeof value.instruction === 'string') ||
       typeof value.zdrOnly !== 'boolean' ||
-      value.maxOutputTokens !== 4_096
+      !Number.isInteger(value.maxOutputTokens) ||
+      value.maxOutputTokens < 1 ||
+      value.maxOutputTokens > MAX_AI_OUTPUT_TOKEN_LIMIT
     ) {
       return null;
     }

@@ -16,6 +16,7 @@ const glm: AiModel = {
   name: 'GLM 5.2',
   description: null,
   contextLength: 1_048_576,
+  maxCompletionTokens: 131_072,
   inputModalities: ['text'],
   outputModalities: ['text'],
   supportedParameters: ['structured_outputs', 'response_format'],
@@ -76,7 +77,7 @@ describe('AiWorkbenchPanel', () => {
         source: '# Source\n\nOriginal facts.',
         selection: null,
         targetLanguage: null,
-        maxOutputTokens: 4_096,
+        maxOutputTokens: 32_768,
         recordHistory: true,
         scope: expect.objectContaining({ kind: 'document' }),
       }),
@@ -167,7 +168,7 @@ describe('AiWorkbenchPanel', () => {
       'z-ai/glm-5.2',
     );
     expect(screen.getByText(/Estimated input/i)).toBeInTheDocument();
-    expect(screen.getByText('Output cap · 16,384 tokens')).toBeInTheDocument();
+    expect(screen.getByText('Output cap · 65,536 tokens')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
 
@@ -175,7 +176,7 @@ describe('AiWorkbenchPanel', () => {
       expect.objectContaining({
         documentId: 'doc-1',
         task: 'prd',
-        maxOutputTokens: 16_384,
+        maxOutputTokens: 65_536,
       }),
     );
     expect(await screen.findByRole('button', { name: 'Cancel' })).toBeInTheDocument();
@@ -710,11 +711,13 @@ describe('AiWorkbenchPanel', () => {
     expect(run.mock.calls[0][0]).toMatchObject({
       source: '# Current draft',
       scope: { kind: 'workspace' },
+      maxOutputTokens: 32_768,
     });
     expect(onResult).toHaveBeenCalledTimes(2);
   });
 
   it('resumes a workspace batch at the failed file with the original model', async () => {
+    const longTranslationSource = 'A'.repeat(80_000);
     const run = vi.fn()
       .mockImplementationOnce(async (request) => runResult(request))
       .mockRejectedValueOnce(new Error('offline'))
@@ -739,7 +742,7 @@ describe('AiWorkbenchPanel', () => {
           cancel: vi.fn(),
           readDocuments: vi.fn().mockResolvedValue([
             { path: '/vault/current.md', contents: '# Current draft' },
-            { path: '/vault/other.md', contents: '# Other document' },
+            { path: '/vault/other.md', contents: longTranslationSource },
           ]),
         }}
       />,
@@ -757,9 +760,13 @@ describe('AiWorkbenchPanel', () => {
 
     expect(await screen.findByText('offline')).toBeVisible();
     expect(localStorage.getItem('markdowner.ai.translation-resume.v1')).not.toContain(
-      '# Other document',
+      longTranslationSource,
     );
     const failedRequest = run.mock.calls[1][0];
+    expect(
+      JSON.parse(localStorage.getItem('markdowner.ai.translation-resume.v1') ?? '{}')
+        .maxOutputTokens,
+    ).toBe(failedRequest.maxOutputTokens);
     fireEvent.click(screen.getByRole('button', { name: 'Resume translation' }));
 
     await waitFor(() => expect(run).toHaveBeenCalledTimes(3));

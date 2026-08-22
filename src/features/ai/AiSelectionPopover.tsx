@@ -16,6 +16,7 @@ import {
   hasNoZdrEndpoint,
   NON_ZDR_CONFIRMATION_LABEL,
   NO_ZDR_ENDPOINT_REASON,
+  outputTokenLimitForTask,
   orderModels,
   resolveUsageCost,
 } from './model';
@@ -215,7 +216,7 @@ export function AiSelectionPopover({
       targetLanguage: null,
       instruction,
       zdrOnly: requestZdrOnly,
-      maxOutputTokens: 4_096,
+      maxOutputTokens: outputTokenLimitForTask('custom', snapshot.source, selectedModel),
       recordHistory: settings.aiHistoryEnabled,
     };
     setRunningRequestId(requestId);
