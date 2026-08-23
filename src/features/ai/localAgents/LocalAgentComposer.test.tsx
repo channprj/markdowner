@@ -252,6 +252,23 @@ describe("LocalAgentComposer", () => {
     expect(screen.getByLabelText("Result destination")).toHaveValue("selection");
   });
 
+  it("focuses the request after choosing an initial agent mention", async () => {
+    renderComposer({ preferredAgent: null });
+    const mention = screen.getByLabelText("Local agent");
+    await waitFor(() =>
+      expect(screen.getByRole("option", { name: /@codex/i })).toBeEnabled(),
+    );
+
+    fireEvent.change(mention, { target: { value: "@codex" } });
+    fireEvent.keyDown(mention, { key: "Enter" });
+
+    const instruction = screen.getByLabelText("Instruction");
+    expect(screen.getByText("@codex")).toBeInTheDocument();
+    expect(instruction).toHaveFocus();
+    fireEvent.change(instruction, { target: { value: "Rewrite this clearly" } });
+    expect(instruction).toHaveValue("Rewrite this clearly");
+  });
+
   it("shows the fixed mention completion, keyboard selection, and incompatible status reason", async () => {
     renderComposer({ preferredAgent: null });
     await waitFor(() =>
@@ -270,9 +287,6 @@ describe("LocalAgentComposer", () => {
     fireEvent.keyDown(input, { key: "ArrowUp" });
     fireEvent.keyDown(input, { key: "Tab" });
     expect(screen.getByText("@claude")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Change local agent" }),
-    ).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "Remove @claude" }));
     expect(screen.getByRole("listbox")).toBeInTheDocument();
     expect(screen.getByLabelText("Local agent")).toHaveFocus();

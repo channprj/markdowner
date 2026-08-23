@@ -167,10 +167,10 @@ export function LocalAgentComposer({
     } else if (restoreChangeFocusRef.current) {
       restoreChangeFocusRef.current = false;
       changeButtonRef.current?.focus();
-    } else if (preferredAgent !== null) {
+    } else if (selectedAgent !== null) {
       instructionInputRef.current?.focus();
     }
-  }, [mentionOpen, preferredAgent, selectedAgent]);
+  }, [mentionOpen, selectedAgent]);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -238,7 +238,7 @@ export function LocalAgentComposer({
     setSelectedAgent(agent);
     setMentionQuery("@");
     setActiveMentionIndex(0);
-    restoreChangeFocusRef.current = true;
+    restoreChangeFocusRef.current = false;
     setMentionOpen(false);
     setError("");
   };
