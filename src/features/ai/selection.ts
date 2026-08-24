@@ -10,6 +10,7 @@ export interface AiSelectionSnapshot {
   byteRange: AiByteRange;
   selectedText: string;
   proseMirrorRange: AiByteRange | null;
+  requiresReview?: boolean;
 }
 
 export function captureSourceSelection(
@@ -35,6 +36,7 @@ export function captureWysiwygSelection(input: {
   proseMirrorFrom: number;
   proseMirrorTo: number;
   documentId: string;
+  requiresReview?: boolean;
 }): AiSelectionSnapshot | null {
   return captureSelection({
     source: input.source,
@@ -46,6 +48,7 @@ export function captureWysiwygSelection(input: {
       start: Math.min(input.proseMirrorFrom, input.proseMirrorTo),
       end: Math.max(input.proseMirrorFrom, input.proseMirrorTo),
     },
+    requiresReview: input.requiresReview,
   });
 }
 
@@ -103,6 +106,7 @@ export function canApplySelectionResult(
   runResult: AiRunResult,
 ): boolean {
   return (
+    snapshot.requiresReview !== true &&
     currentDocumentId === snapshot.documentId &&
     canReplaceSourceSelection(snapshot, currentSource) &&
     selectionReplacementFromResult(snapshot, runResult) !== null
@@ -192,6 +196,7 @@ function captureSelection(input: {
   documentId: string;
   surface: AiSelectionSurface;
   proseMirrorRange: AiByteRange | null;
+  requiresReview?: boolean;
 }): AiSelectionSnapshot | null {
   const start = clampCharacterOffset(input.source, input.start);
   const end = clampCharacterOffset(input.source, input.end);
@@ -207,7 +212,7 @@ function captureSelection(input: {
   const selectedText = input.source.slice(start, end);
   if (selectedText.length === 0) return null;
 
-  return {
+  const snapshot: AiSelectionSnapshot = {
     documentId: input.documentId,
     source: input.source,
     surface: input.surface,
@@ -219,6 +224,7 @@ function captureSelection(input: {
     selectedText,
     proseMirrorRange: input.proseMirrorRange,
   };
+  return input.requiresReview ? { ...snapshot, requiresReview: true } : snapshot;
 }
 
 function clampCharacterOffset(source: string, value: number): number {

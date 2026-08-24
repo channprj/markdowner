@@ -3799,7 +3799,13 @@ export default function App() {
       );
       if (!currentEditor || !activeDocumentTab) return;
 
-      const source = flushWysiwygDraftNow() ?? localDraftRef.current;
+      let source = localDraftRef.current;
+      let requiresReview = false;
+      try {
+        source = flushWysiwygDraftNow() ?? source;
+      } catch {
+        requiresReview = true;
+      }
       const captured = captureWysiwygLocalAgentTarget({
         source,
         markdownAnchor: wysiwygMarkdownOffsetAtPosition(
@@ -3814,6 +3820,7 @@ export default function App() {
         proseMirrorTo: selection.to,
         proseMirrorDocumentSize: currentEditor.state.doc.content.size,
         documentId: activeDocumentTab.id,
+        requiresReview,
       });
       if (captured) openLocalAgentComposer(captured);
     },
@@ -4054,7 +4061,13 @@ export default function App() {
         );
         return;
       }
-      const source = flushWysiwygDraftNow() ?? localDraftRef.current;
+      let source = localDraftRef.current;
+      let requiresReview = false;
+      try {
+        source = flushWysiwygDraftNow() ?? source;
+      } catch {
+        requiresReview = true;
+      }
       const captured = captureWysiwygSelection({
         source,
         markdownStart: wysiwygMarkdownOffsetAtPosition(editor, selection.from),
@@ -4062,6 +4075,7 @@ export default function App() {
         proseMirrorFrom: selection.from,
         proseMirrorTo: selection.to,
         documentId: activeDocumentTab.id,
+        requiresReview,
       });
       if (!captured) {
         announceShell(

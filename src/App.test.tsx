@@ -1877,6 +1877,42 @@ describe('App recent documents', () => {
     );
   });
 
+  it('opens selected-text AI from the last draft when a WYSIWYG flush fails', async () => {
+    const source = 'alpha beta';
+    const editor = createMockTiptapEditor(source, [{ text: source, from: 0 }]);
+    editor.getMarkdown.mockImplementation(() => {
+      throw new Error('serializer unavailable during selection');
+    });
+    tiptapMockState.editor = editor;
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'selection.md',
+        activeDocumentPath: '/tmp/project/selection.md',
+        activeDocumentSource: source,
+        mode: 'Wysiwyg',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+    render(<App />);
+
+    await screen.findByTestId('mock-tiptap-editor');
+    await waitFor(() => {
+      expect(editor.on).toHaveBeenCalledWith('selectionUpdate', expect.any(Function));
+    });
+    act(() => {
+      editor.commands.setTextSelection({ from: 6, to: 10 });
+      editor.emit('selectionUpdate');
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: /AI actions/ }));
+
+    expect(
+      await screen.findByRole('dialog', { name: /prompt selected text/i }),
+    ).toBeVisible();
+    expect(screen.getByText('beta')).toBeVisible();
+  });
+
   it('announces when a WYSIWYG AI selection cannot be captured', async () => {
     const source = 'alpha beta';
     const editor = createMockTiptapEditor(source, [{ text: source, from: 0 }]);
@@ -1951,6 +1987,44 @@ describe('App recent documents', () => {
     expect(screen.getByRole('combobox', { name: 'Result destination' })).toHaveValue(
       'insert',
     );
+  });
+
+  it('opens a local agent mention from the last draft when a WYSIWYG flush fails', async () => {
+    const source = 'hello ';
+    const editor = createMockTiptapEditor(source, [{ text: source, from: 0 }]);
+    editor.getMarkdown.mockImplementation(() => {
+      throw new Error('serializer unavailable during mention');
+    });
+    tiptapMockState.editor = editor;
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'mention.md',
+        activeDocumentPath: '/tmp/project/mention.md',
+        activeDocumentSource: source,
+        mode: 'Wysiwyg',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByTestId('mock-tiptap-editor');
+    setEligibleLocalAgentMentionSelection(editor, 6);
+
+    const event = new KeyboardEvent('keydown', {
+      key: '@',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    const handled = tiptapMockState.lastOptions.editorProps.handleKeyDown(
+      editor.view,
+      event,
+    );
+
+    expect(handled).toBe(true);
+    expect(
+      await screen.findByRole('dialog', { name: /run a local agent/i }),
+    ).toBeVisible();
   });
 
   it.each([

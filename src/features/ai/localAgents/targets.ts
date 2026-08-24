@@ -16,6 +16,7 @@ export interface LocalAgentTargetSnapshot {
   byteRange: AiByteRange | null;
   selectedText: string;
   proseMirrorRange: AiByteRange | null;
+  requiresReview?: boolean;
 }
 
 export type WysiwygLocalAgentApplyOutcome =
@@ -111,6 +112,7 @@ export function captureWysiwygLocalAgentTarget(input: {
   proseMirrorTo: number;
   proseMirrorDocumentSize: number;
   documentId: string;
+  requiresReview?: boolean;
 }): LocalAgentTargetSnapshot | null {
   const anchor = input.markdownAnchor ?? input.markdownStart;
   const head = input.markdownHead ?? input.markdownEnd;
@@ -136,6 +138,7 @@ export function captureWysiwygLocalAgentTarget(input: {
     documentId: input.documentId,
     surface: 'wysiwyg',
     proseMirrorRange,
+    requiresReview: input.requiresReview,
   });
 }
 
@@ -166,6 +169,7 @@ export function localAgentTargetFromAiSelectionSnapshot(
     proseMirrorRange: snapshot.proseMirrorRange
       ? { ...snapshot.proseMirrorRange }
       : null,
+    ...(snapshot.requiresReview ? { requiresReview: true } : {}),
   };
 }
 
@@ -269,6 +273,7 @@ function captureLocalAgentTarget(input: {
   documentId: string;
   surface: 'source' | 'wysiwyg';
   proseMirrorRange: AiByteRange | null;
+  requiresReview?: boolean;
 }): LocalAgentTargetSnapshot | null {
   const start = clampCharacterOffset(input.source, input.start);
   const end = clampCharacterOffset(input.source, input.end);
@@ -294,7 +299,12 @@ function captureLocalAgentTarget(input: {
     selectedText,
     proseMirrorRange: input.proseMirrorRange,
   };
-  return isValidLocalAgentTargetSnapshot(snapshot) ? snapshot : null;
+  const resolvedSnapshot = input.requiresReview
+    ? { ...snapshot, requiresReview: true }
+    : snapshot;
+  return isValidLocalAgentTargetSnapshot(resolvedSnapshot)
+    ? resolvedSnapshot
+    : null;
 }
 
 function validApplicationRange(input: {
@@ -309,6 +319,7 @@ function validApplicationRange(input: {
   const byteRange = snapshot.byteRange;
   if (
     !isValidLocalAgentTargetSnapshot(snapshot) ||
+    snapshot.requiresReview === true ||
     snapshot.kind === 'document' ||
     !characterRange ||
     !byteRange ||

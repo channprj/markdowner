@@ -389,6 +389,43 @@ describe('local-agent targets', () => {
     );
   });
 
+  it('routes a fallback WYSIWYG snapshot to review instead of applying it', () => {
+    const snapshot = captureWysiwygLocalAgentTarget({
+      source: 'alpha beta',
+      markdownAnchor: 6,
+      markdownHead: 10,
+      proseMirrorFrom: 7,
+      proseMirrorTo: 11,
+      proseMirrorDocumentSize: 12,
+      documentId: 'doc-1',
+    });
+    if (!snapshot) throw new Error('target required');
+    const request = requestFor(snapshot);
+    const run = vi.fn(() => true);
+    const insertContentAt = vi.fn(() => ({ run }));
+
+    expect(
+      applyWysiwygLocalAgentResult({
+        editor: {
+          chain: vi.fn(() => ({
+            focus: vi.fn(() => ({ insertContentAt })),
+          })),
+          getMarkdown: vi.fn(() => 'alpha BETA'),
+          state: {
+            doc: { content: { size: 12 } },
+            selection: { from: 7, to: 11 },
+          },
+        },
+        snapshot: { ...snapshot, requiresReview: true },
+        currentDocumentId: 'doc-1',
+        currentSource: 'alpha beta',
+        request,
+        result: resultFor(request),
+      }),
+    ).toEqual({ status: 'not-applied' });
+    expect(insertContentAt).not.toHaveBeenCalled();
+  });
+
   it('restores the pre-apply WYSIWYG document when the Markdown command throws after mutation', () => {
     const source = 'alpha beta';
     const snapshot = captureWysiwygLocalAgentTarget({

@@ -80,6 +80,14 @@ describe('AI selection snapshots', () => {
     expect(canApplySelectionResult(snapshot, 'doc-2', 'alpha beta', result)).toBe(
       false,
     );
+    expect(
+      canApplySelectionResult(
+        { ...snapshot, surface: 'wysiwyg', requiresReview: true },
+        'doc-1',
+        'alpha beta',
+        result,
+      ),
+    ).toBe(false);
   });
 
   it('dispatches a source replacement as one CodeMirror change transaction', () => {
