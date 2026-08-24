@@ -19,6 +19,10 @@ const OPENROUTER_API_BASE: &str = "https://openrouter.ai/api/v1";
 const OPENROUTER_APP_TITLE: &str = "Markdowner";
 const OPENROUTER_APP_REFERER: &str = "https://markdowner.chann.dev";
 const OPENROUTER_PRIVACY_SETTINGS_URL: &str = "https://openrouter.ai/settings/privacy";
+const OPENROUTER_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const OPENROUTER_METADATA_TIMEOUT: Duration = Duration::from_secs(20);
+const OPENROUTER_STREAM_HEADERS_TIMEOUT: Duration = Duration::from_secs(45);
+const OPENROUTER_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 pub(crate) const PROMPT_VERSION: &str = "2026-07-31.v1";
 pub(crate) const SUMMARY_PROMPT_VERSION: &str = "2026-08-07.summary.v1";
 
@@ -506,6 +510,26 @@ pub struct AiModel {
 pub struct OpenRouterClient {
     http: Client,
     base_url: Url,
+    timeouts: OpenRouterTimeouts,
+}
+
+#[derive(Clone, Copy)]
+struct OpenRouterTimeouts {
+    connect: Duration,
+    metadata: Duration,
+    stream_headers: Duration,
+    stream_idle: Duration,
+}
+
+impl Default for OpenRouterTimeouts {
+    fn default() -> Self {
+        Self {
+            connect: OPENROUTER_CONNECT_TIMEOUT,
+            metadata: OPENROUTER_METADATA_TIMEOUT,
+            stream_headers: OPENROUTER_STREAM_HEADERS_TIMEOUT,
+            stream_idle: OPENROUTER_STREAM_IDLE_TIMEOUT,
+        }
+    }
 }
 
 impl OpenRouterClient {
@@ -514,14 +538,24 @@ impl OpenRouterClient {
     }
 
     pub fn with_base_url(base_url: &str) -> Result<Self, AiError> {
+        Self::with_base_url_and_timeouts(base_url, OpenRouterTimeouts::default())
+    }
+
+    fn with_base_url_and_timeouts(
+        base_url: &str,
+        timeouts: OpenRouterTimeouts,
+    ) -> Result<Self, AiError> {
         let http = Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(180))
+            .connect_timeout(timeouts.connect)
             .build()
             .map_err(|_| AiError::new("client_error", "Could not initialize the AI client."))?;
         let base_url = Url::parse(&format!("{}/", base_url.trim_end_matches('/')))
             .map_err(|_| AiError::new("client_error", "The OpenRouter API URL is invalid."))?;
-        Ok(Self { http, base_url })
+        Ok(Self {
+            http,
+            base_url,
+            timeouts,
+        })
     }
 
     pub async fn verify_key(
@@ -533,6 +567,7 @@ impl OpenRouterClient {
             .http
             .get(self.endpoint("key")?)
             .headers(authorized_headers(secret)?)
+            .timeout(self.timeouts.metadata)
             .send()
             .await
             .map_err(network_error)?;
@@ -558,6 +593,7 @@ impl OpenRouterClient {
             .http
             .get(self.endpoint("models/user")?)
             .headers(authorized_headers(secret)?)
+            .timeout(self.timeouts.metadata)
             .send()
             .await
             .map_err(network_error)?;
@@ -616,6 +652,7 @@ impl OpenRouterClient {
             .http
             .get(url)
             .headers(authorized_headers(secret)?)
+            .timeout(self.timeouts.metadata)
             .send()
             .await
             .map_err(network_error)?;
@@ -716,15 +753,47 @@ impl OpenRouterClient {
     where
         F: FnMut(usize),
     {
-        let response = self
+        let request = self
             .http
             .post(self.endpoint("chat/completions")?)
             .headers(authorized_headers(secret)?)
-            .json(&body)
-            .send()
-            .await
-            .map_err(network_error)?;
-        let response = checked_response(response, secret).await?;
+            .json(&body);
+        let response = tokio::select! {
+            _ = cancellation.cancelled() => {
+                return Err(AiError::new("cancelled", "The AI request was cancelled."));
+            }
+            response = tokio::time::timeout(self.timeouts.stream_headers, request.send()) => {
+                match response {
+                    Ok(Ok(response)) => response,
+                    Ok(Err(error)) => return Err(network_error(error)),
+                    Err(_) => {
+                        return Err(AiError::new(
+                            "request_timeout",
+                            "OpenRouter did not start the response in time.",
+                        ));
+                    }
+                }
+            }
+        };
+        let response = tokio::select! {
+            _ = cancellation.cancelled() => {
+                return Err(AiError::new("cancelled", "The AI request was cancelled."));
+            }
+            response = tokio::time::timeout(
+                self.timeouts.stream_headers,
+                checked_response(response, secret),
+            ) => {
+                match response {
+                    Ok(response) => response?,
+                    Err(_) => {
+                        return Err(AiError::new(
+                            "request_timeout",
+                            "OpenRouter did not finish its response in time.",
+                        ));
+                    }
+                }
+            }
+        };
         let mut stream = response.bytes_stream();
         let mut decoder = SseDecoder::default();
         loop {
@@ -732,14 +801,20 @@ impl OpenRouterClient {
                 _ = cancellation.cancelled() => {
                     return Err(AiError::new("cancelled", "The AI request was cancelled."));
                 }
-                item = stream.next() => {
+                item = tokio::time::timeout(self.timeouts.stream_idle, stream.next()) => {
                     match item {
-                        Some(Ok(chunk)) => {
+                        Ok(Some(Ok(chunk))) => {
                             decoder.push(&chunk)?;
                             on_progress(decoder.received_characters());
                         }
-                        Some(Err(error)) => return Err(network_error(error)),
-                        None => break,
+                        Ok(Some(Err(error))) => return Err(network_error(error)),
+                        Ok(None) => break,
+                        Err(_) => {
+                            return Err(AiError::new(
+                                "request_timeout",
+                                "OpenRouter stopped sending data. Try the request again.",
+                            ));
+                        }
                     }
                 }
             }
@@ -859,7 +934,12 @@ fn network_error(error: reqwest::Error) -> AiError {
     } else {
         "network_error"
     };
-    AiError::new(code, "Could not reach OpenRouter.")
+    let message = if error.is_timeout() {
+        "OpenRouter did not respond in time."
+    } else {
+        "Could not reach OpenRouter."
+    };
+    AiError::new(code, message)
 }
 
 pub fn redact_sensitive(value: &str, explicit_secret: Option<&str>) -> String {
@@ -966,7 +1046,8 @@ mod tests {
     use super::{
         build_chat_request, build_interview_chat_request, build_messages, parse_interview_turn,
         parse_model, prompt_version_for_task, redact_sensitive, AiCompletionRequest, AiTask,
-        OpenRouterClient, PrdInterviewCompletionRequest, SseDecoder, SUMMARY_PROMPT_VERSION,
+        OpenRouterClient, OpenRouterTimeouts, PrdInterviewCompletionRequest, SseDecoder,
+        SUMMARY_PROMPT_VERSION,
     };
 
     fn fixture_request(task: AiTask) -> AiCompletionRequest {
@@ -1293,6 +1374,30 @@ mod tests {
         assert!(request.starts_with("GET /api/v1/models/user "));
     }
 
+    #[tokio::test]
+    async fn model_catalog_uses_the_metadata_timeout() {
+        let (base_url, _request_rx) = spawn_delayed_mock_response(
+            "application/json",
+            r#"{"data":[]}"#,
+            Duration::from_millis(100),
+        );
+        let client = OpenRouterClient::with_base_url_and_timeouts(
+            &base_url,
+            OpenRouterTimeouts {
+                connect: Duration::from_millis(100),
+                metadata: Duration::from_millis(40),
+                stream_headers: Duration::from_millis(100),
+                stream_idle: Duration::from_millis(100),
+            },
+        )
+        .unwrap();
+
+        let error = client.list_models("sk-or-v1-test").await.unwrap_err();
+
+        assert_eq!(error.code, "request_timeout");
+        assert!(error.message.contains("did not respond in time"));
+    }
+
     #[test]
     fn model_catalog_preserves_the_provider_completion_limit() {
         let model = parse_model(
@@ -1447,6 +1552,77 @@ mod tests {
         assert!(http_request.contains("\"stream\":true"));
     }
 
+    #[tokio::test]
+    async fn active_stream_survives_longer_than_the_metadata_timeout() {
+        let chunks = vec![
+            "data: {\"id\":\"gen-slow\",\"choices\":[{\"delta\":{\"content\":\"{\\\"schema_version\\\":\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"1,\\\"replacement_text\\\":\\\"Slow \"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"but active\\\",\\\"warnings\\\":[]}\"}}]}\n\n",
+            "data: [DONE]\n\n",
+        ];
+        let (base_url, _request_rx) =
+            spawn_slow_stream_response(chunks, Duration::from_millis(35));
+        let client = OpenRouterClient::with_base_url_and_timeouts(
+            &base_url,
+            OpenRouterTimeouts {
+                connect: Duration::from_millis(100),
+                metadata: Duration::from_millis(60),
+                stream_headers: Duration::from_millis(100),
+                stream_idle: Duration::from_millis(70),
+            },
+        )
+        .unwrap();
+        let mut request = fixture_request(AiTask::Custom);
+        request.selection = true;
+
+        let completed = client
+            .stream_completion(
+                "sk-or-v1-test",
+                &request,
+                &CancellationToken::new(),
+                |_| {},
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(completed.generation_id.as_deref(), Some("gen-slow"));
+        assert!(completed.content.contains("Slow but active"));
+    }
+
+    #[tokio::test]
+    async fn inactive_stream_reports_a_specific_idle_timeout() {
+        let chunks = vec![
+            "data: {\"id\":\"gen-stalled\",\"choices\":[{\"delta\":{\"content\":\"{\"}}]}\n\n",
+            "data: [DONE]\n\n",
+        ];
+        let (base_url, _request_rx) =
+            spawn_slow_stream_response(chunks, Duration::from_millis(100));
+        let client = OpenRouterClient::with_base_url_and_timeouts(
+            &base_url,
+            OpenRouterTimeouts {
+                connect: Duration::from_millis(100),
+                metadata: Duration::from_millis(50),
+                stream_headers: Duration::from_millis(100),
+                stream_idle: Duration::from_millis(40),
+            },
+        )
+        .unwrap();
+        let request = fixture_request(AiTask::Custom);
+
+        let error = client
+            .stream_completion(
+                "sk-or-v1-test",
+                &request,
+                &CancellationToken::new(),
+                |_| {},
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, "request_timeout");
+        assert!(error.message.contains("stopped sending data"));
+    }
+
     fn spawn_mock_response(
         status: u16,
         content_type: &'static str,
@@ -1480,6 +1656,65 @@ mod tests {
                 stream.write_all(chunk).unwrap();
                 stream.flush().unwrap();
             }
+        });
+        (format!("http://{address}/api/v1"), request_rx)
+    }
+
+    fn spawn_slow_stream_response(
+        chunks: Vec<&'static str>,
+        delay: Duration,
+    ) -> (String, Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (request_tx, request_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_nodelay(true).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let request = read_http_request(&mut stream);
+            request_tx.send(request).unwrap();
+            let content_length: usize = chunks.iter().map(|chunk| chunk.len()).sum();
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {content_length}\r\nConnection: close\r\n\r\n"
+            );
+            if stream.write_all(headers.as_bytes()).is_err() {
+                return;
+            }
+            for (index, chunk) in chunks.into_iter().enumerate() {
+                if index > 0 {
+                    thread::sleep(delay);
+                }
+                if stream.write_all(chunk.as_bytes()).is_err() || stream.flush().is_err() {
+                    return;
+                }
+            }
+        });
+        (format!("http://{address}/api/v1"), request_rx)
+    }
+
+    fn spawn_delayed_mock_response(
+        content_type: &'static str,
+        body: &'static str,
+        delay: Duration,
+    ) -> (String, Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (request_tx, request_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let request = read_http_request(&mut stream);
+            request_tx.send(request).unwrap();
+            thread::sleep(delay);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
         });
         (format!("http://{address}/api/v1"), request_rx)
     }

@@ -26,6 +26,7 @@ import {
   SELECTION_ACTIONS,
   type SelectionActionId,
 } from './selectionActions';
+import { AI_METADATA_UI_TIMEOUT_MS } from './requestTimeout';
 import type {
   AiKeyStatus,
   AiModel,
@@ -83,6 +84,9 @@ export function AiSelectionPopover({
   const [models, setModels] = useState<AiModel[]>([]);
   const [model, setModel] = useState(settings.aiCustomPromptModel);
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
+  const [catalogAttempt, setCatalogAttempt] = useState(0);
   const [livePricing, setLivePricing] = useState<{
     modelId: string;
     pricing: AiModelPricing;
@@ -100,14 +104,38 @@ export function AiSelectionPopover({
 
   useEffect(() => {
     let cancelled = false;
+    let catalogTimeout: number | undefined;
     services
       .keyStatus()
-      .then(async (keyStatus) => {
+      .then((keyStatus) => {
         if (cancelled) return;
         setConfigured(keyStatus.configured);
         if (!keyStatus.configured) return;
-        const catalog = await services.listModels();
-        if (!cancelled) setModels(catalog);
+        setCatalogError('');
+        setCatalogLoading(true);
+        catalogTimeout = window.setTimeout(() => {
+          if (cancelled) return;
+          cancelled = true;
+          setCatalogLoading(false);
+          setCatalogError('The model catalog did not respond. Try again.');
+        }, AI_METADATA_UI_TIMEOUT_MS);
+        Promise.resolve()
+          .then(() => services.listModels())
+          .then((catalog) => {
+            if (!cancelled) {
+              setModels(catalog);
+              setCatalogError('');
+            }
+          })
+          .catch((reason) => {
+            if (!cancelled) setCatalogError(errorMessage(reason));
+          })
+          .finally(() => {
+            if (catalogTimeout !== undefined) {
+              window.clearTimeout(catalogTimeout);
+            }
+            if (!cancelled) setCatalogLoading(false);
+          });
       })
       .catch((reason) => {
         if (!cancelled) {
@@ -117,8 +145,9 @@ export function AiSelectionPopover({
       });
     return () => {
       cancelled = true;
+      if (catalogTimeout !== undefined) window.clearTimeout(catalogTimeout);
     };
-  }, [services]);
+  }, [catalogAttempt, services]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -195,6 +224,7 @@ export function AiSelectionPopover({
   const instruction = resolveSelectionInstruction(actionId, prompt);
   const canRun =
     configured === true &&
+    !catalogLoading &&
     !pricingLoading &&
     pricingReady &&
     settings.aiCloudDisclosureAccepted &&
@@ -346,11 +376,19 @@ export function AiSelectionPopover({
         </div>
 
         <div className="grid gap-1.5">
-          <Label htmlFor="ai-selection-model">Model for this request</Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="ai-selection-model">Model for this request</Label>
+            {catalogLoading ? (
+              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <LoaderCircle className="size-3 animate-spin" />
+                Loading models…
+              </span>
+            ) : null}
+          </div>
           <select
             id="ai-selection-model"
             value={selectedModel?.id ?? model}
-            disabled={Boolean(runningRequestId)}
+            disabled={catalogLoading || Boolean(runningRequestId)}
             onChange={(event) => {
               setModel(event.target.value);
               setConfirmedNonZdr(false);
@@ -367,6 +405,27 @@ export function AiSelectionPopover({
               </option>
             ))}
           </select>
+          {catalogError && !catalogLoading ? (
+            <div
+              role="alert"
+              className="flex items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
+            >
+              <span>{catalogError}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                disabled={Boolean(runningRequestId)}
+                onClick={() => {
+                  setCatalogError('');
+                  setCatalogAttempt((attempt) => attempt + 1);
+                }}
+              >
+                Retry model catalog
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         {configured === false ? (

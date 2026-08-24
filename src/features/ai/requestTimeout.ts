@@ -1,0 +1,1 @@
+export const AI_METADATA_UI_TIMEOUT_MS = 25_000;

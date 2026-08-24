@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_SETTINGS } from '@/lib/settings';
@@ -6,7 +6,10 @@ import { DEFAULT_SETTINGS } from '@/lib/settings';
 import { AiSelectionPopover } from './AiSelectionPopover';
 import { captureSourceSelection } from './selection';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe('AiSelectionPopover', () => {
   it('waits for endpoint eligibility before enabling a selected-text request', async () => {
@@ -301,6 +304,56 @@ describe('AiSelectionPopover', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers from a stalled model catalog without treating the key as missing', async () => {
+    vi.useFakeTimers();
+    const snapshot = captureSourceSelection('alpha beta', 6, 10, 'doc-1');
+    if (!snapshot) throw new Error('selection required');
+    const listModels = vi.fn(
+      () =>
+        new Promise<never>(() => {
+          // Intentionally pending to reproduce a stalled desktop request.
+        }),
+    );
+
+    render(
+      <AiSelectionPopover
+        snapshot={snapshot}
+        settings={{ ...DEFAULT_SETTINGS, aiCloudDisclosureAccepted: true }}
+        onClose={vi.fn()}
+        onResult={vi.fn()}
+        services={{
+          keyStatus: vi.fn(async () => ({
+            configured: true,
+            maskedLabel: 'sk-or-…test',
+          })),
+          listModels,
+          run: vi.fn(),
+          cancel: vi.fn(),
+        }}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Loading models…')).toBeVisible();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(screen.queryByText('Loading models…')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Add and verify an OpenRouter key/i)).toBeNull();
+    expect(screen.getByText(/model catalog did not respond/i)).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Retry model catalog' }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(listModels).toHaveBeenCalledTimes(2);
   });
 
   it('selects presets without running and delegates local-agent actions', async () => {

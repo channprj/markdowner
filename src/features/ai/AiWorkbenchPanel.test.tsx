@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_SETTINGS } from '@/lib/settings';
@@ -9,6 +9,7 @@ import type { AiModel, AiRunRequest } from './types';
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  vi.useRealTimers();
 });
 
 const glm: AiModel = {
@@ -251,6 +252,54 @@ describe('AiWorkbenchPanel', () => {
     expect(modelPricing).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it('stops refreshing and exposes a retry when the model catalog hangs', async () => {
+    vi.useFakeTimers();
+    const listModels = vi.fn(
+      () =>
+        new Promise<AiModel[]>(() => {
+          // Intentionally pending to reproduce a stalled desktop request.
+        }),
+    );
+    render(
+      <AiWorkbenchPanel
+        documentId="doc-1"
+        source="Document"
+        selection={null}
+        settings={{ ...DEFAULT_SETTINGS, aiCloudDisclosureAccepted: true }}
+        onSettingsChange={vi.fn()}
+        onResult={vi.fn()}
+        services={{
+          keyStatus: vi.fn().mockResolvedValue({
+            configured: true,
+            maskedLabel: '••••secret',
+          }),
+          listModels,
+          run: vi.fn(),
+          cancel: vi.fn(),
+        }}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Refreshing')).toBeVisible();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(screen.queryByText('Refreshing')).not.toBeInTheDocument();
+    expect(screen.getByText(/model catalog did not respond/i)).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Retry model catalog' }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(listModels).toHaveBeenCalledTimes(2);
   });
 
   it('persists a translation target and blocks a detected same-language request', async () => {

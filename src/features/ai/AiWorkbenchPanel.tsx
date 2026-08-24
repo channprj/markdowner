@@ -18,6 +18,7 @@ import type { Settings } from '@/lib/settings';
 
 import { AiScopePicker } from './AiScopePicker';
 import { AiPrdInterview, type AiPrdInterviewServices } from './AiPrdInterview';
+import { AI_METADATA_UI_TIMEOUT_MS } from './requestTimeout';
 import {
   detectDocumentLanguage,
   estimateAiRun,
@@ -159,6 +160,8 @@ export function AiWorkbenchPanel({
   const [instruction, setInstruction] = useState('');
   const [keyStatus, setKeyStatus] = useState<AiKeyStatus | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
+  const [catalogAttempt, setCatalogAttempt] = useState(0);
   const [runningRequestId, setRunningRequestId] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -184,22 +187,40 @@ export function AiWorkbenchPanel({
 
   useEffect(() => {
     let cancelled = false;
+    let catalogTimeout: number | undefined;
     services
       .keyStatus()
       .then((nextStatus) => {
         if (cancelled) return;
         setKeyStatus(nextStatus);
         if (!nextStatus.configured) return;
+        setCatalogError('');
         setCatalogLoading(true);
-        services
-          .listModels()
+        catalogTimeout = window.setTimeout(() => {
+          if (cancelled) return;
+          cancelled = true;
+          const message = 'The model catalog did not respond. Try again.';
+          setCatalogLoading(false);
+          setCatalogError(message);
+        }, AI_METADATA_UI_TIMEOUT_MS);
+        Promise.resolve()
+          .then(() => services.listModels())
           .then((nextModels) => {
-            if (!cancelled) setModels(nextModels);
+            if (!cancelled) {
+              setModels(nextModels);
+              setCatalogError('');
+            }
           })
           .catch((reason) => {
-            if (!cancelled) setError(errorMessage(reason));
+            if (!cancelled) {
+              const message = errorMessage(reason);
+              setCatalogError(message);
+            }
           })
           .finally(() => {
+            if (catalogTimeout !== undefined) {
+              window.clearTimeout(catalogTimeout);
+            }
             if (!cancelled) setCatalogLoading(false);
           });
       })
@@ -211,8 +232,9 @@ export function AiWorkbenchPanel({
       });
     return () => {
       cancelled = true;
+      if (catalogTimeout !== undefined) window.clearTimeout(catalogTimeout);
     };
-  }, [services]);
+  }, [catalogAttempt, services]);
 
   useEffect(() => {
     const defaultModel = defaultModelForTask(settings, task);
@@ -258,7 +280,7 @@ export function AiWorkbenchPanel({
   const selectedModelId = selectedModel?.id ?? null;
   const configured = keyStatus?.configured === true;
   const selectedModelUnavailable =
-    configured && !catalogLoading && selectedModel === null;
+    configured && !catalogLoading && !catalogError && selectedModel === null;
   const selectedPricing =
     selectedModel && services.modelPricing
       ? livePricing?.modelId === selectedModel.id
@@ -370,6 +392,7 @@ export function AiWorkbenchPanel({
   const disclosureAccepted = settings.aiCloudDisclosureAccepted;
   const canRun =
     !runningRequestId &&
+    !catalogLoading &&
     !pricingLoading &&
     pricingReady &&
     configured &&
@@ -891,6 +914,27 @@ export function AiWorkbenchPanel({
             <p className="text-xs text-muted-foreground">
               No text-output models match this search.
             </p>
+          ) : null}
+          {catalogError && !catalogLoading ? (
+            <div
+              role="alert"
+              className="flex items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-xs text-destructive"
+            >
+              <span>{catalogError}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                disabled={Boolean(runningRequestId)}
+                onClick={() => {
+                  setCatalogError('');
+                  setCatalogAttempt((attempt) => attempt + 1);
+                }}
+              >
+                Retry model catalog
+              </Button>
+            </div>
           ) : null}
           {pricingLoading ? (
             <p className="text-[11px] text-muted-foreground">
