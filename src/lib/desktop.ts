@@ -477,9 +477,55 @@ export async function aiCancel(requestId: string): Promise<boolean> {
 
 export async function localAgentStatuses(
   executablePaths: LocalAgentExecutablePaths,
+  options: { forceRefresh?: boolean } = {},
 ): Promise<LocalAgentStatus[]> {
-  return invoke<LocalAgentStatus[]>('local_agent_statuses', { executablePaths });
+  const cacheKey = JSON.stringify(executablePaths);
+  if (!options.forceRefresh) {
+    if (
+      localAgentStatusCache?.key === cacheKey &&
+      Date.now() - localAgentStatusCache.loadedAt < LOCAL_AGENT_STATUS_CACHE_TTL_MS
+    ) {
+      return localAgentStatusCache.statuses;
+    }
+    if (localAgentStatusRequest?.key === cacheKey) {
+      return localAgentStatusRequest.promise;
+    }
+  } else if (localAgentStatusRequest?.key === cacheKey) {
+    return localAgentStatusRequest.promise;
+  }
+
+  const promise = invoke<LocalAgentStatus[]>('local_agent_statuses', {
+    executablePaths,
+  })
+    .then((statuses) => {
+      if (Array.isArray(statuses)) {
+        localAgentStatusCache = {
+          key: cacheKey,
+          loadedAt: Date.now(),
+          statuses,
+        };
+      }
+      return statuses;
+    })
+    .finally(() => {
+      if (localAgentStatusRequest?.promise === promise) {
+        localAgentStatusRequest = null;
+      }
+    });
+  localAgentStatusRequest = { key: cacheKey, promise };
+  return promise;
 }
+
+const LOCAL_AGENT_STATUS_CACHE_TTL_MS = 60_000;
+let localAgentStatusCache: {
+  key: string;
+  loadedAt: number;
+  statuses: LocalAgentStatus[];
+} | null = null;
+let localAgentStatusRequest: {
+  key: string;
+  promise: Promise<LocalAgentStatus[]>;
+} | null = null;
 
 export async function localAgentRun(
   request: LocalAgentRunRequest,

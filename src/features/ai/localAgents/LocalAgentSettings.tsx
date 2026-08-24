@@ -12,7 +12,10 @@ import type { LocalAgentExecutablePaths } from '@/lib/settings';
 import type { LocalAgentKind, LocalAgentStatus } from './types';
 
 export interface LocalAgentSettingsServices {
-  listStatuses: (paths: LocalAgentExecutablePaths) => Promise<LocalAgentStatus[]>;
+  listStatuses: (
+    paths: LocalAgentExecutablePaths,
+    forceRefresh?: boolean,
+  ) => Promise<LocalAgentStatus[]>;
   selectExecutable: (kind: LocalAgentKind) => Promise<string | null>;
 }
 
@@ -25,7 +28,8 @@ export interface LocalAgentSettingsProps {
 }
 
 const DEFAULT_SERVICES: LocalAgentSettingsServices = {
-  listStatuses: localAgentStatuses,
+  listStatuses: (paths, forceRefresh = false) =>
+    localAgentStatuses(paths, { forceRefresh }),
   selectExecutable: async (kind) => {
     const agent = AGENTS.find((candidate) => candidate.kind === kind);
     const selected = await openDialog({
@@ -76,13 +80,18 @@ export function LocalAgentSettings({
     }));
   }, [executablePaths]);
 
-  const refresh = async (paths = executablePathsRef.current) => {
+  const refresh = async (
+    paths = executablePathsRef.current,
+    forceRefresh = false,
+  ) => {
     const generation = refreshGeneration.current + 1;
     refreshGeneration.current = generation;
     setLoading(true);
     setError('');
     try {
-      const next = await resolvedServices.listStatuses(paths);
+      const next = await (forceRefresh
+        ? resolvedServices.listStatuses(paths, true)
+        : resolvedServices.listStatuses(paths));
       if (!Array.isArray(next)) throw new Error('Malformed local agent status payload.');
       if (refreshGeneration.current === generation) setStatuses(next);
     } catch {
@@ -144,7 +153,7 @@ export function LocalAgentSettings({
           size="sm"
           aria-label="Refresh local agent status"
           aria-busy={loading}
-          onClick={() => void refresh()}
+          onClick={() => void refresh(executablePathsRef.current, true)}
         >
           <RefreshCw className={loading ? 'animate-spin' : undefined} aria-hidden="true" />
           {loading ? 'Refreshing…' : 'Refresh'}

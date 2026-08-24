@@ -24,7 +24,11 @@ import {
   localAgentStatuses,
   reloadActiveDocumentFromDisk,
 } from './desktop';
-import type { LocalAgentRunRequest, LocalAgentStreamEvent } from '@/features/ai/localAgents/types';
+import type {
+  LocalAgentRunRequest,
+  LocalAgentStatus,
+  LocalAgentStreamEvent,
+} from '@/features/ai/localAgents/types';
 
 describe('desktop document reload', () => {
   beforeEach(() => {
@@ -107,7 +111,52 @@ describe('desktop local-agent bridge', () => {
       requestId: 'local-agent-1',
     });
   });
+
+  it('coalesces concurrent status probes and reuses their recent result', async () => {
+    const executablePaths = {
+      claude: '/test/cache/claude-260824',
+      codex: '/test/cache/codex-260824',
+      opencode: '/test/cache/opencode-260824',
+    };
+    const pending = deferred<LocalAgentStatus[]>();
+    const statuses: LocalAgentStatus[] = [
+      {
+        kind: 'codex',
+        mention: '@codex',
+        label: 'Codex',
+        installed: true,
+        compatible: true,
+        pathLabel: 'bin/codex',
+        version: '0.149.0',
+        reason: null,
+        source: 'manual',
+      },
+    ];
+    invokeMock.mockReturnValue(pending.promise);
+
+    const first = localAgentStatuses(executablePaths);
+    const concurrent = localAgentStatuses({ ...executablePaths });
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    pending.resolve(statuses);
+    await expect(Promise.all([first, concurrent])).resolves.toEqual([
+      statuses,
+      statuses,
+    ]);
+    await expect(localAgentStatuses({ ...executablePaths })).resolves.toEqual(
+      statuses,
+    );
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+  });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
 
 describe('desktop export bridge', () => {
   beforeEach(() => {

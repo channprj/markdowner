@@ -300,7 +300,9 @@ describe('LocalAgentSettings', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh local agent status' }));
-    await waitFor(() => expect(listStatuses).toHaveBeenLastCalledWith(resetPaths));
+    await waitFor(() =>
+      expect(listStatuses).toHaveBeenLastCalledWith(resetPaths, true),
+    );
   });
 });
 
