@@ -76,6 +76,22 @@ Useful shortcuts:
 | Toggle Typewriter Mode | `Cmd+Shift+Y` |
 | Toggle Word Wrap       | `Option+Z`    |
 
+## AI tools
+
+Connect your OpenRouter key in **Settings → AI Feature**. Select a task and model for PRD improvement, summaries, translation, or custom instructions. Select text and use `Cmd+Shift+K` for an inline prompt in the source or WYSIWYG editor.
+
+- Only the selected, masked text is sent for inline edits; the complete source stays local for validation. Summaries receive the source once, without a duplicate document envelope.
+- Large requests are processed in smaller parts, with input and output budgets based on the selected model. Context and truncated-output failures trigger bounded subdivision. Long PRD interviews also condense document context and previous answers before asking the next question. These multi-call runs can take longer and cost more; very large instructions or an indivisible protected block can still exceed a model's limits.
+- Activity and Review show the current stage, completed parts, received characters, and cancellation. Switching AI panel tabs keeps work in progress.
+- In **Settings → AI Feature → System Prompts**, edit or reset the behavior of PRD improvement, summaries, translation, custom prompts, and PRD interviews independently. Changes apply to future requests; output schemas and Markdown protection remain enforced.
+- Inline results apply only to the captured, unchanged document. Unsupported formatting or changed source opens Review instead. Successful inline edits undo in one step.
+
+Model requests send content to OpenRouter and the chosen provider after cloud consent. Keys remain in macOS Keychain; ZDR settings are preserved. Normal tests use mock providers. Maintainers can explicitly run the small, synthetic live smoke test with their configured account (billed API usage):
+
+```bash
+MARKDOWNER_LIVE_AI_MODEL=upstage/solar-pro4 cargo test -p markdowner-desktop configured_provider_validates_synthetic_tasks_and_interview -- --ignored --nocapture
+```
+
 ## CLI Integration
 
 Markdowner can install a small `mdner` launcher so command-line tools can open files or folders in the desktop app:

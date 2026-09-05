@@ -160,11 +160,12 @@ impl SseDecoder {
             )
         })?;
         if let Some(error) = payload.get("error") {
-            let message = error
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("OpenRouter reported a streaming error.");
-            let mut result = provider_message_error("provider_error", message, None);
+            let default_code = error.get("code").and_then(Value::as_u64)
+                .and_then(|code| u16::try_from(code).ok())
+                .and_then(|code| StatusCode::from_u16(code).ok())
+                .map(status_error_code).unwrap_or("provider_error");
+            let mut result = provider_payload_error(default_code, error,
+                "OpenRouter reported a streaming error.", None);
             result.generation_id = payload
                 .get("id")
                 .and_then(Value::as_str)
@@ -924,18 +925,14 @@ async fn checked_response(response: Response, secret: &str) -> Result<Response, 
         .map(str::to_string);
     let payload = response.bytes().await.unwrap_or_default();
     let parsed: Value = serde_json::from_slice(&payload).unwrap_or(Value::Null);
-    let message = parsed
-        .pointer("/error/message")
-        .or_else(|| parsed.get("message"))
-        .and_then(Value::as_str)
-        .unwrap_or_else(|| default_status_message(status));
     let generation_id = parsed
         .pointer("/error/metadata/generation_id")
         .or_else(|| parsed.get("generation_id"))
         .and_then(Value::as_str)
         .map(str::to_string)
         .or(generation_header);
-    let mut error = provider_message_error(status_error_code(status), message, Some(secret));
+    let mut error = provider_payload_error(status_error_code(status),
+        parsed.get("error").unwrap_or(&parsed), default_status_message(status), Some(secret));
     error.retry_after_seconds = retry_after_seconds;
     error.generation_id = generation_id;
     Err(error)
@@ -999,6 +996,22 @@ fn provider_message_error(
         );
     }
     AiError::new(default_code, redacted)
+}
+
+fn provider_payload_error(default_code: &str, error: &Value, fallback: &str, secret: Option<&str>) -> AiError {
+    let message = error.get("message").and_then(Value::as_str).unwrap_or(fallback);
+    let mut result = provider_message_error(default_code, message, secret);
+    if matches!(result.code.as_str(), "openrouter_error" | "provider_error") {
+        // OpenRouter may wrap a provider's size error in metadata.raw. Inspect
+        // it for classification, but never expose the raw payload: providers
+        // can echo document content or credentials there.
+        let details = json!({"code":error.get("code"),"raw":error.pointer("/metadata/raw")}).to_string();
+        let classified = provider_message_error(default_code, &details, secret);
+        if matches!(classified.code.as_str(), "context_length_exceeded" | "output_limit_exceeded") {
+            result.code = classified.code;
+        }
+    }
+    result
 }
 
 fn network_error(error: reqwest::Error) -> AiError {
@@ -1202,6 +1215,21 @@ mod tests {
         }
         assert_eq!(super::provider_message_error("openrouter_error", "max_tokens must be less than or equal to 8192", None).code, "output_limit_exceeded");
         assert_eq!(super::provider_message_error("insufficient_credits", "Insufficient credits for max_tokens", None).code, "insufficient_credits");
+    }
+
+    #[tokio::test]
+    async fn nested_provider_context_errors_recover_without_reclassifying_billing() {
+        for (status, code) in [(400, "context_length_exceeded"), (402, "insufficient_credits")] {
+            let (base_url, _request) = spawn_mock_response(status, "application/json",
+                r#"{"error":{"message":"Provider returned error","metadata":{"raw":"{\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"Input is too long sk-or-v1-test\"}}"}}}"#);
+            let client = OpenRouterClient::with_base_url(&base_url).unwrap();
+            let error = client.verify_key("sk-or-v1-test", None).await.unwrap_err();
+            assert_eq!(error.code, code);
+            assert!(!error.message.contains("sk-or-v1-test"));
+        }
+        let mut decoder = SseDecoder::default();
+        let error = decoder.push(b"data: {\"error\":{\"message\":\"Provider returned error\",\"metadata\":{\"raw\":\"maximum context length exceeded\"}}}\n\n").unwrap_err();
+        assert_eq!(error.code, "context_length_exceeded");
     }
 
     #[test]

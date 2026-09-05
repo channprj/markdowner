@@ -44,6 +44,8 @@ pub mod chunking;
 mod evaluation;
 #[cfg(test)]
 mod recovery_tests;
+#[cfg(test)]
+mod live_smoke;
 pub mod history;
 pub mod interview;
 pub mod keychain;
