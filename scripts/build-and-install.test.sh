@@ -263,6 +263,8 @@ const expected = {
   'build:mac:dmg': 'pnpm build dmg',
   'build:mac:universal:dmg': 'pnpm build universal dmg',
   'dmg:downloads': 'node scripts/build-dmg-to-downloads.mjs',
+  'release:build': 'node scripts/release.mjs build',
+  'release:publish': 'node scripts/release.mjs publish',
 };
 
 for (const [name, command] of Object.entries(expected)) {
