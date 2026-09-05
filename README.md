@@ -149,7 +149,7 @@ pnpm build:install:open            # package-script alias for install + open
 pnpm build:mac:dmg                 # package-script alias for release DMG
 pnpm build:mac:universal:dmg       # package-script alias for universal DMG
 pnpm release:build                 # test and verify a local release DMG
-pnpm release:publish               # publish that DMG with GitHub CLI
+pnpm release:publish               # reuse a current DMG or build, then publish
 ```
 
 Install path overrides:
@@ -212,21 +212,27 @@ That command syncs `VERSION` into `package.json`, `src-tauri/tauri.conf.json`, `
 Build and publish from the same clean, up-to-date `main` checkout:
 
 ```bash
-pnpm release:build
 pnpm release:publish
 ```
 
 The local flow:
 
-1. verifies version metadata and runs the JavaScript and Rust test suites
-2. builds an ad-hoc-signed universal macOS DMG and verifies it with `hdiutil`
-3. requires a clean `main` exactly matching `origin/main`
-4. refuses an existing version tag or GitHub Release
+1. verifies version metadata, requires a clean `main` exactly matching `origin/main`,
+   and checks GitHub CLI authentication
+2. refuses an existing version tag or GitHub Release before building
+3. reuses a verified DMG for the current commit and version; otherwise runs the
+   JavaScript and Rust test suites and builds an ad-hoc-signed universal macOS DMG
+4. verifies the DMG with `hdiutil` and rechecks the checkout and remote before uploading
 5. creates the tag and GitHub Release with generated notes and uploads the DMG
 
-`release:publish` never builds, commits, or pushes source changes. Run it only
-after `release:build` succeeds. GitHub generates the release notes by comparing
-the new release with the previous tag.
+`release:build` can still prepare the DMG separately. A successful build from a
+clean, unchanged checkout saves the commit, version, and DMG SHA-256 in a
+`.build.json` file next to the DMG. `release:publish` reuses the DMG only when all
+three match; missing or invalid records and missing or changed DMGs trigger a
+fresh build. Existing DMGs without a build record are rebuilt once.
+
+`release:publish` never commits or pushes source changes. GitHub generates the
+release notes by comparing the new release with the previous tag.
 
 ## Repository Layout
 
