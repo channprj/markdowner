@@ -90,7 +90,7 @@ import {
   applySourceSelectionReplacement,
   applyWysiwygSelectionReplacement,
   captureSourceSelection,
-  captureWysiwygSelection,
+  captureWysiwygEditorSelection,
   selectionReplacementFromResult,
   type AiSelectionSnapshot,
 } from '@/features/ai/selection';
@@ -4066,24 +4066,22 @@ export default function App() {
         return;
       }
       let source = localDraftRef.current;
-      let requiresReview = false;
       try {
         source = flushWysiwygDraftNow() ?? source;
       } catch {
-        requiresReview = true;
+        announceShell('The editor could not be synchronized. Try this selection in the source editor.');
+        return;
       }
-      const captured = captureWysiwygSelection({
+      const captured = captureWysiwygEditorSelection({
+        editor,
         source,
-        markdownStart: wysiwygMarkdownOffsetAtPosition(editor, selection.from),
-        markdownEnd: wysiwygMarkdownOffsetAtPosition(editor, selection.to),
-        proseMirrorFrom: selection.from,
-        proseMirrorTo: selection.to,
+        from: selection.from,
+        to: selection.to,
         documentId: activeDocumentTab.id,
-        requiresReview,
       });
       if (!captured) {
         announceShell(
-          'The selected text could not be captured. Select it again and retry.',
+          'This selection cannot be mapped exactly to Markdown. Use the source editor for this selection.',
         );
         return;
       }

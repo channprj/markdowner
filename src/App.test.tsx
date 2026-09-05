@@ -1599,9 +1599,14 @@ describe('App recent documents', () => {
     expect(screen.queryByText(/AI request in progress/i)).not.toBeInTheDocument();
   });
 
-  it('applies a WYSIWYG drag-selection prompt in one editor transaction', async () => {
-    const source = 'alpha beta';
-    const replacement = 'BETA';
+  it.each([
+    ['alpha beta', 'beta', 'BETA'],
+    ['alpha **beta**', 'et', 'ET'],
+    ['alpha beta\n', 'beta', 'BETA'],
+  ])('applies a WYSIWYG drag-selection prompt in one editor transaction: %s', async (source, selected, replacement) => {
+    const start = source.indexOf(selected);
+    const end = start + selected.length;
+    const proposed = source.slice(0, start) + replacement + source.slice(end);
     const editor = new TiptapEditor({ extensions: [StarterKit, Markdown], content: source, contentType: 'markdown' });
     tiptapMockState.editor = editor;
     bootstrapMock.mockResolvedValue(
@@ -1625,15 +1630,15 @@ describe('App recent documents', () => {
       generationId: 'generation-selection',
       result: {
         sourceRevisionHash: 'revision-selection',
-        proposedMarkdown: 'alpha BETA',
+        proposedMarkdown: proposed,
         validation: { passed: true, issues: [] },
         operations: [
           {
             id: 'selection:replace',
             kind: 'replace',
             targetSegmentId: 'selection',
-            sourceRange: { start: 6, end: 10 },
-            originalMarkdown: 'beta',
+            sourceRange: { start, end },
+            originalMarkdown: selected,
             proposedMarkdown: replacement,
             findingIds: [],
           },
@@ -1657,7 +1662,13 @@ describe('App recent documents', () => {
 
     await screen.findByTestId('mock-tiptap-editor');
     act(() => {
-      editor.commands.setTextSelection({ from: 7, to: 11 });
+      let from = -1;
+      editor.state.doc.descendants((node, pos) => {
+        const offset = node.isText ? node.text!.indexOf(selected) : -1;
+        if (offset >= 0) from = pos + offset;
+      });
+      expect(from).toBeGreaterThan(0);
+      editor.commands.setTextSelection({ from, to: from + selected.length });
       tiptapMockState.lastOptions?.onSelectionUpdate?.({ editor });
     });
     fireEvent.keyDown(window, {
@@ -1686,9 +1697,9 @@ describe('App recent documents', () => {
     await waitFor(() => expect(runButton).toBeEnabled());
     fireEvent.click(runButton);
 
-    await waitFor(() => expect(editor.getMarkdown()).toBe('alpha BETA'));
+    await waitFor(() => expect(editor.getMarkdown()).toBe(proposed.replace(/\n$/, '')));
     act(() => { expect(editor.commands.undo()).toBe(true); });
-    expect(editor.getMarkdown()).toBe(source);
+    expect(editor.getMarkdown()).toBe(source.replace(/\n$/, ''));
     editor.destroy();
   });
 

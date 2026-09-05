@@ -4,7 +4,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { undoDepth } from '@tiptap/pm/history';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { applyWysiwygSelectionReplacement, captureWysiwygSelection } from './selection';
+import { applyWysiwygSelectionReplacement, captureWysiwygSelection, captureWysiwygEditorSelection } from './selection';
 
 let editor: Editor | undefined;
 afterEach(() => editor?.destroy());
@@ -15,6 +15,8 @@ describe('inline AI replacement in the real Markdown editor', () => {
     ['alpha beta gamma', 'beta', '**BETA**'],
     ['앞 문장과 수정할 내용 그리고 뒷문장', '수정할 내용', '개선한 내용'],
     ['alpha **beta** gamma', 'beta', 'BETA'],
+    ['alpha **beta** gamma', 'et', 'ET'],
+    ['alpha [beta](https://example.test) gamma', 'et', 'ET'],
     ['- alpha beta gamma\n- untouched', 'beta', 'BETA'],
   ])('replaces only the captured text and undoes in one step: %s', (source, selected, replacement) => {
     editor = new Editor({
@@ -33,11 +35,12 @@ describe('inline AI replacement in the real Markdown editor', () => {
     });
     expect(from).toBeGreaterThan(0);
     const start = source.indexOf(selected);
-    const snapshot = captureWysiwygSelection({
-      documentId: 'synthetic', source,
-      markdownStart: start, markdownEnd: start + selected.length,
-      proseMirrorFrom: from, proseMirrorTo: from + selected.length,
-    })!;
+    const beforeCapture = editor.state;
+    const snapshot = captureWysiwygEditorSelection({ editor,
+      documentId: 'synthetic', source, from, to: from + selected.length })!;
+    expect(editor.state).toBe(beforeCapture);
+    expect(snapshot?.characterRange).toEqual({ start, end: start + selected.length });
+    expect(snapshot.selectedText).toBe(selected);
     // Moving the caret while the model works must never move the edit target.
     editor.commands.setTextSelection(1);
     expect(applyWysiwygSelectionReplacement({ editor, snapshot, currentSource: source, replacement })).toBe(true);

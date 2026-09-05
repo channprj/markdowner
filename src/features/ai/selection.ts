@@ -1,5 +1,6 @@
 import type { Editor } from '@tiptap/core';
 import { closeHistory } from '@tiptap/pm/history';
+import { normalizeFinalNewline } from '@/lib/sourceText';
 
 import type { AiByteRange, AiRunResult } from './types';
 
@@ -53,6 +54,46 @@ export function captureWysiwygSelection(input: {
     },
     requiresReview: input.requiresReview,
   });
+}
+
+export function captureWysiwygEditorSelection(input: {
+  editor: Pick<Editor, 'state' | 'storage' | 'getMarkdown'>;
+  source: string;
+  from: number;
+  to: number;
+  documentId: string;
+}): AiSelectionSnapshot | null {
+  const { editor, source, documentId } = input;
+  const from = Math.min(input.from, input.to);
+  const to = Math.max(input.from, input.to);
+  const manager = editor.storage.markdown?.manager;
+  const canonical = editor.getMarkdown();
+  if (!manager || normalizeFinalNewline(canonical) !== normalizeFinalNewline(source)) return null;
+  let marker = 'MDNERSELECTIONBOUNDARY';
+  while (source.includes(marker)) marker += 'X';
+  try {
+    const offset = (position: number, side: 'start' | 'end'): number => {
+      if (position === 0) return 0;
+      if (position === editor.state.doc.content.size) return canonical.length;
+      const resolved = editor.state.doc.resolve(position);
+      if (!resolved.parent.isTextblock) throw new Error('Not a text boundary');
+      const adjacent = side === 'start' ? resolved.nodeAfter : resolved.nodeBefore;
+      const marks = adjacent?.isInline ? adjacent.marks : resolved.marks();
+      // Serialize an un-dispatched copy with a marker in the selected text's
+      // marks. Prefix serialization alone adds closing ** / link syntax and
+      // produces incorrect offsets inside formatted text.
+      const probe = editor.state.tr.insert(position, editor.state.schema.text(marker, marks));
+      const marked = manager.serialize(probe.doc.toJSON());
+      const index = marked.indexOf(marker);
+      if (index < 0 || marked.replace(marker, '') !== canonical) throw new Error('Ambiguous Markdown boundary');
+      return index;
+    };
+    return captureWysiwygSelection({ source, documentId,
+      markdownStart: offset(from, 'start'), markdownEnd: offset(to, 'end'),
+      proseMirrorFrom: from, proseMirrorTo: to });
+  } catch {
+    return null;
+  }
 }
 
 export function canReplaceSourceSelection(
@@ -171,7 +212,7 @@ export function applyWysiwygSelectionReplacement(input: {
 
   const previousState = input.editor.state;
   const manager = input.editor.storage.markdown?.manager;
-  if (!manager || input.editor.getMarkdown() !== input.currentSource) return false;
+  if (!manager || normalizeFinalNewline(input.editor.getMarkdown()) !== normalizeFinalNewline(input.currentSource)) return false;
   const nextSource =
     input.currentSource.slice(0, input.snapshot.characterRange.start) +
     input.replacement +
@@ -181,14 +222,14 @@ export function applyWysiwygSelectionReplacement(input: {
     // nodes. Verify serialization before dispatching; Markdown syntax in the
     // replacement will instead take the contextual parse path below.
     const inline = previousState.tr.insertText(input.replacement, range.start, range.end);
-    if (manager.serialize(inline.doc.toJSON()) === nextSource) {
+    if (normalizeFinalNewline(manager.serialize(inline.doc.toJSON())) === normalizeFinalNewline(nextSource)) {
       input.editor.view.dispatch(closeHistory(inline).scrollIntoView());
       return true;
     }
     // Parse in the full document's context: parsing an isolated replacement
     // creates a closed paragraph and loses surrounding marks/list structure.
     const nextDoc = previousState.schema.nodeFromJSON(manager.parse(nextSource));
-    if (manager.serialize(nextDoc.toJSON()) !== nextSource) return false;
+    if (normalizeFinalNewline(manager.serialize(nextDoc.toJSON())) !== normalizeFinalNewline(nextSource)) return false;
     const start = previousState.doc.content.findDiffStart(nextDoc.content);
     if (start === null) return true;
     const end = previousState.doc.content.findDiffEnd(nextDoc.content)!;
