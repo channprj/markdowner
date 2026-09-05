@@ -30,18 +30,6 @@ assert_file_contains() {
   fi
 }
 
-assert_file_not_contains() {
-  local file="$1"
-  local unexpected="$2"
-
-  if grep -Fq -- "${unexpected}" "${file}"; then
-    echo "Expected not to find: ${unexpected}" >&2
-    echo "--- ${file} ---" >&2
-    sed -n '1,160p' "${file}" >&2
-    fail "unexpected output"
-  fi
-}
-
 assert_dir_exists() {
   local path="$1"
 
@@ -410,16 +398,10 @@ test_pnpm_build_universal_dmg_invokes_tauri_universal_dmg_build() {
   assert_file_contains "${stdout}" "target/tauri-build-and-install/universal-apple-darwin/release/bundle/dmg/Markdowner_0.1.0_universal-apple-darwin.dmg"
 }
 
-test_release_workflow_uploads_only_versioned_dmg_asset() {
-  assert_file_not_contains "${SOURCE_RELEASE_WORKFLOW}" 'STABLE_DMG="Markdowner_universal.dmg"'
-  assert_file_not_contains "${SOURCE_RELEASE_WORKFLOW}" 'cp "$DMG" "$STABLE_DMG"'
-  assert_file_not_contains "${SOURCE_RELEASE_WORKFLOW}" '"$STABLE_DMG"'
-}
-
-test_release_workflow_uses_github_generated_notes() {
-  assert_file_contains "${SOURCE_RELEASE_WORKFLOW}" '--generate-notes'
-  assert_file_not_contains "${SOURCE_RELEASE_WORKFLOW}" '--notes-file RELEASE_NOTES.md'
-  assert_file_not_contains "${SOURCE_RELEASE_WORKFLOW}" 'Generate release notes'
+test_github_actions_release_workflow_is_disabled() {
+  if [[ -e "${SOURCE_RELEASE_WORKFLOW}" ]]; then
+    fail "GitHub Actions release workflow must remain disabled: ${SOURCE_RELEASE_WORKFLOW}"
+  fi
 }
 
 test_package_exposes_build_aliases
@@ -429,8 +411,7 @@ test_pnpm_build_debug_invokes_tauri_debug_build
 test_pnpm_build_install_open_launches_installed_bundle
 test_pnpm_build_dmg_invokes_tauri_dmg_build_and_prints_hash
 test_pnpm_build_universal_dmg_invokes_tauri_universal_dmg_build
-test_release_workflow_uploads_only_versioned_dmg_asset
-test_release_workflow_uses_github_generated_notes
+test_github_actions_release_workflow_is_disabled
 test_help_lists_open_flag
 test_build_uses_isolated_cargo_target_dir
 test_open_flag_launches_installed_bundle

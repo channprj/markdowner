@@ -26,7 +26,7 @@ The app is also designed to work well as the editor that coding agents and comma
 - **Customizable reading and editing**: built-in light/dark themes, system-theme following, imported CSS themes, editor font controls, table density, and code-block theme settings.
 - **HTML and PDF export**: preview and export the current document or workspace with configurable paper, margins, typography, colors, page furniture, and code-block styling.
 - **Agent-friendly CLI integration**: install the `mdner` command and set `EDITOR` / `VISUAL` so terminal tools can open Markdowner directly.
-- **Release-aware app**: update checks read GitHub Releases, and the public release workflow builds a universal macOS DMG.
+- **Release-aware app**: update checks read GitHub Releases, and maintainers can build and publish a universal macOS DMG locally.
 
 ## Install
 
@@ -132,6 +132,8 @@ pnpm build install open            # install, then launch the installed app
 pnpm build:install:open            # package-script alias for install + open
 pnpm build:mac:dmg                 # package-script alias for release DMG
 pnpm build:mac:universal:dmg       # package-script alias for universal DMG
+pnpm release:build                 # test and verify a local release DMG
+pnpm release:publish               # publish that DMG with GitHub CLI
 ```
 
 Install path overrides:
@@ -175,7 +177,15 @@ Refresh the date/patch version locally:
 pnpm bump refresh
 ```
 
-Push a release bump from `main`:
+GitHub Actions release automation is disabled. Releases are built on a local
+Mac and published explicitly with GitHub CLI. Authenticate once before the
+first publish:
+
+```bash
+gh auth login
+```
+
+Prepare and push a release bump from `main`:
 
 ```bash
 pnpm bump refresh --push
@@ -183,16 +193,24 @@ pnpm bump refresh --push
 
 That command syncs `VERSION` into `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `Cargo.lock`, commits those version files, and pushes to `main`.
 
-The GitHub Actions release workflow then:
+Build and publish from the same clean, up-to-date `main` checkout:
 
-1. reads `VERSION`
-2. installs the Node and Rust toolchains
-3. syncs version metadata
-4. builds a universal macOS DMG
-5. creates the GitHub Release with `gh release create --generate-notes`
-6. uploads the generated DMG asset
+```bash
+pnpm release:build
+pnpm release:publish
+```
 
-GitHub generates the release notes by comparing the new release with the previous tag.
+The local flow:
+
+1. verifies version metadata and runs the JavaScript and Rust test suites
+2. builds an ad-hoc-signed universal macOS DMG and verifies it with `hdiutil`
+3. requires a clean `main` exactly matching `origin/main`
+4. refuses an existing version tag or GitHub Release
+5. creates the tag and GitHub Release with generated notes and uploads the DMG
+
+`release:publish` never builds, commits, or pushes source changes. Run it only
+after `release:build` succeeds. GitHub generates the release notes by comparing
+the new release with the previous tag.
 
 ## Repository Layout
 

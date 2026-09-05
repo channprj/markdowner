@@ -2,8 +2,8 @@
 // Bump the repo-root VERSION file using the project's date-based scheme
 // (MAJOR.YYMMDD.PATCH) and propagate it into package.json / tauri.conf.json /
 // Cargo.toml / Cargo.lock via syncVersion(). By default this only touches
-// files; pass --push to also commit those files and push to main, which
-// triggers the release workflow (.github/workflows/release.yml).
+// files; pass --push to also commit those files and push to main. Building and
+// publishing remain explicit local steps through the release:* scripts.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,9 +27,9 @@ function usage() {
 
 Options:
   --push                     After bumping, commit the version files and push to
-                             main (must be on main). This triggers the release
-                             workflow, which builds the DMG and creates the
-                             v<version> tag + GitHub release.`);
+                             main (must be on main). This does not build or
+                             publish; run pnpm release:build and
+                             pnpm release:publish separately.`);
 }
 
 // YYMMDD for the local date.
@@ -61,7 +61,7 @@ function nextVersion(current, command, today = todayStamp()) {
 }
 
 // Files the version system owns; committed together so a release commit is
-// self-contained (release.yml triggers on a VERSION change pushed to main).
+// self-contained before the local build and publish steps run.
 const versionedFiles = [
   'VERSION',
   'package.json',
@@ -87,7 +87,7 @@ function bumpVersion(command, { push = false } = {}) {
   if (push) {
     const branch = currentBranch();
     if (branch !== 'main') {
-      throw new Error(`--push requires the "main" branch (release.yml triggers on main); on "${branch}"`);
+      throw new Error(`--push requires the "main" branch; on "${branch}"`);
     }
   }
 
@@ -100,7 +100,8 @@ function bumpVersion(command, { push = false } = {}) {
   if (push) {
     git(['commit', '-m', `chore(release): bump version to ${next}`, '--', ...versionedFiles]);
     git(['push', 'origin', 'main']);
-    console.log(`Pushed v${next} to main — the release workflow will build and publish it.`);
+    console.log(`Pushed v${next} to main.`);
+    console.log('Next: pnpm release:build && pnpm release:publish');
   }
 }
 

@@ -33,7 +33,7 @@ Markdowner는 macOS용 로컬 파일 중심 Markdown 에디터입니다. 깔끔�
 - **편집 환경 커스터마이징**: 기본 라이트/다크 테마, 시스템 테마 연동, CSS 테마 가져오기, 에디터 글꼴 설정, 표 밀도, 코드 블록 테마 설정을 지원합니다.
 - **HTML/PDF 내보내기**: 용지, 여백, 글꼴, 색상, 머리말·꼬리말, 코드 블록 스타일을 설정하면서 현재 문서나 워크스페이스를 미리 보고 내보낼 수 있습니다.
 - **에이전트 친화적인 CLI 연동**: `mdner` 명령을 설치하고 `EDITOR` / `VISUAL`에 연결해 터미널 도구가 Markdowner를 바로 열 수 있습니다.
-- **업데이트와 릴리스 연동**: GitHub Releases를 기준으로 업데이트를 확인하고, 공개 릴리스 워크플로에서 universal macOS DMG를 빌드합니다.
+- **업데이트와 릴리스 연동**: GitHub Releases를 기준으로 업데이트를 확인하고, 관리자가 로컬에서 universal macOS DMG를 빌드해 배포할 수 있습니다.
 
 ## 설치
 
@@ -139,6 +139,8 @@ pnpm build install open            # 설치 후 설치된 앱 실행
 pnpm build:install:open            # install + open package.json 스크립트 별칭
 pnpm build:mac:dmg                 # 릴리스 DMG package.json 스크립트 별칭
 pnpm build:mac:universal:dmg       # universal DMG package.json 스크립트 별칭
+pnpm release:build                 # 로컬 릴리스 DMG 테스트·빌드·검증
+pnpm release:publish               # GitHub CLI로 빌드된 DMG 배포
 ```
 
 설치 경로를 바꾸려면:
@@ -182,7 +184,15 @@ MAJOR.YYMMDD.PATCH
 pnpm bump refresh
 ```
 
-`main` 브랜치에서 릴리스 버전을 올리고 푸시하려면:
+GitHub Actions 릴리스 자동화는 비활성화되어 있습니다. 릴리스는 로컬 Mac에서
+빌드한 뒤 GitHub CLI로 명시적으로 배포합니다. 처음 배포하기 전에 한 번
+인증합니다.
+
+```bash
+gh auth login
+```
+
+`main` 브랜치에서 릴리스 버전을 올리고 푸시합니다.
 
 ```bash
 pnpm bump refresh --push
@@ -190,16 +200,25 @@ pnpm bump refresh --push
 
 이 명령은 `VERSION` 값을 `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `Cargo.lock`에 동기화하고, 해당 버전 파일을 커밋한 뒤 `main`으로 푸시합니다.
 
-GitHub Actions 릴리스 워크플로는 다음 순서로 동작합니다.
+같은 `main` 체크아웃이 깨끗하고 원격과 동기화된 상태에서 빌드와 배포를
+차례로 실행합니다.
 
-1. `VERSION` 읽기
-2. Node와 Rust 도구체인 설치
-3. 버전 메타데이터 동기화
-4. universal macOS DMG 빌드
-5. `gh release create --generate-notes`로 GitHub Release 생성
-6. 생성된 DMG 파일 업로드
+```bash
+pnpm release:build
+pnpm release:publish
+```
 
-릴리스 노트는 GitHub가 이전 태그와 새 태그를 비교해 자동으로 생성합니다.
+로컬 릴리스 흐름은 다음 순서로 동작합니다.
+
+1. 버전 메타데이터를 확인하고 JavaScript와 Rust 테스트 실행
+2. ad-hoc signing이 적용된 universal macOS DMG 빌드 및 `hdiutil` 검증
+3. 깨끗한 `main`과 `origin/main`의 완전한 동기화 확인
+4. 같은 버전의 태그나 GitHub Release가 이미 있으면 중단
+5. 자동 생성 릴리스 노트와 함께 태그·GitHub Release를 만들고 DMG 업로드
+
+`release:publish`는 빌드하거나 소스 변경을 커밋·푸시하지 않습니다.
+`release:build`가 성공한 뒤에만 실행합니다. 릴리스 노트는 GitHub가 이전
+태그와 새 태그를 비교해 자동으로 생성합니다.
 
 ## 저장소 구조
 
