@@ -137,9 +137,20 @@ describe('AI model policy', () => {
       ),
     ).toBe(contextLength - estimateInputTokens(source));
   });
+
+  it('reserves usable output per part when the document exceeds the model context', () => {
+    for (const task of ['prd', 'summary', 'translation', 'custom'] as const) {
+      expect(outputTokenLimitForTask(task, '긴 문서 내용입니다. '.repeat(30_000),
+        model({ contextLength: 8_192, maxCompletionTokens: 4_096 }))).toBe(4_096);
+    }
+  });
 });
 
 describe('AI estimates and run gates', () => {
+  it('does not present a single request estimate as a total cost ceiling for multipart work', () => {
+    expect(estimateAiRun({ source: 'Long document. '.repeat(20_000), scope: 'document',
+      model: model({ contextLength: 8_192 }), maxOutputTokens: 4_096 }).maxCostUsd).toBeNull();
+  });
   it('keeps provider cost authoritative and calculates a missing cost from pricing', () => {
     expect(
       resolveUsageCost(
@@ -213,7 +224,7 @@ describe('AI estimates and run gates', () => {
     ).toBe('confirm');
   });
 
-  it('confirms unknown cost while never truncating scope limits', () => {
+  it('confirms multipart processing instead of blocking or truncating long input', () => {
     expect(
       resolveRunGate({
         scope: 'document',
@@ -223,7 +234,7 @@ describe('AI estimates and run gates', () => {
         zdrOnly: false,
         eligibleEndpointCount: null,
       }),
-    ).toMatchObject({ kind: 'blocked', code: 'input_limit' });
+    ).toMatchObject({ kind: 'confirm', code: 'context_pressure' });
     expect(
       resolveRunGate({
         scope: 'selection',
@@ -233,7 +244,7 @@ describe('AI estimates and run gates', () => {
         zdrOnly: false,
         eligibleEndpointCount: null,
       }),
-    ).toMatchObject({ kind: 'blocked', code: 'input_limit' });
+    ).toMatchObject({ kind: 'confirm', code: 'context_pressure' });
     expect(
       resolveRunGate({
         scope: 'document',

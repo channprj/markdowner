@@ -23,7 +23,7 @@ use self::{
     },
     chunking::{
         TranslationChunk, plan_structured_document_chunks, plan_translation_chunks,
-        subdivide_translation_chunk,
+        subdivide_translation_chunk, split_oversized_segments, plan_summary_sources,
     },
     history::{
         HistoryPage, HistoryRepository, RunStatus, StoredRun, StoredRunDetail,
@@ -42,6 +42,8 @@ pub mod activity;
 pub mod chunking;
 #[cfg(test)]
 mod evaluation;
+#[cfg(test)]
+mod recovery_tests;
 pub mod history;
 pub mod interview;
 pub mod keychain;
@@ -51,7 +53,6 @@ const AI_ACTIVITY_CHANGED_EVENT: &str = "markdowner://ai-activity-changed";
 const AI_HISTORY_CHANGED_EVENT: &str = "markdowner://ai-history-changed";
 const RECOVERY_CHUNK_INPUT_TOKENS: u32 = 4_000;
 const PROACTIVE_CHUNK_INPUT_TOKENS: u32 = 12_000;
-const MAX_OUTPUT_LIMIT_RECOVERY_ATTEMPTS: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -992,7 +993,7 @@ pub fn ai_discard_result(state: State<'_, AiState>, request_id: String) {
 }
 
 fn prepare_run_envelope(request: &AiRunRequest) -> Result<AiDocumentEnvelope, AiError> {
-    let envelope = AiDocumentEnvelope::with_policy(
+    let mut envelope = AiDocumentEnvelope::with_policy(
         &request.document_id,
         &request.source,
         request.selection,
@@ -1005,6 +1006,7 @@ fn prepare_run_envelope(request: &AiRunRequest) -> Result<AiDocumentEnvelope, Ai
             "The selection contains only protected Markdown and cannot be changed.",
         ));
     }
+    split_oversized_segments(&mut envelope, 1_024);
     Ok(envelope)
 }
 
@@ -1107,7 +1109,7 @@ pub async fn ai_run(
     let proactive_chunks = should_prechunk_request(
         request.task,
         request.selection.is_some(),
-        request.source.len(),
+        openrouter::provider_document(&completion_request.document, request.task).to_string().len(),
     );
     let initial_outcome = if proactive_chunks {
         None
@@ -1138,7 +1140,8 @@ pub async fn ai_run(
             )
             .await;
         let completion = match completion {
-            Ok(completion) => completion,
+            Ok(completion) => Some(completion),
+            Err(error) if matches!(error.code.as_str(), "context_length_exceeded" | "output_limit_exceeded") => None,
             Err(error) if error.code == "cancelled" => {
                 let _ = on_event.send(AiStreamEvent::Cancelled {
                     request_id: request.request_id.clone(),
@@ -1177,9 +1180,9 @@ pub async fn ai_run(
                 return Err(error);
             }
         };
-        Some(completion_outcome(&envelope, &request, completion))
+        completion.map(|completion| completion_outcome(&envelope, &request, completion))
     };
-    let needs_recovery = proactive_chunks
+    let needs_recovery = initial_outcome.is_none()
         || initial_outcome
             .as_ref()
             .is_some_and(|outcome| response_is_truncated(&outcome.validation_issues));
@@ -1198,6 +1201,8 @@ pub async fn ai_run(
         );
         emit_activity_changed(&app);
         recover_truncated_completion(
+            &app,
+            &on_event,
             &state,
             &request,
             &envelope,
@@ -1340,15 +1345,6 @@ fn empty_completion_outcome() -> CompletionOutcome {
     }
 }
 
-fn outcome_has_provider_attempt(outcome: &CompletionOutcome) -> bool {
-    !outcome.content.is_empty()
-        || outcome.generation_id.is_some()
-        || outcome.usage.is_some()
-        || outcome.result.is_some()
-        || !outcome.validation_issues.is_empty()
-        || outcome.raw_diagnostic.is_some()
-}
-
 fn response_is_truncated(issues: &[AiValidationIssue]) -> bool {
     issues
         .iter()
@@ -1356,6 +1352,8 @@ fn response_is_truncated(issues: &[AiValidationIssue]) -> bool {
 }
 
 async fn recover_truncated_completion(
+    app: &AppHandle,
+    on_event: &Channel<AiStreamEvent>,
     state: &AiState,
     request: &AiRunRequest,
     envelope: &AiDocumentEnvelope,
@@ -1363,283 +1361,178 @@ async fn recover_truncated_completion(
     cancellation: &CancellationToken,
     initial: CompletionOutcome,
 ) -> Result<CompletionOutcome, AiError> {
-    match request.task {
-        AiTask::Summary => {
-            recover_chunked_summary(state, request, envelope, secret, cancellation, initial).await
-        }
-        AiTask::Prd => {
-            recover_chunked_operations(state, request, envelope, secret, cancellation, initial)
-                .await
-        }
-        AiTask::Custom if envelope.selection.is_none() => {
-            recover_chunked_operations(state, request, envelope, secret, cancellation, initial)
-                .await
-        }
-        AiTask::Custom => {
-            retry_with_higher_output_limit(state, request, envelope, secret, cancellation, initial)
-                .await
-        }
-        AiTask::Translation => Ok(initial),
-    }
-}
-
-async fn recover_chunked_summary(
-    state: &AiState,
-    request: &AiRunRequest,
-    envelope: &AiDocumentEnvelope,
-    secret: &str,
-    cancellation: &CancellationToken,
-    initial: CompletionOutcome,
-) -> Result<CompletionOutcome, AiError> {
-    let planned =
-        plan_translation_chunks(&request.source, recovery_chunk_limit(request.source.len()))?;
-    if planned.len() < 2 {
-        return if outcome_has_provider_attempt(&initial) {
-            retry_with_higher_output_limit(
-                state,
-                request,
-                envelope,
-                secret,
-                cancellation,
-                initial,
-            )
-            .await
-        } else {
-            stream_with_output_limit_recovery(state, request, envelope, secret, cancellation).await
-        };
-    }
-
-    let mut usage = initial.usage;
-    let mut generation_id = initial.generation_id;
-    let mut responses = Vec::with_capacity(planned.len());
-    for chunk in planned {
-        let chunk_envelope = AiDocumentEnvelope::with_policy(
-            format!("{}#summary-{}", request.document_id, chunk.index),
-            chunk.source,
-            None,
-            protection_policy_for_task(AiTask::Summary),
-        )
-        .map_err(|error| AiError::new("invalid_document", error.to_string()))?;
-        let outcome = stream_with_output_limit_recovery(
-            state,
-            request,
-            &chunk_envelope,
-            secret,
-            cancellation,
-        )
-        .await?;
-        usage = merge_usage(usage, outcome.usage.clone());
-        generation_id = outcome.generation_id.clone().or(generation_id);
-        if outcome.result.is_none() {
-            return Ok(CompletionOutcome {
-                usage,
-                generation_id,
-                ..outcome
+    bounded_completion(
+        &state.client, request, envelope, secret, cancellation, initial,
+        |received_characters, completed, total, label| {
+            let _ = state.activity.progress(&request.request_id, ActivityProgress {
+                stage: "processing_chunks".to_string(),
+                chunk_completed: Some(completed),
+                chunk_total: Some(total),
+                label: Some(label.to_string()),
+                received_characters,
+                ..ActivityProgress::default()
             });
-        }
-        responses.push(
-            serde_json::from_str::<SummaryResponse>(&outcome.content).map_err(|_| {
-                AiError::new(
-                    "summary_recovery_failed",
-                    "A validated summary chunk could not be combined.",
-                )
-            })?,
-        );
-    }
-    let response = merge_chunked_summary_responses(responses)?;
-    match validate_summary_response(envelope, response, request.target_language.as_deref()) {
-        Ok(result) => Ok(CompletionOutcome {
-            result: Some(result),
-            validation_issues: Vec::new(),
-            raw_diagnostic: None,
-            generation_id,
-            usage,
-            content: String::new(),
-        }),
-        Err(error) => Ok(CompletionOutcome {
-            result: None,
-            validation_issues: validation_issues(error),
-            raw_diagnostic: None,
-            generation_id,
-            usage,
-            content: String::new(),
-        }),
-    }
-}
-
-async fn recover_chunked_operations(
-    state: &AiState,
-    request: &AiRunRequest,
-    envelope: &AiDocumentEnvelope,
-    secret: &str,
-    cancellation: &CancellationToken,
-    initial: CompletionOutcome,
-) -> Result<CompletionOutcome, AiError> {
-    let planned =
-        plan_structured_document_chunks(envelope, recovery_chunk_limit(request.source.len()))?;
-    if planned.len() < 2 {
-        return if outcome_has_provider_attempt(&initial) {
-            retry_with_higher_output_limit(
-                state,
-                request,
-                envelope,
-                secret,
-                cancellation,
-                initial,
-            )
-            .await
-        } else {
-            stream_with_output_limit_recovery(state, request, envelope, secret, cancellation).await
-        };
-    }
-
-    let mut usage = initial.usage;
-    let mut generation_id = initial.generation_id;
-    let mut responses = Vec::with_capacity(planned.len());
-    for chunk in planned {
-        let outcome = stream_with_output_limit_recovery(
-            state,
-            request,
-            &chunk.envelope,
-            secret,
-            cancellation,
-        )
-        .await?;
-        usage = merge_usage(usage, outcome.usage.clone());
-        generation_id = outcome.generation_id.clone().or(generation_id);
-        if outcome.result.is_none() {
-            return Ok(CompletionOutcome {
-                usage,
-                generation_id,
-                ..outcome
+            emit_activity_changed(app);
+            let _ = on_event.send(AiStreamEvent::Progress {
+                request_id: request.request_id.clone(), received_characters,
             });
-        }
-        responses.push(
-            serde_json::from_str::<PrdResponse>(&outcome.content).map_err(|_| {
-                AiError::new(
-                    "document_recovery_failed",
-                    "A validated document chunk could not be combined.",
-                )
-            })?,
-        );
-    }
-    let response = merge_chunked_prd_responses(responses);
-    match validate_prd_response(envelope, response) {
-        Ok(result) => Ok(CompletionOutcome {
-            result: Some(result),
-            validation_issues: Vec::new(),
-            raw_diagnostic: None,
-            generation_id,
-            usage,
-            content: String::new(),
-        }),
-        Err(error) => Ok(CompletionOutcome {
-            result: None,
-            validation_issues: validation_issues(error),
-            raw_diagnostic: None,
-            generation_id,
-            usage,
-            content: String::new(),
-        }),
-    }
+        },
+    ).await
 }
 
-async fn stream_with_output_limit_recovery(
-    state: &AiState,
-    request: &AiRunRequest,
+fn recovery_chunks(
+    task: AiTask,
     envelope: &AiDocumentEnvelope,
-    secret: &str,
-    cancellation: &CancellationToken,
-) -> Result<CompletionOutcome, AiError> {
-    let completion = stream_recovery_completion(
-        state,
-        request,
-        envelope,
-        secret,
-        cancellation,
-        request.max_output_tokens,
-    )
-    .await?;
-    let initial = completion_outcome(envelope, request, completion);
-    if response_is_truncated(&initial.validation_issues) {
-        retry_with_higher_output_limit(state, request, envelope, secret, cancellation, initial)
-            .await
+) -> Result<Vec<AiDocumentEnvelope>, AiError> {
+    let document = serde_json::to_value(envelope)
+        .map_err(|_| AiError::new("invalid_document", "Could not prepare document chunks."))?;
+    let bytes = openrouter::provider_document(&document, task).to_string().len();
+    let limit = recovery_chunk_limit(bytes);
+    if task == AiTask::Summary {
+        plan_summary_sources(&envelope.source, limit as usize * 4).into_iter()
+            .map(|source| AiDocumentEnvelope::with_policy(
+                &envelope.document_id, source, None, envelope.policy,
+            ).map_err(|error| AiError::new("invalid_document", error.to_string())))
+            .collect()
     } else {
-        Ok(initial)
+        Ok(plan_structured_document_chunks(envelope, limit)?
+            .into_iter().map(|chunk| chunk.envelope).collect())
     }
 }
 
-async fn retry_with_higher_output_limit(
-    state: &AiState,
+/// Every failed size attempt replaces one queue entry with strictly smaller
+/// entries. No successful chunk is retried, and nothing is applied until the
+/// recombined response passes validation against the entire original envelope.
+async fn bounded_completion<F>(
+    client: &OpenRouterClient,
     request: &AiRunRequest,
     envelope: &AiDocumentEnvelope,
     secret: &str,
     cancellation: &CancellationToken,
-    mut outcome: CompletionOutcome,
-) -> Result<CompletionOutcome, AiError> {
-    let mut output_limit = request.max_output_tokens;
-    for _ in 0..MAX_OUTPUT_LIMIT_RECOVERY_ATTEMPTS {
-        if !response_is_truncated(&outcome.validation_issues) {
-            break;
+    initial: CompletionOutcome,
+    mut on_progress: F,
+) -> Result<CompletionOutcome, AiError>
+where F: FnMut(usize, u32, u32, &str),
+{
+    let mut queue = VecDeque::from(recovery_chunks(request.task, envelope)?);
+    let mut total = queue.len() as u32;
+    let mut completed = 0;
+    let mut received = 0;
+    let mut usage = initial.usage;
+    let mut generation_id = initial.generation_id;
+    let mut responses = Vec::new();
+    while let Some(chunk) = queue.pop_front() {
+        if cancellation.is_cancelled() {
+            return Err(AiError::new("cancelled", "The AI request was cancelled."));
         }
-        let Some(next_limit) = next_output_limit(output_limit) else {
-            break;
+        on_progress(received, completed, total, "Waiting for the next document part");
+        let mut completion_request = AiCompletionRequest {
+            task: request.task,
+            model: request.model.clone(),
+            document: serde_json::to_value(&chunk).map_err(|_| AiError::new("invalid_document", "Could not encode a document part."))?,
+            selection: chunk.selection.is_some(),
+            target_language: request.target_language.clone(),
+            instruction: request.instruction.clone(),
+            zdr_only: request.zdr_only,
+            max_output_tokens: request.max_output_tokens,
         };
-        let previous_usage = outcome.usage.take();
-        let previous_generation_id = outcome.generation_id.take();
-        let completion =
-            stream_recovery_completion(state, request, envelope, secret, cancellation, next_limit)
-                .await?;
-        outcome = completion_outcome(envelope, request, completion);
-        outcome.usage = merge_usage(previous_usage, outcome.usage);
-        outcome.generation_id = outcome.generation_id.or(previous_generation_id);
-        output_limit = next_limit;
+        let mut last_progress = 0;
+        let completion = loop {
+            let attempt = client.stream_completion(secret, &completion_request, cancellation, |count| {
+                if count >= last_progress + 64 {
+                    last_progress = count;
+                    on_progress(received + count, completed, total, "Receiving a document part");
+                }
+            }).await;
+            match attempt {
+                Err(error) if error.code == "output_limit_exceeded" => {
+                    let effective = client.completion_output_limit(&completion_request)?;
+                    if effective <= 1_024 { break Err(error); }
+                    completion_request.max_output_tokens = effective / 2;
+                }
+                result => break result,
+            }
+        };
+        received += last_progress;
+        let outcome = match completion {
+            Ok(completion) => {
+                usage = merge_usage(usage, completion.usage.clone());
+                generation_id = completion.generation_id.clone().or(generation_id);
+                Some(completion_outcome(&chunk, request, completion))
+            }
+            Err(error) if error.code == "context_length_exceeded" => None,
+            Err(error) => return Err(error),
+        };
+        if outcome.as_ref().is_none_or(|outcome| response_is_truncated(&outcome.validation_issues)) {
+            let smaller = recovery_chunks(request.task, &chunk)?;
+            if smaller.len() < 2 {
+                return Err(AiError::new("chunk_limit_exceeded",
+                    "Even the smallest document part could not fit this model's input or response limit. Try a model with a larger context, a shorter instruction, or a smaller requested expansion. No document changes were applied."));
+            }
+            total = total.saturating_add(smaller.len() as u32 - 1);
+            for child in smaller.into_iter().rev() { queue.push_front(child); }
+            on_progress(received, completed, total, "Retrying with smaller document parts");
+            continue;
+        }
+        let outcome = outcome.expect("non-size failures returned above");
+        // A clipped Markdown fragment can change the parser's interpretation
+        // of its first newline, table row, or delimiter. Only those contextual
+        // checks are deferred to the mandatory full-document validation below.
+        let needs_full_context = !outcome.validation_issues.is_empty()
+            && outcome.validation_issues.iter().all(|issue| issue.code == "markdown_structure_changed");
+        if outcome.result.is_none() && !needs_full_context {
+            return Ok(CompletionOutcome { usage, generation_id, ..outcome });
+        }
+        responses.push(outcome.content);
+        completed += 1;
+        on_progress(received, completed, total, "Document part received; checking combined changes");
     }
+    let content = merge_chunk_contents(request.task, envelope.selection.is_some(), responses)?;
+    let outcome = completion_outcome(envelope, request, SseComplete {
+        content, generation_id, usage, finish_reason: Some("stop".to_string()),
+    });
     Ok(outcome)
 }
 
-async fn stream_recovery_completion(
-    state: &AiState,
-    request: &AiRunRequest,
-    envelope: &AiDocumentEnvelope,
-    secret: &str,
-    cancellation: &CancellationToken,
-    max_output_tokens: u32,
-) -> Result<SseComplete, AiError> {
-    let document = serde_json::to_value(envelope).map_err(|_| {
-        AiError::new(
-            "invalid_document",
-            "Could not prepare a recovery chunk for OpenRouter.",
-        )
-    })?;
-    state
-        .client
-        .stream_completion(
-            secret,
-            &AiCompletionRequest {
-                task: request.task,
-                model: request.model.clone(),
-                document,
-                selection: envelope.selection.is_some(),
-                target_language: request.target_language.clone(),
-                instruction: request.instruction.clone(),
-                zdr_only: request.zdr_only,
-                max_output_tokens,
-            },
-            cancellation,
-            |_| {},
-        )
-        .await
+fn merge_chunk_contents(task: AiTask, selection: bool, contents: Vec<String>) -> Result<String, AiError> {
+    fn decode<T: serde::de::DeserializeOwned>(contents: &[String]) -> Result<Vec<T>, AiError> {
+        contents.iter().map(|content| serde_json::from_str(content)
+            .map_err(|_| AiError::new("chunk_merge_failed", "A validated document part could not be combined."))).collect()
+    }
+    let response = match task {
+        AiTask::Summary => serde_json::to_value(merge_chunked_summary_responses(decode::<SummaryResponse>(&contents)?)?),
+        AiTask::Custom if selection => {
+            let responses = decode::<SelectionResponse>(&contents)?;
+            serde_json::to_value(SelectionResponse {
+                schema_version: 1,
+                replacement_text: responses.iter().map(|response| response.replacement_text.as_str()).collect(),
+                warnings: responses.into_iter().flat_map(|response| response.warnings).collect(),
+            })
+        }
+        AiTask::Translation => {
+            let responses = decode::<TranslationResponse>(&contents)?;
+            let first = responses.first().ok_or_else(|| AiError::new("chunk_merge_failed", "No translation parts were returned."))?;
+            serde_json::to_value(TranslationResponse {
+                schema_version: 1,
+                detected_source_language: first.detected_source_language.clone(),
+                target_language: first.target_language.clone(),
+                segments: responses.iter().flat_map(|response| response.segments.clone()).collect(),
+                warnings: responses.into_iter().flat_map(|response| response.warnings).collect(),
+            })
+        }
+        _ => serde_json::to_value(merge_chunked_prd_responses(decode::<PrdResponse>(&contents)?)),
+    }.map_err(|_| AiError::new("chunk_merge_failed", "Could not encode the combined document result."))?;
+    serde_json::to_string(&response).map_err(|_| AiError::new("chunk_merge_failed", "Could not encode the combined document result."))
 }
+
 
 fn recovery_chunk_limit(source_bytes: usize) -> u32 {
     let estimated = u32::try_from(source_bytes.saturating_add(3) / 4).unwrap_or(u32::MAX);
     (estimated / 2).clamp(1, RECOVERY_CHUNK_INPUT_TOKENS)
 }
 
-fn should_prechunk_request(task: AiTask, selection: bool, source_bytes: usize) -> bool {
-    !selection
-        && matches!(task, AiTask::Prd | AiTask::Summary | AiTask::Custom)
+fn should_prechunk_request(task: AiTask, _selection: bool, source_bytes: usize) -> bool {
+    matches!(task, AiTask::Prd | AiTask::Summary | AiTask::Custom)
         && u32::try_from(source_bytes.saturating_add(3) / 4).unwrap_or(u32::MAX)
             > PROACTIVE_CHUNK_INPUT_TOKENS
 }
@@ -1691,13 +1584,14 @@ async fn run_chunked_translation(
         );
         emit_activity_changed(app);
         let chunk_document_id = format!("{}#chunk-{}", request.document_id, chunk.index);
-        let chunk_envelope = AiDocumentEnvelope::with_policy(
+        let mut chunk_envelope = AiDocumentEnvelope::with_policy(
             &chunk_document_id,
             &chunk.source,
             None,
             protection_policy_for_task(AiTask::Translation),
         )
         .map_err(|error| AiError::new("invalid_document", error.to_string()))?;
+        split_oversized_segments(&mut chunk_envelope, 1_024);
         if let Some(checkpoint) = completed_checkpoints.iter().find(|checkpoint| {
             usize::try_from(checkpoint.source_start).ok() == Some(chunk.source_range.start)
                 && usize::try_from(checkpoint.source_end).ok() == Some(chunk.source_range.end)
@@ -1822,12 +1716,31 @@ async fn run_chunked_translation(
                 },
             )
             .await;
-        let completion = match completion {
-            Ok(completion) => completion,
+        let initial = match completion {
+            Ok(completion) => Some(completion_outcome(&chunk_envelope, &request, completion)),
+            Err(error) if matches!(error.code.as_str(), "context_length_exceeded" | "output_limit_exceeded") => None,
             Err(error) => {
                 finish_translation_error(app, state, &request, should_record, &error, &on_event);
                 return Err(error);
             }
+        };
+        let outcome = if initial.as_ref().is_none_or(|outcome| response_is_truncated(&outcome.validation_issues)) {
+            match recover_truncated_completion(app, &on_event, state, &request, &chunk_envelope,
+                &secret, &cancellation, initial.unwrap_or_else(empty_completion_outcome)).await {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    finish_translation_error(app, state, &request, should_record, &error, &on_event);
+                    return Err(error);
+                }
+            }
+        } else {
+            initial.expect("a non-size completion is available")
+        };
+        let completion = SseComplete {
+            content: outcome.content,
+            generation_id: outcome.generation_id,
+            usage: outcome.usage,
+            finish_reason: Some("stop".to_string()),
         };
 
         let (chunk_result, chunk_issues) = validate_provider_result(
@@ -2444,10 +2357,6 @@ fn merge_chunked_summary_responses(
     })
 }
 
-fn next_output_limit(current: u32) -> Option<u32> {
-    (current < 100_000).then(|| current.saturating_mul(2).min(100_000))
-}
-
 fn is_valid_language_identifier(language: &str) -> bool {
     let trimmed = language.trim();
     !trimmed.is_empty()
@@ -2513,9 +2422,9 @@ mod tests {
     use super::chunking::TranslationChunk;
     use super::{
         AiRunRequest, AiState, CatalogCache, RequestScheduler, SchemaFailure,
-        classify_schema_error, empty_completion_outcome, merge_chunked_prd_responses,
-        merge_chunked_summary_responses, history_record_for_validation, next_output_limit,
-        outcome_has_provider_attempt, should_prechunk_request,
+        classify_schema_error, merge_chunked_prd_responses,
+        merge_chunked_summary_responses, history_record_for_validation,
+        should_prechunk_request,
         openrouter::{AiModel, AiModelPricing, AiTask, SUMMARY_PROMPT_VERSION},
         prepare_run_envelope, prepare_translation_resume, record_history_start,
         translation_retry_subdivision, validate_provider_result, validate_run_request,
@@ -3008,26 +2917,14 @@ mod tests {
     }
 
     #[test]
-    fn truncation_retry_limit_grows_without_exceeding_the_request_ceiling() {
-        assert_eq!(next_output_limit(4_096), Some(8_192));
-        assert_eq!(next_output_limit(70_000), Some(100_000));
-        assert_eq!(next_output_limit(100_000), None);
-    }
-
-    #[test]
-    fn large_whole_document_requests_start_with_chunks_but_selections_do_not() {
+    fn large_provider_payloads_start_with_chunks_including_selections() {
         let large_source_bytes = 48_001;
         assert!(should_prechunk_request(AiTask::Prd, false, large_source_bytes));
         assert!(should_prechunk_request(AiTask::Summary, false, large_source_bytes));
         assert!(should_prechunk_request(AiTask::Custom, false, large_source_bytes));
-        assert!(!should_prechunk_request(AiTask::Custom, true, large_source_bytes));
+        assert!(should_prechunk_request(AiTask::Custom, true, large_source_bytes));
         assert!(!should_prechunk_request(AiTask::Translation, false, large_source_bytes));
         assert!(!should_prechunk_request(AiTask::Prd, false, 48_000));
-    }
-
-    #[test]
-    fn proactive_chunk_fallback_knows_that_no_provider_attempt_has_run() {
-        assert!(!outcome_has_provider_attempt(&empty_completion_outcome()));
     }
 
     #[test]

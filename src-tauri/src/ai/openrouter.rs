@@ -619,6 +619,12 @@ impl OpenRouterClient {
         Ok(())
     }
 
+    pub fn completion_output_limit(&self, request: &AiCompletionRequest) -> Result<u32, AiError> {
+        let mut body = build_chat_request(request);
+        self.budget_body(&mut body)?;
+        Ok(body["max_tokens"].as_u64().unwrap_or(1).min(u32::MAX as u64) as u32)
+    }
+
     pub async fn verify_key(
         &self,
         secret: &str,

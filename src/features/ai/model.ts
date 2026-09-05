@@ -258,7 +258,10 @@ export function outputTokenLimitForTask(
       : MAX_AI_OUTPUT_TOKEN_LIMIT;
   const contextLimit =
     model.contextLength > 0
-      ? Math.max(1, Math.floor(model.contextLength - inputTokens))
+      // The backend splits oversized inputs and budgets the actual serialized
+      // request. Never leave a multipart job with a one-token response budget.
+      ? Math.max(1, Math.floor(model.contextLength - (inputTokens >= model.contextLength * 0.8
+        ? Math.min(12_000, model.contextLength / 2) : inputTokens)))
       : MAX_AI_OUTPUT_TOKEN_LIMIT;
   return Math.max(
     1,
@@ -279,8 +282,10 @@ export function estimateAiRun({
   const inputTokens = estimateInputTokens(source);
   const promptPrice = model.pricing.prompt;
   const completionPrice = model.pricing.completion;
+  const multipart = inputTokens > 12_000 ||
+    (model.contextLength > 0 && inputTokens >= model.contextLength * 0.8);
   const maxCostUsd =
-    promptPrice === null || completionPrice === null
+    multipart || promptPrice === null || completionPrice === null
       ? null
       : inputTokens * promptPrice + maxOutputTokens * completionPrice;
   return {
@@ -315,13 +320,6 @@ export function resolveRunGate(input: AiRunGateInput): AiRunGate {
     input.scope === 'document'
       ? WHOLE_DOCUMENT_TOKEN_LIMIT
       : SELECTION_TOKEN_LIMIT;
-  if (input.inputTokens > limit) {
-    return {
-      kind: 'blocked',
-      code: 'input_limit',
-      reason: `The input exceeds the ${limit.toLocaleString()} token limit. Select a smaller range; Markdowner will not truncate it.`,
-    };
-  }
   if (hasNoZdrEndpoint(input.zdrOnly, input.eligibleEndpointCount)) {
     return {
       kind: 'confirm',
@@ -334,7 +332,7 @@ export function resolveRunGate(input: AiRunGateInput): AiRunGate {
       kind: 'confirm',
       code: 'unknown_cost',
       reason:
-        'Eligible endpoint pricing is unavailable. Confirm that you want to run without a cost estimate.',
+        'A total cost estimate is unavailable. Long inputs may need multiple requests and retries. Confirm that you want to continue.',
     };
   }
   if (input.maxCostUsd >= 1) {
@@ -344,14 +342,13 @@ export function resolveRunGate(input: AiRunGateInput): AiRunGate {
       reason: 'The estimated maximum cost is at least USD 1.00.',
     };
   }
-  if (
-    input.contextLength > 0 &&
-    input.inputTokens >= input.contextLength * 0.8
-  ) {
+  if (input.inputTokens > limit || (
+    input.contextLength > 0 && input.inputTokens >= input.contextLength * 0.8
+  )) {
     return {
       kind: 'confirm',
       code: 'context_pressure',
-      reason: 'The input uses at least 80% of the model context.',
+      reason: 'Markdowner will process this input in smaller parts without dropping text. Multiple requests and retries can increase the total cost and duration.',
     };
   }
   return { kind: 'ready', code: null, reason: null };

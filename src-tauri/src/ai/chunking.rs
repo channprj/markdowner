@@ -1,4 +1,7 @@
-use std::{collections::HashSet, ops::Range};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Range,
+};
 
 use markdowner_core::ai_document::{
     AiDocumentEnvelope, ByteRange, EditableSegment, MarkdownBlockKind, MarkdownBlockRange,
@@ -24,6 +27,92 @@ pub struct StructuredDocumentChunk {
     pub envelope: AiDocumentEnvelope,
 }
 
+/// Refine local validation targets before any provider requests. Both the final
+/// validator and every chunk use these same IDs; protected tokens stay atomic.
+pub fn split_oversized_segments(envelope: &mut AiDocumentEnvelope, max_bytes: usize) {
+    let max_bytes = max_bytes.max(128);
+    let mut tokens_by_segment: HashMap<&str, Vec<&ProtectedToken>> = HashMap::new();
+    for token in &envelope.protected {
+        tokens_by_segment
+            .entry(&token.segment_id)
+            .or_default()
+            .push(token);
+    }
+    let mut refined = Vec::new();
+    for segment in &envelope.segments {
+        if segment.text.len() <= max_bytes {
+            refined.push(segment.clone());
+            continue;
+        }
+        let mut tokens = tokens_by_segment
+            .remove(segment.id.as_str())
+            .unwrap_or_default();
+        tokens.sort_by_key(|token| token.range.start);
+        let mut tokens = tokens.into_iter().peekable();
+        let mut masked_offset = 0;
+        let mut source_offset = segment.range.start;
+        let mut part_start = source_offset;
+        let mut text = String::new();
+        let mut part = 0;
+        while masked_offset < segment.text.len() {
+            let remaining = &segment.text[masked_offset..];
+            let (masked_len, source_len) = if let Some(token) = tokens.peek()
+                && remaining.starts_with(&token.placeholder)
+            {
+                let lengths = (token.placeholder.len(), token.range.end - token.range.start);
+                tokens.next();
+                lengths
+            } else {
+                let length = remaining
+                    .chars()
+                    .next()
+                    .expect("nonempty segment remainder")
+                    .len_utf8();
+                (length, length)
+            };
+            let preceding = source_offset
+                .checked_sub(1)
+                .and_then(|index| envelope.source.as_bytes().get(index))
+                .copied();
+            let preferred_boundary = (text.len() >= max_bytes / 2 && preceding == Some(b'\n'))
+                || (text.len() >= max_bytes * 4 / 5
+                    && matches!(preceding, Some(b' ' | b'\t' | b'.' | b'!' | b'?')));
+            if !text.is_empty() && (text.len() + masked_len > max_bytes || preferred_boundary) {
+                refined.push(EditableSegment {
+                    id: format!("{}-part-{part}", segment.id),
+                    range: ByteRange {
+                        start: part_start,
+                        end: source_offset,
+                    },
+                    text: std::mem::take(&mut text),
+                });
+                part += 1;
+                part_start = source_offset;
+            }
+            text.push_str(&remaining[..masked_len]);
+            masked_offset += masked_len;
+            source_offset += source_len;
+        }
+        if !text.is_empty() {
+            refined.push(EditableSegment {
+                id: format!("{}-part-{part}", segment.id),
+                range: ByteRange {
+                    start: part_start,
+                    end: source_offset,
+                },
+                text,
+            });
+        }
+    }
+    for token in &mut envelope.protected {
+        let index = refined.partition_point(|segment| segment.range.end <= token.range.start);
+        if let Some(segment) = refined.get(index) {
+            token.segment_id = segment.id.clone();
+        }
+    }
+    envelope.segments = refined;
+}
+
 pub fn plan_structured_document_chunks(
     envelope: &AiDocumentEnvelope,
     max_estimated_tokens: u32,
@@ -34,12 +123,6 @@ pub fn plan_structured_document_chunks(
             "Structured document chunk size must be greater than zero.",
         ));
     }
-    if envelope.selection.is_some() {
-        return Err(AiError::new(
-            "invalid_chunk_scope",
-            "Only whole-document requests can be split into structured chunks.",
-        ));
-    }
     if envelope.segments.is_empty() {
         return Ok(Vec::new());
     }
@@ -48,9 +131,13 @@ pub fn plan_structured_document_chunks(
     let mut start = 0;
     while start < envelope.segments.len() {
         let mut end = start + 1;
-        while end < envelope.segments.len()
-            && estimated_segment_tokens(&envelope.segments[start..=end]) <= max_estimated_tokens
-        {
+        let mut estimated = estimated_segment_tokens(&envelope.segments[start..end]);
+        while end < envelope.segments.len() {
+            let next = estimated_segment_tokens(&envelope.segments[end..end + 1]);
+            if estimated.saturating_add(next) > max_estimated_tokens {
+                break;
+            }
+            estimated = estimated.saturating_add(next);
             end += 1;
         }
         chunks.push(build_structured_chunk(
@@ -114,7 +201,10 @@ fn build_structured_chunk(
         envelope: AiDocumentEnvelope {
             document_id: envelope.document_id.clone(),
             source,
-            selection: None,
+            selection: envelope.selection.map(|_| ByteRange {
+                start: 0,
+                end: source_end - source_start,
+            }),
             revision_hash: envelope.revision_hash.clone(),
             segments,
             protected,
@@ -133,9 +223,31 @@ fn rebase_range(range: ByteRange, source_start: usize) -> ByteRange {
 fn estimated_segment_tokens(segments: &[EditableSegment]) -> u32 {
     let bytes = segments
         .iter()
-        .map(|segment| segment.text.len())
+        .map(|segment| {
+            serde_json::to_string(&serde_json::json!({"id": segment.id, "text": segment.text}))
+                .map_or(usize::MAX, |json| json.len())
+        })
         .sum::<usize>();
     estimated_tokens(bytes)
+}
+
+// Summaries do not edit Markdown, so giant tables and fenced blocks can also
+// be read in bounded pieces. Every source byte, including delimiters, is kept.
+pub fn plan_summary_sources(source: &str, max_bytes: usize) -> Vec<String> {
+    let mut pieces = Vec::new();
+    let mut start = 0;
+    let max_bytes = max_bytes.max(4);
+    while start < source.len() {
+        let desired = start.saturating_add(max_bytes).min(source.len());
+        let end = if desired == source.len() {
+            desired
+        } else {
+            safe_text_boundary(source, start, desired, source.len())
+        };
+        pieces.push(source[start..end].to_string());
+        start = end;
+    }
+    pieces
 }
 
 pub fn plan_translation_chunks(
@@ -211,9 +323,8 @@ pub fn subdivide_translation_chunk(
     }
     for (index, planned_chunk) in planned.iter_mut().enumerate() {
         planned_chunk.index = u32::try_from(index).unwrap_or(u32::MAX);
-        planned_chunk.source_range =
-            (chunk.source_range.start + planned_chunk.source_range.start)
-                ..(chunk.source_range.start + planned_chunk.source_range.end);
+        planned_chunk.source_range = (chunk.source_range.start + planned_chunk.source_range.start)
+            ..(chunk.source_range.start + planned_chunk.source_range.end);
         planned_chunk.subdivision_depth = chunk.subdivision_depth + 1;
         if planned_chunk.heading.is_none() {
             planned_chunk.heading = chunk.heading.clone();
@@ -245,7 +356,10 @@ pub fn balanced_fences(source: &str) -> bool {
 }
 
 fn can_split(kind: MarkdownBlockKind) -> bool {
-    matches!(kind, MarkdownBlockKind::Paragraph | MarkdownBlockKind::Blank)
+    matches!(
+        kind,
+        MarkdownBlockKind::Paragraph | MarkdownBlockKind::Blank
+    )
 }
 
 fn split_text_block(
@@ -262,7 +376,10 @@ fn split_text_block(
             break;
         }
         ranges.push(MarkdownBlockRange {
-            range: markdowner_core::ai_document::ByteRange { start: cursor, end: split },
+            range: markdowner_core::ai_document::ByteRange {
+                start: cursor,
+                end: split,
+            },
             kind: block.kind,
             heading: block.heading.clone(),
         });
@@ -287,9 +404,7 @@ fn safe_text_boundary(source: &str, start: usize, desired_end: usize, end: usize
     let candidate = &source[start..desired_end];
     let mut best = None;
     for (offset, character) in candidate.char_indices() {
-        if character == '\n'
-            || matches!(character, '.' | '!' | '?' | '。' | '！' | '？')
-        {
+        if character == '\n' || matches!(character, '.' | '!' | '?' | '。' | '！' | '？') {
             best = Some(start + offset + character.len_utf8());
         }
     }
@@ -334,15 +449,80 @@ mod tests {
     use markdowner_core::ai_document::AiDocumentEnvelope;
 
     #[test]
+    fn oversized_segments_split_without_losing_utf8_or_protected_placeholders() {
+        let source = format!(
+            "# Heading\n\n{} `keep_this()` {}\n",
+            "긴문장 ".repeat(1_000),
+            "끝문장 ".repeat(1_000)
+        );
+        let mut envelope = AiDocumentEnvelope::new("doc", &source, None).unwrap();
+        split_oversized_segments(&mut envelope, 512);
+        assert!(
+            envelope
+                .segments
+                .iter()
+                .all(|segment| segment.text.len() <= 512)
+        );
+        assert_eq!(envelope.reconstruct_original().unwrap(), source);
+        let chunks = plan_structured_document_chunks(&envelope, 256).unwrap();
+        assert!(chunks.len() > 5);
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|chunk| chunk.envelope.source.as_str())
+                .collect::<String>(),
+            source
+        );
+        assert!(
+            chunks.iter().all(
+                |chunk| chunk.envelope.reconstruct_original().unwrap() == chunk.envelope.source
+            )
+        );
+    }
+
+    #[test]
+    fn selection_chunks_include_only_selected_bytes_and_keep_original_placeholders() {
+        let selected = "Change this `code` safely.\n".repeat(40);
+        let source = format!("untouched prefix\n{selected}untouched suffix");
+        let range = ByteRange {
+            start: 17,
+            end: 17 + selected.len(),
+        };
+        let mut envelope = AiDocumentEnvelope::new("doc", source, Some(range)).unwrap();
+        split_oversized_segments(&mut envelope, 512);
+        let chunks = plan_structured_document_chunks(&envelope, 128).unwrap();
+        assert!(chunks.len() > 1);
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|chunk| chunk.envelope.source.as_str())
+                .collect::<String>(),
+            selected
+        );
+        assert!(chunks.iter().all(|chunk| chunk.envelope.selection
+            == Some(ByteRange {
+                start: 0,
+                end: chunk.envelope.source.len()
+            })));
+    }
+
+    #[test]
     fn chunk_plan_preserves_headings_tables_and_fences() {
         let source = include_str!("../../../tests/fixtures/ai/long-translation.md");
         let chunks = plan_translation_chunks(source, 80).unwrap();
-        let reconstructed = chunks.iter().map(|chunk| chunk.source.as_str()).collect::<String>();
+        let reconstructed = chunks
+            .iter()
+            .map(|chunk| chunk.source.as_str())
+            .collect::<String>();
 
         assert!(chunks.len() > 2);
         assert!(chunks.iter().all(|chunk| balanced_fences(&chunk.source)));
         assert_eq!(reconstructed, source);
-        assert!(chunks.iter().any(|chunk| chunk.heading.as_deref() == Some("Scope")));
+        assert!(
+            chunks
+                .iter()
+                .any(|chunk| chunk.heading.as_deref() == Some("Scope"))
+        );
     }
 
     #[test]
@@ -361,7 +541,10 @@ mod tests {
 
         assert!(split.len() >= 2);
         assert_eq!(split.first().unwrap().source_range.start, 100);
-        assert_eq!(split.last().unwrap().source_range.end, chunk.source_range.end);
+        assert_eq!(
+            split.last().unwrap().source_range.end,
+            chunk.source_range.end
+        );
         assert!(split.iter().all(|item| item.subdivision_depth == 3));
     }
 
