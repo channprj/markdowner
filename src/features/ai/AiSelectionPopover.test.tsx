@@ -23,7 +23,8 @@ describe('AiSelectionPopover', () => {
       usage: null, retryAfterSeconds: null,
     }));
     render(<AiSelectionPopover snapshot={snapshot}
-      settings={{ ...DEFAULT_SETTINGS, aiCloudDisclosureAccepted: true, aiZdrOnly: false }}
+      settings={{ ...DEFAULT_SETTINGS, aiCloudDisclosureAccepted: true, aiZdrOnly: false,
+        aiSystemPrompts: { custom: 'Keep inline edits concise.' } }}
       onClose={vi.fn()} onResult={vi.fn()} services={{
         keyStatus: async () => ({ configured: true, maskedLabel: null }),
         listModels: async () => [{ id: DEFAULT_SETTINGS.aiCustomPromptModel,
@@ -38,6 +39,7 @@ describe('AiSelectionPopover', () => {
     fireEvent.click(button);
     await waitFor(() => expect(run).toHaveBeenCalled());
     expect(run.mock.calls[0][0].maxOutputTokens).toBe(4_096);
+    expect(run.mock.calls[0][0].systemPrompt).toBe('Keep inline edits concise.');
   });
 
   it('waits for endpoint eligibility before enabling a selected-text request', async () => {

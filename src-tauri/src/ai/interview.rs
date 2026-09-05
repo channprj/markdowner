@@ -7,7 +7,7 @@ use super::{
     history::{StoredInterview, StoredInterviewTurn},
 };
 
-pub const PRD_INTERVIEW_PROMPT_VERSION: &str = "2026-08-03.prd-interview.v3";
+pub const PRD_INTERVIEW_PROMPT_VERSION: &str = "2026-09-06.prd-interview.v4";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

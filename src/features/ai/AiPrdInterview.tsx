@@ -12,6 +12,7 @@ import {
   aiRun,
 } from '@/lib/desktop';
 import { AI_INTERVIEW_OUTPUT_TOKEN_LIMIT } from './model';
+import { systemPromptForTask, type AiSystemPrompts } from './systemPrompts';
 import type {
   AiInterviewContinueRequest,
   AiInterviewSession,
@@ -53,6 +54,7 @@ const DEFAULT_SERVICES: AiPrdInterviewServices = {
 };
 
 export function AiPrdInterview({
+  systemPrompts,
   documentId,
   source,
   model,
@@ -68,6 +70,7 @@ export function AiPrdInterview({
   onFailure,
   onResult,
 }: {
+  systemPrompts?: AiSystemPrompts;
   documentId: string;
   source: string;
   model: string;
@@ -131,6 +134,7 @@ export function AiPrdInterview({
     setStatus('Finding the highest-impact PRD decision…');
     try {
       const next = await services.startInterview({
+        systemPrompt: systemPromptForTask('interview', systemPrompts),
         requestId,
         documentId,
         source,
@@ -170,6 +174,7 @@ export function AiPrdInterview({
     setError('');
     setStatus('Preparing the next decision…');
     const request: AiInterviewContinueRequest = {
+      systemPrompt: systemPromptForTask('interview', systemPrompts),
       requestId: session.requestId,
       source,
       answer: skip ? null : answer.trim(),
@@ -200,6 +205,7 @@ export function AiPrdInterview({
     setStatus('Generating the PRD for review…');
     const finalAnswer = isEnoughIntent(answer) ? null : answer.trim() || null;
     const runRequest: AiRunRequest = {
+      systemPrompt: systemPromptForTask('prd', systemPrompts),
       requestId: session.requestId,
       documentId,
       source,

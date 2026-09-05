@@ -70,6 +70,7 @@ function renderInterview(
   const onResult = vi.fn();
   render(
     <AiPrdInterview
+      systemPrompts={{ interview: 'Focus the interview on accessibility.', prd: 'Prioritize accessibility improvements.' }}
       documentId="doc-1"
       source="# Draft PRD"
       model="z-ai/glm-5.2"
@@ -153,7 +154,7 @@ describe('AiPrdInterview', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue interview' }));
     await waitFor(() => expect(interviewServices.answerInterview).toHaveBeenCalledWith(
-      expect.objectContaining({ answer: 'Product managers in Korean startups.' }),
+      expect.objectContaining({ answer: 'Product managers in Korean startups.', systemPrompt: 'Focus the interview on accessibility.' }),
     ));
     expect(await screen.findByText('What measurable outcome defines success?')).toBeVisible();
     expect(interviewServices.finishInterview).not.toHaveBeenCalled();
@@ -168,6 +169,7 @@ describe('AiPrdInterview', () => {
     await waitFor(() => expect(interviewServices.run).toHaveBeenCalledWith(
       expect.objectContaining({
         task: 'prd',
+        systemPrompt: 'Prioritize accessibility improvements.',
         maxOutputTokens: 65_536,
       }),
       expect.any(Function),

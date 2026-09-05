@@ -1511,6 +1511,8 @@ export function SettingsPanel({
           summaryModel={settings.aiSummaryModel}
           translationModel={settings.aiTranslationModel}
           customPromptModel={settings.aiCustomPromptModel}
+          systemPrompts={settings.aiSystemPrompts}
+          onSystemPromptsChange={(aiSystemPrompts) => onSettingsChange({ ...settings, aiSystemPrompts })}
           summaryTargetLanguage={settings.aiSummaryTargetLanguage}
           translationTargetLanguage={settings.aiTranslationTargetLanguage}
           defaultScope={settings.aiDefaultScope}

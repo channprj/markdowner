@@ -47,7 +47,8 @@ describe('AiWorkbenchPanel', () => {
         selection={{ start: 2, end: 8 }}
         workspaceRoot="/vault"
         workspaceDocumentCount={3}
-        settings={{ ...DEFAULT_SETTINGS, aiCloudDisclosureAccepted: true }}
+        settings={{ ...DEFAULT_SETTINGS, aiCloudDisclosureAccepted: true,
+          aiSystemPrompts: { summary: 'Summarize decisions first.' } }}
         onSettingsChange={vi.fn()}
         onResult={vi.fn()}
         services={{
@@ -74,6 +75,7 @@ describe('AiWorkbenchPanel', () => {
     expect(run).toHaveBeenCalledWith(
       expect.objectContaining({
         task: 'summary',
+        systemPrompt: 'Summarize decisions first.',
         documentId: 'doc-1',
         source: '# Source\n\nOriginal facts.',
         selection: null,

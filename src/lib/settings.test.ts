@@ -21,6 +21,18 @@ import {
 
 const invokeMock = vi.hoisted(() => vi.fn());
 
+it('round-trips task system prompts and ignores malformed overrides', async () => {
+  invokeMock.mockResolvedValueOnce({ ...DEFAULT_SETTINGS,
+    aiSystemPrompts: { prd: 'Prioritize accessibility.', summary: 123, unknown: 'ignored' } });
+  const settings = await loadSettings();
+  expect(settings.aiSystemPrompts).toEqual({ prd: 'Prioritize accessibility.' });
+  invokeMock.mockResolvedValueOnce(undefined);
+  await saveSettings(settings);
+  expect(invokeMock).toHaveBeenLastCalledWith('save_settings', { settings: expect.objectContaining({
+    aiSystemPrompts: { prd: 'Prioritize accessibility.' },
+  }) });
+});
+
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,
 }));

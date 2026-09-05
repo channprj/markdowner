@@ -14,6 +14,8 @@ import {
 
 import { PINNED_AI_MODEL_CHOICES } from './model';
 import type { AiKeyMetadata, AiKeyStatus } from './types';
+import { AiSystemPromptSettings } from './AiSystemPromptSettings';
+import type { AiSystemPrompts } from './systemPrompts';
 
 export interface OpenRouterSettingsServices {
   keyStatus: () => Promise<AiKeyStatus>;
@@ -33,6 +35,8 @@ export interface OpenRouterSettingsProps {
   translationTargetLanguage: string;
   defaultScope: 'document' | 'workspace';
   historyEnabled: boolean;
+  systemPrompts?: AiSystemPrompts;
+  onSystemPromptsChange?: (prompts: AiSystemPrompts) => void;
   onZdrOnlyChange: (enabled: boolean) => void;
   onDisclosureAcceptedChange: (accepted: boolean) => void;
   onPrdModelChange: (model: string) => void;
@@ -64,6 +68,8 @@ export function OpenRouterSettings({
   translationTargetLanguage,
   defaultScope,
   historyEnabled,
+  systemPrompts = {},
+  onSystemPromptsChange,
   onZdrOnlyChange,
   onDisclosureAcceptedChange,
   onPrdModelChange,
@@ -273,7 +279,7 @@ export function OpenRouterSettings({
             Task Defaults
           </h4>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            GLM 5.2 is the default. Kimi K3 is available explicitly; Markdowner never
+            Choose a default model for each task. Markdowner never
             falls back to another model automatically.
           </p>
         </div>
@@ -345,6 +351,10 @@ export function OpenRouterSettings({
           </div>
         </div>
       </section>
+
+      {onSystemPromptsChange ? (
+        <AiSystemPromptSettings prompts={systemPrompts} onChange={onSystemPromptsChange} />
+      ) : null}
 
       <section
         aria-labelledby="ai-history-privacy-heading"

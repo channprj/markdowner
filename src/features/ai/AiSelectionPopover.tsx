@@ -27,6 +27,7 @@ import {
   type SelectionActionId,
 } from './selectionActions';
 import { AI_METADATA_UI_TIMEOUT_MS } from './requestTimeout';
+import { systemPromptForTask } from './systemPrompts';
 import type {
   AiKeyStatus,
   AiModel,
@@ -237,6 +238,7 @@ export function AiSelectionPopover({
     if (!canRun || !selectedModel) return;
     const requestId = createRequestId();
     const request: AiRunRequest = {
+      systemPrompt: systemPromptForTask('custom', settings.aiSystemPrompts),
       requestId,
       documentId: snapshot.documentId,
       source: snapshot.source,

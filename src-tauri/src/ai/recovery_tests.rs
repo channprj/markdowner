@@ -137,7 +137,7 @@ fn request(task: AiTask, selection: bool) -> AiRunRequest {
     serde_json::from_value(json!({"requestId":"test-run","documentId":"doc","source":source,
         "selection":if selection {json!({"start":17,"end":17+selected.len()})} else {Value::Null},
         "task":task,"model":"test/model","targetLanguage":if task == AiTask::Translation {Some("ko")} else {None},
-        "instruction":"Change Old to New.","zdrOnly":true,"maxOutputTokens":8192})).unwrap()
+        "instruction":"Change Old to New.","systemPrompt":"Preserve this customized task behavior.","zdrOnly":true,"maxOutputTokens":8192})).unwrap()
 }
 
 #[tokio::test]
@@ -180,6 +180,8 @@ async fn provider_context_and_truncated_streams_recover_all_tasks_without_losing
             }
             let requests = requests.lock().unwrap();
             assert!(requests.len() > 2);
+            assert!(requests.iter().all(|request| request["messages"][0]["content"].as_str().unwrap()
+                .contains("Preserve this customized task behavior.")));
             assert_eq!(progress.last().unwrap().1, progress.last().unwrap().2);
             assert!(progress.windows(2).all(|pair| pair[0].0 <= pair[1].0));
             assert!(outcome.usage.unwrap().cost_usd.unwrap() >= 0.02);

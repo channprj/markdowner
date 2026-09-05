@@ -18,6 +18,7 @@ import type { Settings } from '@/lib/settings';
 
 import { AiScopePicker } from './AiScopePicker';
 import { AiPrdInterview, type AiPrdInterviewServices } from './AiPrdInterview';
+import { systemPromptForTask } from './systemPrompts';
 import { AI_METADATA_UI_TIMEOUT_MS } from './requestTimeout';
 import {
   detectDocumentLanguage,
@@ -448,6 +449,7 @@ export function AiWorkbenchPanel({
     }
     const requestId = createRequestId();
     const request: AiRunRequest = {
+      systemPrompt: systemPromptForTask(task, settings.aiSystemPrompts),
       requestId,
       documentId: targetDocument.documentId,
       source: scopedSource,
@@ -472,6 +474,7 @@ export function AiWorkbenchPanel({
     const resumable =
       task === 'translation' && settings.aiHistoryEnabled
         ? translationResumeRecord({
+            systemPrompt: systemPromptForTask('translation', settings.aiSystemPrompts),
             batchId: requestId,
             documents: [targetDocument],
             scope: runScope,
@@ -551,6 +554,7 @@ export function AiWorkbenchPanel({
       }
       const resumable = settings.aiHistoryEnabled
         ? translationResumeRecord({
+            systemPrompt: systemPromptForTask('translation', settings.aiSystemPrompts),
             batchId,
             documents: loaded.map((document) => {
               const openDocument = document.path === documentPath
@@ -583,6 +587,7 @@ export function AiWorkbenchPanel({
             : document.contents;
         const requestId = `${batchId}:${index + 1}`;
         const request: AiRunRequest = {
+          systemPrompt: systemPromptForTask('translation', settings.aiSystemPrompts),
           requestId,
           documentId: openDocument?.documentId ?? document.path,
           source: latestSource,
@@ -696,6 +701,7 @@ export function AiWorkbenchPanel({
           model: translationResume.model,
           targetLanguage: translationResume.targetLanguage,
           instruction: translationResume.instruction,
+          systemPrompt: translationResume.systemPrompt ?? systemPromptForTask('translation', settings.aiSystemPrompts),
           zdrOnly: translationResume.zdrOnly,
           maxOutputTokens: resumeModel
             ? outputTokenLimitForTask('translation', latestSource, resumeModel)
@@ -1196,6 +1202,7 @@ export function AiWorkbenchPanel({
 
         {guidedPrd && task === 'prd' && selectedModel ? (
           <AiPrdInterview
+            systemPrompts={settings.aiSystemPrompts}
             documentId={targetDocument.documentId}
             source={scopedSource}
             model={selectedModel.id}
@@ -1277,6 +1284,7 @@ function fileLabel(path: string): string {
 const TRANSLATION_RESUME_STORAGE_KEY = 'markdowner.ai.translation-resume.v1';
 
 interface TranslationResumeRecord {
+  systemPrompt?: string;
   version: 1;
   batchId: string;
   documents: AiDocumentRef[];
@@ -1291,6 +1299,7 @@ interface TranslationResumeRecord {
 }
 
 function translationResumeRecord({
+  systemPrompt,
   batchId,
   documents,
   scope,
@@ -1302,6 +1311,7 @@ function translationResumeRecord({
 }: Omit<TranslationResumeRecord, 'version' | 'nextIndex' | 'currentStarted'>): TranslationResumeRecord {
   return {
     version: 1,
+    systemPrompt,
     batchId,
     documents,
     nextIndex: 0,

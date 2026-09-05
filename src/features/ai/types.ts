@@ -65,6 +65,7 @@ export interface AiByteRange {
 }
 
 export interface AiRunRequest {
+  systemPrompt?: string | null;
   requestId: string;
   documentId: string;
   source: string;
@@ -110,6 +111,7 @@ export interface AiInterviewSession {
 }
 
 export interface AiInterviewStartRequest {
+  systemPrompt?: string | null;
   requestId: string;
   documentId: string;
   source: string;
@@ -121,6 +123,7 @@ export interface AiInterviewStartRequest {
 }
 
 export interface AiInterviewContinueRequest {
+  systemPrompt?: string | null;
   requestId: string;
   source: string;
   answer: string | null;

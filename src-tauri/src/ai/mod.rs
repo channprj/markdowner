@@ -390,6 +390,8 @@ pub struct AiRunRequest {
     pub model: String,
     pub target_language: Option<String>,
     pub instruction: Option<String>,
+    #[serde(default)]
+    pub system_prompt: Option<String>,
     pub zdr_only: bool,
     pub max_output_tokens: u32,
     #[serde(default = "default_record_history")]
@@ -419,6 +421,8 @@ pub struct AiInterviewStartRequest {
     pub source: String,
     pub model: String,
     pub instruction: Option<String>,
+    #[serde(default)]
+    pub system_prompt: Option<String>,
     pub zdr_only: bool,
     pub max_output_tokens: u32,
     pub scope: Option<AiRunScope>,
@@ -431,6 +435,8 @@ pub struct AiInterviewContinueRequest {
     pub source: String,
     pub answer: Option<String>,
     pub instruction: Option<String>,
+    #[serde(default)]
+    pub system_prompt: Option<String>,
     pub zdr_only: bool,
     pub max_output_tokens: u32,
 }
@@ -672,6 +678,7 @@ pub async fn ai_interview_start(
         &session,
         &envelope,
         request.instruction.as_deref(),
+        request.system_prompt.as_deref(),
         request.zdr_only,
         request.max_output_tokens,
         &permit.cancellation_token(),
@@ -820,6 +827,7 @@ async fn continue_interview(
         &session,
         &envelope,
         request.instruction.as_deref(),
+        request.system_prompt.as_deref(),
         request.zdr_only,
         request.max_output_tokens,
         &permit.cancellation_token(),
@@ -913,6 +921,7 @@ async fn generate_interview_turn(
     session: &InterviewSession,
     envelope: &AiDocumentEnvelope,
     instruction: Option<&str>,
+    system_prompt: Option<&str>,
     zdr_only: bool,
     max_output_tokens: u32,
     cancellation: &CancellationToken,
@@ -924,6 +933,7 @@ async fn generate_interview_turn(
         )
     })?;
     let request = PrdInterviewCompletionRequest {
+        system_prompt: system_prompt.map(str::to_string),
         model: session.model.clone(),
         document,
         interview_history: session.history_data(),
@@ -1065,6 +1075,7 @@ pub async fn ai_run(
         emit_history_changed(&app);
     }
     let completion_request = AiCompletionRequest {
+        system_prompt: request.system_prompt.clone(),
         task: request.task,
         model: request.model.clone(),
         document,
@@ -1427,6 +1438,7 @@ where F: FnMut(usize, u32, u32, &str),
         }
         on_progress(received, completed, total, "Waiting for the next document part");
         let mut completion_request = AiCompletionRequest {
+            system_prompt: request.system_prompt.clone(),
             task: request.task,
             model: request.model.clone(),
             document: serde_json::to_value(&chunk).map_err(|_| AiError::new("invalid_document", "Could not encode a document part."))?,
@@ -1680,6 +1692,7 @@ async fn run_chunked_translation(
             )
         })?;
         let completion_request = AiCompletionRequest {
+            system_prompt: request.system_prompt.clone(),
             task: AiTask::Translation,
             model: request.model.clone(),
             document,
@@ -2436,6 +2449,7 @@ mod tests {
 
     fn summary_run_request() -> AiRunRequest {
         AiRunRequest {
+            system_prompt: None,
             request_id: "summary-run".to_string(),
             document_id: "doc-1".to_string(),
             source: "# Source\n\nOriginal facts.".to_string(),
@@ -2632,6 +2646,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let state = AiState::new(directory.path().to_path_buf()).unwrap();
         let request = AiRunRequest {
+            system_prompt: None,
             request_id: "resume-run".to_string(),
             document_id: "doc-1".to_string(),
             source: "# Original".to_string(),

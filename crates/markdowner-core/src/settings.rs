@@ -7,8 +7,29 @@ use crate::EditorMode;
 pub const DEFAULT_AI_MODEL: &str = "upstage/solar-pro4";
 pub const AI_MODEL_DEFAULTS_VERSION: u32 = 1;
 
+#[test]
+fn system_prompt_settings_round_trip_without_rejecting_legacy_or_malformed_entries() {
+    let settings: Settings = serde_json::from_value(serde_json::json!({
+        "aiSystemPrompts": { "prd": "Prioritize accessibility.", "summary": 12, "unknown": "ignored" }
+    })).unwrap();
+    assert_eq!(serde_json::to_value(settings).unwrap()["aiSystemPrompts"],
+        serde_json::json!({"prd": "Prioritize accessibility."}));
+    let legacy: Settings = serde_json::from_str("{}").unwrap();
+    assert_eq!(serde_json::to_value(legacy).unwrap()["aiSystemPrompts"], serde_json::json!({}));
+}
+
 fn legacy_ai_model_defaults_version() -> u32 {
     0
+}
+
+fn deserialize_ai_system_prompts<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_object().into_iter().flatten().filter_map(|(task, prompt)| {
+        if !matches!(task.as_str(), "prd" | "summary" | "translation" | "custom" | "interview") { return None; }
+        prompt.as_str().map(|prompt| (task.clone(), prompt.to_string()))
+    }).collect())
 }
 
 fn deserialize_bool_or_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
@@ -252,6 +273,8 @@ pub struct Settings {
     pub ai_translation_model: String,
     #[serde(deserialize_with = "deserialize_ai_model")]
     pub ai_custom_prompt_model: String,
+    #[serde(default, deserialize_with = "deserialize_ai_system_prompts")]
+    pub ai_system_prompts: BTreeMap<String, String>,
     #[serde(deserialize_with = "deserialize_summary_target_language")]
     pub ai_summary_target_language: String,
     #[serde(deserialize_with = "deserialize_target_language")]
@@ -324,6 +347,7 @@ impl Default for Settings {
             ai_summary_model: DEFAULT_AI_MODEL.to_string(),
             ai_translation_model: DEFAULT_AI_MODEL.to_string(),
             ai_custom_prompt_model: DEFAULT_AI_MODEL.to_string(),
+            ai_system_prompts: BTreeMap::new(),
             ai_summary_target_language: "source".to_string(),
             ai_translation_target_language: default_ai_translation_target_language(),
             ai_zdr_only: true,

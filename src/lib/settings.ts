@@ -12,6 +12,7 @@ import {
   type PdfPaperPreset,
 } from './pdfPaper';
 import type { TerminalStartLocation } from './terminalModel';
+import { normalizeSystemPrompts, type AiSystemPrompts } from '@/features/ai/systemPrompts';
 
 export type CodeBlockTheme =
   | 'github-light'
@@ -135,6 +136,7 @@ export interface Settings extends InlineStyleColorSettings {
   aiSummaryModel: string;
   aiTranslationModel: string;
   aiCustomPromptModel: string;
+  aiSystemPrompts: AiSystemPrompts;
   aiSummaryTargetLanguage: string;
   aiTranslationTargetLanguage: string;
   aiZdrOnly: boolean;
@@ -285,6 +287,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiSummaryModel: DEFAULT_AI_MODEL,
   aiTranslationModel: DEFAULT_AI_MODEL,
   aiCustomPromptModel: DEFAULT_AI_MODEL,
+  aiSystemPrompts: {},
   aiSummaryTargetLanguage: 'source',
   aiTranslationTargetLanguage: defaultAiTranslationTargetLanguage(),
   aiZdrOnly: true,
@@ -627,6 +630,7 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): {
   } else {
     merged.aiTranslationTargetLanguage = merged.aiTranslationTargetLanguage.trim();
   }
+  merged.aiSystemPrompts = normalizeSystemPrompts(merged.aiSystemPrompts);
   if (typeof merged.aiZdrOnly !== 'boolean') {
     merged.aiZdrOnly = DEFAULT_SETTINGS.aiZdrOnly;
   }
