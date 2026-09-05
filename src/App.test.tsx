@@ -1753,7 +1753,7 @@ describe('App recent documents', () => {
 
   it('opens the exact WYSIWYG selection with Cmd+Shift+K', async () => {
     const source = 'alpha beta';
-    const editor = createMockTiptapEditor(source, [{ text: source, from: 0 }]);
+    const editor = new TiptapEditor({ extensions: [StarterKit, Markdown], content: source, contentType: 'markdown' });
     tiptapMockState.editor = editor;
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
@@ -1768,7 +1768,7 @@ describe('App recent documents', () => {
     render(<App />);
     await screen.findByTestId('mock-tiptap-editor');
     act(() => {
-      editor.commands.setTextSelection({ from: 6, to: 10 });
+      editor.commands.setTextSelection({ from: 7, to: 11 });
     });
 
     const event = new KeyboardEvent('keydown', {
@@ -1785,6 +1785,7 @@ describe('App recent documents', () => {
       await screen.findByRole('dialog', { name: /prompt selected text/i }),
     ).toBeVisible();
     expect(screen.getByText('beta')).toBeVisible();
+    editor.destroy();
   });
 
   it('honours a selected-text AI rebind and stops handling Cmd+Shift+K', async () => {
@@ -1849,7 +1850,10 @@ describe('App recent documents', () => {
 
   it('keeps AI actions on OpenRouter and hands the captured selection to local agents', async () => {
     const source = 'alpha beta';
-    const editor = createMockTiptapEditor(source, [{ text: source, from: 0 }]);
+    const editor = new TiptapEditor({ extensions: [StarterKit, Markdown], content: source, contentType: 'markdown' });
+    vi.spyOn(editor, 'on');
+    vi.spyOn(editor.view, 'hasFocus').mockReturnValue(true);
+    vi.spyOn(editor.view, 'coordsAtPos').mockReturnValue({ top: 80, bottom: 100, left: 40, right: 60 });
     tiptapMockState.editor = editor;
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
@@ -1868,8 +1872,7 @@ describe('App recent documents', () => {
       expect(editor.on).toHaveBeenCalledWith('selectionUpdate', expect.any(Function));
     });
     act(() => {
-      editor.commands.setTextSelection({ from: 6, to: 10 });
-      editor.emit('selectionUpdate');
+      editor.commands.setTextSelection({ from: 7, to: 11 });
     });
 
     fireEvent.click(await screen.findByRole('button', { name: /AI actions/ }));
@@ -1887,9 +1890,10 @@ describe('App recent documents', () => {
     expect(screen.getByRole('combobox', { name: 'Result destination' })).toHaveValue(
       'selection',
     );
+    editor.destroy();
   });
 
-  it('opens selected-text AI from the last draft when a WYSIWYG flush fails', async () => {
+  it('does not send an unverified selected-text range when a WYSIWYG flush fails', async () => {
     const source = 'alpha beta';
     const editor = createMockTiptapEditor(source, [{ text: source, from: 0 }]);
     editor.getMarkdown.mockImplementation(() => {
@@ -1919,10 +1923,9 @@ describe('App recent documents', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /AI actions/ }));
 
-    expect(
-      await screen.findByRole('dialog', { name: /prompt selected text/i }),
-    ).toBeVisible();
-    expect(screen.getByText('beta')).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: /prompt selected text/i })).toBeNull();
+    await waitFor(() => expect(screen.getByTestId('shell-live-region')).toHaveTextContent('The editor could not be synchronized. Try this selection in the source editor.'));
+    expect(aiRunMock).not.toHaveBeenCalled();
   });
 
   it('announces when a WYSIWYG AI selection cannot be captured', async () => {
@@ -1954,7 +1957,7 @@ describe('App recent documents', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('shell-live-region')).toHaveTextContent(
-        'The selected text could not be captured. Select it again and retry.',
+        'This selection cannot be mapped exactly to Markdown. Use the source editor for this selection.',
       );
     });
     expect(screen.queryByTestId('ai-selection-popover')).toBeNull();
