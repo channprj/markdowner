@@ -246,7 +246,7 @@ export function AiSelectionPopover({
       targetLanguage: null,
       instruction,
       zdrOnly: requestZdrOnly,
-      maxOutputTokens: outputTokenLimitForTask('custom', snapshot.source, selectedModel),
+      maxOutputTokens: outputTokenLimitForTask('custom', snapshot.selectedText, selectedModel),
       recordHistory: settings.aiHistoryEnabled,
     };
     setRunningRequestId(requestId);

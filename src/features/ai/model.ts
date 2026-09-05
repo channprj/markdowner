@@ -175,7 +175,7 @@ export function modelSupportsStructuredOutput(model: AiModel): boolean {
 
 export function orderModels(
   models: readonly AiModel[],
-  task: AiTask,
+  _task: AiTask,
 ): AiModelOption[] {
   const byId = new Map(
     models
@@ -208,9 +208,8 @@ export function orderModels(
       return left.name.localeCompare(right.name);
     })
     .map((model): AiModelOption => {
-      const needsStructured = task !== 'custom';
       const structured = modelSupportsStructuredOutput(model);
-      const enabled = !needsStructured || structured;
+      const enabled = structured;
       return {
         ...model,
         pinned: PINNED_AI_MODELS.includes(

@@ -80,13 +80,13 @@ describe('AI model policy', () => {
     });
   });
 
-  it('keeps text-only custom prompt models enabled without structured output', () => {
-    const [option] = orderModels(
+  it('disables custom prompt models that cannot return the required JSON schema', () => {
+    const option = orderModels(
       [model({ id: 'plain/text', supportedParameters: [] })],
       'custom',
-    );
+    ).find((entry) => entry.id === 'plain/text');
 
-    expect(option.enabled).toBe(true);
+    expect(option?.enabled).toBe(false);
   });
 
   it('requires structured output and gives structured tasks enough output headroom', () => {

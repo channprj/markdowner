@@ -12,6 +12,34 @@ afterEach(() => {
 });
 
 describe('AiSelectionPopover', () => {
+  it('reserves output for the selected text even in a document larger than the model context', async () => {
+    const source = `Edit this.\n\n${'Unselected paragraph.\n'.repeat(8_000)}`;
+    const snapshot = captureSourceSelection(source, 0, 10, 'doc-large');
+    if (!snapshot) throw new Error('selection required');
+    const run = vi.fn(async (request) => ({
+      requestId: request.requestId, documentId: request.documentId,
+      task: request.task, model: request.model, generationId: null,
+      result: null, validationIssues: [], rawDiagnostic: null,
+      usage: null, retryAfterSeconds: null,
+    }));
+    render(<AiSelectionPopover snapshot={snapshot}
+      settings={{ ...DEFAULT_SETTINGS, aiCloudDisclosureAccepted: true, aiZdrOnly: false }}
+      onClose={vi.fn()} onResult={vi.fn()} services={{
+        keyStatus: async () => ({ configured: true, maskedLabel: null }),
+        listModels: async () => [{ id: DEFAULT_SETTINGS.aiCustomPromptModel,
+          name: 'Small model', contextLength: 8_192, maxCompletionTokens: 4_096,
+          inputModalities: ['text'], outputModalities: ['text'],
+          supportedParameters: ['structured_outputs'],
+          pricing: { prompt: 0, completion: 0, updatedAt: '' } }],
+        run, cancel: async () => true,
+      }} />);
+    const button = await screen.findByRole('button', { name: 'Run on selection' });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await waitFor(() => expect(run).toHaveBeenCalled());
+    expect(run.mock.calls[0][0].maxOutputTokens).toBe(4_096);
+  });
+
   it('waits for endpoint eligibility before enabling a selected-text request', async () => {
     const snapshot = captureSourceSelection('alpha beta', 6, 10, 'doc-1');
     if (!snapshot) throw new Error('selection required');
