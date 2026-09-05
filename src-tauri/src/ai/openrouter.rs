@@ -1,5 +1,6 @@
 use std::{
-    sync::OnceLock,
+    collections::HashMap,
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -526,6 +527,20 @@ pub struct OpenRouterClient {
     http: Client,
     base_url: Url,
     timeouts: OpenRouterTimeouts,
+    model_limits: Arc<Mutex<HashMap<String, ModelLimits>>>,
+}
+
+#[derive(Clone, Copy)]
+struct ModelLimits {
+    context: u64,
+    output: u64,
+}
+
+impl Default for ModelLimits {
+    fn default() -> Self {
+        // A missing/stale catalog is not permission to reserve 100,000 tokens.
+        Self { context: 32_768, output: 8_192 }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -570,7 +585,38 @@ impl OpenRouterClient {
             http,
             base_url,
             timeouts,
+            model_limits: Arc::default(),
         })
+    }
+
+    pub fn remember_models(&self, models: &[AiModel]) {
+        if let Ok(mut limits) = self.model_limits.lock() {
+            for model in models {
+                limits.insert(model.id.clone(), ModelLimits {
+                    context: if model.context_length > 0 { model.context_length } else { ModelLimits::default().context },
+                    output: model.max_completion_tokens.filter(|limit| *limit > 0).unwrap_or(ModelLimits::default().output),
+                });
+            }
+        }
+    }
+
+    fn limits(&self, model: &str) -> ModelLimits {
+        self.model_limits.lock().ok().and_then(|limits| limits.get(model).copied()).unwrap_or_default()
+    }
+
+    fn budget_body(&self, body: &mut Value) -> Result<(), AiError> {
+        let limits = self.limits(body["model"].as_str().unwrap_or_default());
+        // UTF-8 bytes are a conservative bound, unlike chars/4 for Korean or
+        // escaped JSON. Include both the actual messages and the output schema.
+        let input = body["messages"].to_string().len() as u64
+            + body["response_format"].to_string().len() as u64 + 1_024;
+        let requested = body["max_tokens"].as_u64().unwrap_or(4_096).max(1);
+        let available = limits.context.saturating_sub(input);
+        if available < requested.min(limits.output).min(1_024) {
+            return Err(AiError::new("context_length_exceeded", "This request needs smaller document chunks to leave room for the model response."));
+        }
+        body["max_tokens"] = json!(requested.min(limits.output).min(available));
+        Ok(())
     }
 
     pub async fn verify_key(
@@ -620,7 +666,7 @@ impl OpenRouterClient {
             )
         })?;
         let updated_at = pricing_timestamp();
-        Ok(payload
+        let models = payload
             .get("data")
             .and_then(Value::as_array)
             .into_iter()
@@ -633,7 +679,9 @@ impl OpenRouterClient {
                         .iter()
                         .any(|modality| modality == "text")
             })
-            .collect())
+            .collect::<Vec<_>>();
+        self.remember_models(&models);
+        Ok(models)
     }
 
     pub async fn model_pricing(
@@ -761,13 +809,14 @@ impl OpenRouterClient {
     async fn stream_body<F>(
         &self,
         secret: &str,
-        body: Value,
+        mut body: Value,
         cancellation: &CancellationToken,
         mut on_progress: F,
     ) -> Result<SseComplete, AiError>
     where
         F: FnMut(usize),
     {
+        self.budget_body(&mut body)?;
         let request = self
             .http
             .post(self.endpoint("chat/completions")?)
@@ -930,6 +979,23 @@ fn provider_message_error(
 ) -> AiError {
     let redacted = redact_sensitive(message, explicit_secret);
     let normalized = redacted.to_ascii_lowercase();
+    // Never turn auth, billing, rate-limit, or privacy failures into retries.
+    if matches!(default_code, "openrouter_error" | "provider_error") {
+        if normalized.contains("context_length_exceeded")
+            || normalized.contains("maximum context length")
+            || normalized.contains("context window")
+            || normalized.contains("too many input tokens")
+            || normalized.contains("prompt is too long")
+            || normalized.contains("input is too long")
+        {
+            return AiError::new("context_length_exceeded", redacted);
+        }
+        if (normalized.contains("max_tokens") || normalized.contains("max_completion_tokens"))
+            && (normalized.contains("less than") || normalized.contains("maximum") || normalized.contains("exceed"))
+        {
+            return AiError::new("output_limit_exceeded", redacted);
+        }
+    }
     if normalized.contains("no endpoints found matching your data policy")
         && normalized.contains("zero data retention")
     {
@@ -1130,6 +1196,51 @@ mod tests {
         assert_eq!(user.matches("Unique heading").count(), 1);
         assert!(user.contains("Important facts."));
         assert!(!user.contains("MDNER_"));
+    }
+
+    #[test]
+    fn context_errors_are_distinct_from_auth_billing_and_output_errors() {
+        for message in [
+            "This endpoint's maximum context length is 8192 tokens",
+            "Input is too long for the model context window",
+            "context_length_exceeded",
+        ] {
+            assert_eq!(super::provider_message_error("openrouter_error", message, None).code, "context_length_exceeded");
+        }
+        assert_eq!(super::provider_message_error("openrouter_error", "max_tokens must be less than or equal to 8192", None).code, "output_limit_exceeded");
+        assert_eq!(super::provider_message_error("insufficient_credits", "Insufficient credits for max_tokens", None).code, "insufficient_credits");
+    }
+
+    #[test]
+    fn actual_serialized_prompt_and_provider_output_ceiling_share_one_budget() {
+        let client = OpenRouterClient::with_base_url("http://127.0.0.1:1").unwrap();
+        let model = super::parse_model(&json!({
+            "id": "test/small", "context_length": 8_192,
+            "top_provider": {"max_completion_tokens": 2_048}
+        }), "today").unwrap();
+        client.remember_models(&[model]);
+        let mut request = fixture_request(AiTask::Custom);
+        request.model = "test/small".to_string();
+        request.max_output_tokens = 100_000;
+        let mut body = build_chat_request(&request);
+        client.budget_body(&mut body).unwrap();
+        assert_eq!(body["max_tokens"], 2_048);
+        request.document = json!({"segments": [{"id":"seg-0001", "text":"한글\\\"".repeat(2_000)}]});
+        assert_eq!(client.budget_body(&mut build_chat_request(&request)).unwrap_err().code, "context_length_exceeded");
+    }
+
+    #[tokio::test]
+    async fn unknown_model_output_reservation_leaves_room_for_the_actual_prompt() {
+        let (base_url, request_rx) = spawn_mock_response(200, "text/event-stream",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"{}\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n");
+        let client = OpenRouterClient::with_base_url(&base_url).unwrap();
+        let mut request = fixture_request(AiTask::Custom);
+        request.max_output_tokens = 100_000;
+        client.stream_completion("sk-or-v1-test", &request, &CancellationToken::new(), |_| {}).await.unwrap();
+        let http = request_rx.recv().unwrap();
+        let body: serde_json::Value = serde_json::from_str(http.split_once("\r\n\r\n").unwrap().1).unwrap();
+        let reserved = body["max_tokens"].as_u64().unwrap();
+        assert!(reserved >= 1_024 && reserved <= 8_192, "unbounded reservation: {reserved}");
     }
 
     #[test]

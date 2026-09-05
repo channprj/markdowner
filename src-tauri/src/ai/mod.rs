@@ -363,11 +363,14 @@ pub struct AiState {
 impl AiState {
     pub fn new(app_data_dir: PathBuf) -> Result<Self, AiError> {
         let history = HistoryRepository::open(&app_data_dir.join("ai").join("history.sqlite3"));
+        let cache = CatalogCache::new(&app_data_dir);
+        let client = OpenRouterClient::new()?;
+        client.remember_models(&cache.load().unwrap_or_default());
         Ok(Self {
             keychain: KeychainService::system(),
-            client: OpenRouterClient::new()?,
+            client,
             scheduler: RequestScheduler::new(),
-            cache: CatalogCache::new(&app_data_dir),
+            cache,
             history,
             activity: ActivityRegistry::default(),
             results: Mutex::new(HashMap::new()),
@@ -551,6 +554,7 @@ pub async fn ai_list_models(state: State<'_, AiState>) -> Result<Vec<AiModel>, A
             if cached.is_empty() {
                 Err(error)
             } else {
+                state.client.remember_models(&cached);
                 Ok(cached)
             }
         }
