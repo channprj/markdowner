@@ -51,7 +51,10 @@ async fn provider(
             };
             let first = requests.lock().unwrap().is_empty();
             requests.lock().unwrap().push(body.clone());
-            let (status, content_type, response) = if first && first_failure == "context" {
+            let interview = body["response_format"]["json_schema"]["name"] == "prd_interview_question";
+            let oversized_interview = first_failure == "interview" && interview
+                && body["messages"][1]["content"].as_str().unwrap().len() > 3_000;
+            let (status, content_type, response) = if (first && first_failure == "context") || oversized_interview {
                 (
                     400,
                     "application/json",
@@ -67,8 +70,14 @@ async fn provider(
                 let truncated = first && first_failure == "truncated";
                 let content = if truncated {
                     "{\"schemaVersion\":".to_string()
+                } else if interview {
+                    json!({"question":"Which accessibility requirement is highest priority?",
+                        "rationale":"This decision remains unresolved.","recommendedAnswer":"Keyboard navigation."}).to_string()
                 } else {
                     let mut response = echo_edit(&body);
+                    if first_failure == "interview" {
+                        response["summaryMarkdown"] = json!("# PRD context\n\nThe primary users are product managers. Preserve accessibility requirements and existing resolved decisions.");
+                    }
                     if first_failure == "unsafe" {
                         response["replacementText"] = json!(format!(
                             "<script>{}",
@@ -93,6 +102,31 @@ async fn provider(
         }
     });
     (client, captured, task)
+}
+
+#[tokio::test]
+async fn long_interview_reads_every_document_part_and_prior_answer_before_asking() {
+    let source = request(AiTask::Prd, false).source;
+    let request = PrdInterviewCompletionRequest {
+        model: "test/model".to_string(), document: json!({"source":source}),
+        interview_history: json!([{"question":"Already decided primary user?","answer":"Product managers."}]),
+        instruction: None, system_prompt: Some("Ask about accessibility.".to_string()),
+        zdr_only: true, max_output_tokens: 1024,
+    };
+    let (client, requests, server) = provider("interview").await;
+    let mut progress = Vec::new();
+    let turn = bounded_interview_turn(&client, request, "test-key", &CancellationToken::new(),
+        |_, completed, total, label| progress.push((completed, total, label.to_string()))).await.unwrap();
+    server.abort();
+    assert!(turn.question.contains("accessibility"));
+    let requests = requests.lock().unwrap();
+    let summaries = requests.iter().filter(|body| body["response_format"]["json_schema"]["name"] == "markdown_summary")
+        .map(|body| body["messages"][1]["content"].as_str().unwrap()).collect::<String>();
+    assert_eq!(summaries.matches("Old wording").count(), 160);
+    assert!(summaries.contains("Already decided primary user?"));
+    assert!(summaries.contains("Product managers."));
+    assert!(progress.iter().any(|(_, total, _)| *total > 1));
+    assert!(requests.last().unwrap()["messages"][0]["content"].as_str().unwrap().contains("Ask about accessibility."));
 }
 
 fn echo_edit(body: &Value) -> Value {

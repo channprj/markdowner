@@ -674,6 +674,7 @@ pub async fn ai_interview_start(
     emit_history_changed(&app);
     start_interview_activity(&state, &app, &session)?;
     let completion = generate_interview_turn(
+        &app,
         &state,
         &session,
         &envelope,
@@ -823,6 +824,7 @@ async fn continue_interview(
         .await?;
     start_interview_activity(&state, &app, &session)?;
     let completion = generate_interview_turn(
+        &app,
         &state,
         &session,
         &envelope,
@@ -917,6 +919,7 @@ fn start_interview_activity(
 }
 
 async fn generate_interview_turn(
+    app: &AppHandle,
     state: &AiState,
     session: &InterviewSession,
     envelope: &AiDocumentEnvelope,
@@ -942,11 +945,74 @@ async fn generate_interview_turn(
         max_output_tokens,
     };
     let secret = state.keychain.read_secret()?;
-    let (turn, _) = state
-        .client
-        .stream_interview_turn(&secret, &request, cancellation, |_| {})
-        .await?;
-    Ok(turn)
+    bounded_interview_turn(&state.client, request, &secret, cancellation,
+        |received_characters, completed, total, label| {
+            let _ = state.activity.progress(&session.request_id, ActivityProgress {
+                stage: "interviewing".to_string(),
+                label: Some(label.to_string()),
+                received_characters,
+                chunk_completed: (total > 0).then_some(completed),
+                chunk_total: (total > 0).then_some(total),
+                ..ActivityProgress::default()
+            });
+            emit_activity_changed(app);
+        }).await
+}
+
+async fn bounded_interview_turn<F>(
+    client: &OpenRouterClient,
+    mut request: PrdInterviewCompletionRequest,
+    secret: &str,
+    cancellation: &CancellationToken,
+    mut on_progress: F,
+) -> Result<interview::ModelTurn, AiError>
+where F: FnMut(usize, u32, u32, &str),
+{
+    let mut received = 0;
+    for attempt in 0..=3 {
+        on_progress(received, 0, 0, "Preparing the next PRD question");
+        let mut question_received = 0;
+        let result = client.stream_interview_turn(secret, &request, cancellation, |count| {
+            if count >= question_received + 64 {
+                question_received = count;
+                on_progress(received + count, 0, 0, "Receiving the next PRD question");
+            }
+        }).await;
+        received += question_received;
+        match result {
+            Ok((turn, _)) => return Ok(turn),
+            Err(error) if error.code == "context_length_exceeded" && attempt < 3 => {}
+            Err(error) => return Err(error),
+        }
+        // Read every part of the PRD and all prior answers before asking from
+        // a compact context. The original session/document are never replaced.
+        let material = format!("# PRD and discovery context\n\n{}\n\n# Prior interview decisions\n\n{}",
+            request.document.get("source").and_then(serde_json::Value::as_str).unwrap_or_default(),
+            request.interview_history);
+        let digest_request = AiRunRequest {
+            request_id: "interview-context".to_string(), document_id: "interview-context".to_string(),
+            source: material, selection: None, task: AiTask::Summary, model: request.model.clone(),
+            target_language: None,
+            instruction: Some("Prepare compact context for a PRD discovery interview. Use at most 150 words per part. Preserve actors, requirements, constraints, dependencies, metrics, unresolved questions, and decisions already answered. Do not ask questions or invent facts.".to_string()),
+            system_prompt: None, zdr_only: request.zdr_only, max_output_tokens: 2_048,
+            record_history: false, scope: None, interview_id: None, resume: false,
+        };
+        let envelope = prepare_run_envelope(&digest_request)?;
+        let mut digest_received = 0;
+        let outcome = bounded_completion(client, &digest_request, &envelope, secret, cancellation,
+            empty_completion_outcome(), |count, completed, total, _| {
+                digest_received = count;
+                on_progress(received + count, completed, total, "Summarizing long PRD context and prior decisions");
+            }).await?;
+        received += digest_received;
+        let digest = outcome.result.ok_or_else(|| AiError::new("interview_context_invalid", "The long PRD context summary failed validation. No source changes were made."))?.proposed_markdown;
+        if digest.len() >= digest_request.source.len() {
+            return Err(AiError::new("interview_context_limit", "This model did not produce a smaller PRD context. Choose a model with a larger context or shorten the interview instructions."));
+        }
+        request.document = serde_json::json!({"source": digest});
+        request.interview_history = serde_json::json!({"note":"Prior questions and resolved answers are included in the PRD context summary."});
+    }
+    unreachable!("the final interview attempt always returns")
 }
 
 #[tauri::command]

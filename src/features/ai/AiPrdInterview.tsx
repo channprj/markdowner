@@ -13,6 +13,7 @@ import {
 } from '@/lib/desktop';
 import { AI_INTERVIEW_OUTPUT_TOKEN_LIMIT } from './model';
 import { systemPromptForTask, type AiSystemPrompts } from './systemPrompts';
+import { AiRunProgress } from './AiRunProgress';
 import type {
   AiInterviewContinueRequest,
   AiInterviewSession,
@@ -90,6 +91,7 @@ export function AiPrdInterview({
   const [session, setSession] = useState<AiInterviewSession | null>(null);
   const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);
+  const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [showPrior, setShowPrior] = useState(false);
@@ -129,6 +131,7 @@ export function AiPrdInterview({
 
   const start = async () => {
     const requestId = createRequestId();
+    setActiveRequestId(requestId);
     setBusy(true);
     setError('');
     setStatus('Finding the highest-impact PRD decision…');
@@ -151,6 +154,7 @@ export function AiPrdInterview({
       setError(errorMessage(reason));
       setStatus('');
     } finally {
+      setActiveRequestId(null);
       setBusy(false);
     }
   };
@@ -170,6 +174,7 @@ export function AiPrdInterview({
 
   const requestNextQuestion = async (skip: boolean) => {
     if (!session) return;
+    setActiveRequestId(session.requestId);
     setBusy(true);
     setError('');
     setStatus('Preparing the next decision…');
@@ -193,12 +198,14 @@ export function AiPrdInterview({
       setError(errorMessage(reason));
       setStatus('');
     } finally {
+      setActiveRequestId(null);
       setBusy(false);
     }
   };
 
   const finish = async () => {
     if (!session) return;
+    setActiveRequestId(session.requestId);
     setFinishOpen(false);
     setBusy(true);
     setError('');
@@ -239,6 +246,7 @@ export function AiPrdInterview({
       setError(errorMessage(reason));
       setStatus('');
     } finally {
+      setActiveRequestId(null);
       setBusy(false);
     }
   };
@@ -283,6 +291,7 @@ export function AiPrdInterview({
           Start PRD interview
         </Button>
         <Status error={error} status={status} busy={busy} />
+        {busy && activeRequestId ? <AiRunProgress requestId={activeRequestId} /> : null}
       </div>
     );
   }
@@ -416,6 +425,7 @@ export function AiPrdInterview({
       ) : null}
 
       <Status error={error} status={status} busy={busy} />
+      {busy && activeRequestId ? <AiRunProgress requestId={activeRequestId} /> : null}
 
       {finishOpen ? (
         <div role="dialog" aria-modal="true" aria-label="Finish PRD interview?" className="mt-3 rounded-md border border-border bg-background p-3 shadow-lg">
