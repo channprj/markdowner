@@ -6,7 +6,6 @@ import {
   captureSourceSelection,
   captureWysiwygSelection,
   applySourceSelectionReplacement,
-  applyWysiwygSelectionReplacement,
   selectionReplacementFromResult,
 } from './selection';
 import type { AiRunResult } from './types';
@@ -111,7 +110,7 @@ describe('AI selection snapshots', () => {
     });
   });
 
-  it('dispatches a WYSIWYG replacement as one Tiptap Markdown transaction', () => {
+  it('captures WYSIWYG positions independently of Markdown byte offsets', () => {
     const snapshot = captureWysiwygSelection({
       source: 'alpha beta',
       markdownStart: 6,
@@ -121,25 +120,7 @@ describe('AI selection snapshots', () => {
       documentId: 'doc-1',
     });
     if (!snapshot) throw new Error('selection required');
-    const run = vi.fn(() => true);
-    const insertContentAt = vi.fn(() => ({ run }));
-    const focus = vi.fn(() => ({ insertContentAt }));
-    const editor = { chain: vi.fn(() => ({ focus })) };
-
-    expect(
-      applyWysiwygSelectionReplacement({
-        editor,
-        snapshot,
-        currentSource: 'alpha beta',
-        replacement: 'BETA',
-      }),
-    ).toBe(true);
-    expect(editor.chain).toHaveBeenCalledTimes(1);
-    expect(insertContentAt).toHaveBeenCalledWith(
-      { from: 7, to: 11 },
-      'BETA',
-      { contentType: 'markdown' },
-    );
-    expect(run).toHaveBeenCalledTimes(1);
+    expect(snapshot.proseMirrorRange).toEqual({ start: 7, end: 11 });
+    expect(snapshot.byteRange).toEqual({ start: 6, end: 10 });
   });
 });

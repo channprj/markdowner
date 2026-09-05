@@ -8,6 +8,9 @@ import {
   within,
 } from '@testing-library/react';
 import { StrictMode } from 'react';
+import { Editor as TiptapEditor } from '@tiptap/core';
+import StarterKit from '@tiptap/starter-kit';
+import { Markdown } from '@tiptap/markdown';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AppSnapshot, EditorMode } from './lib/desktop';
@@ -1599,15 +1602,7 @@ describe('App recent documents', () => {
   it('applies a WYSIWYG drag-selection prompt in one editor transaction', async () => {
     const source = 'alpha beta';
     const replacement = 'BETA';
-    const editor = createMockTiptapEditor(source, [{ text: source, from: 0 }]);
-    editor.state.selection = {
-      from: 6,
-      to: 10,
-      anchor: 6,
-      head: 10,
-      empty: false,
-      $from: { parent: { type: { name: 'paragraph' } } },
-    };
+    const editor = new TiptapEditor({ extensions: [StarterKit, Markdown], content: source, contentType: 'markdown' });
     tiptapMockState.editor = editor;
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
@@ -1662,7 +1657,7 @@ describe('App recent documents', () => {
 
     await screen.findByTestId('mock-tiptap-editor');
     act(() => {
-      editor.commands.setTextSelection({ from: 6, to: 10 });
+      editor.commands.setTextSelection({ from: 7, to: 11 });
       tiptapMockState.lastOptions?.onSelectionUpdate?.({ editor });
     });
     fireEvent.keyDown(window, {
@@ -1691,14 +1686,10 @@ describe('App recent documents', () => {
     await waitFor(() => expect(runButton).toBeEnabled());
     fireEvent.click(runButton);
 
-    await waitFor(() =>
-      expect(editor.insertContentAtMock).toHaveBeenCalledWith(
-        { from: 6, to: 10 },
-        replacement,
-      ),
-    );
-    expect(editor.insertContentAtMock).toHaveBeenCalledTimes(1);
-    expect(editor.markdown).toBe('alpha BETA');
+    await waitFor(() => expect(editor.getMarkdown()).toBe('alpha BETA'));
+    act(() => { expect(editor.commands.undo()).toBe(true); });
+    expect(editor.getMarkdown()).toBe(source);
+    editor.destroy();
   });
 
   it('opens the exact Source selection with Cmd+Shift+K and prevents editor-native behavior', async () => {

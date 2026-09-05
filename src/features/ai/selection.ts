@@ -1,3 +1,6 @@
+import type { Editor } from '@tiptap/core';
+import { closeHistory } from '@tiptap/pm/history';
+
 import type { AiByteRange, AiRunResult } from './types';
 
 export type AiSelectionSurface = 'source' | 'wysiwyg';
@@ -152,17 +155,7 @@ export function applySourceSelectionReplacement(input: {
 }
 
 export function applyWysiwygSelectionReplacement(input: {
-  editor: {
-    chain: () => {
-      focus: () => {
-        insertContentAt: (
-          range: { from: number; to: number },
-          content: string,
-          options: { contentType: 'markdown' },
-        ) => { run: () => boolean };
-      };
-    };
-  };
+  editor: Pick<Editor, 'state' | 'view' | 'storage' | 'getMarkdown'>;
   snapshot: AiSelectionSnapshot;
   currentSource: string;
   replacement: string;
@@ -176,17 +169,41 @@ export function applyWysiwygSelectionReplacement(input: {
     return false;
   }
 
-  return (
-    input.editor
-      .chain()
-      .focus()
-      .insertContentAt(
-        { from: range.start, to: range.end },
-        input.replacement,
-        { contentType: 'markdown' },
-      )
-      .run() !== false
-  );
+  const previousState = input.editor.state;
+  const manager = input.editor.storage.markdown?.manager;
+  if (!manager || input.editor.getMarkdown() !== input.currentSource) return false;
+  const nextSource =
+    input.currentSource.slice(0, input.snapshot.characterRange.start) +
+    input.replacement +
+    input.currentSource.slice(input.snapshot.characterRange.end);
+  try {
+    // Plain inline edits can retain the exact surrounding marks and block
+    // nodes. Verify serialization before dispatching; Markdown syntax in the
+    // replacement will instead take the contextual parse path below.
+    const inline = previousState.tr.insertText(input.replacement, range.start, range.end);
+    if (manager.serialize(inline.doc.toJSON()) === nextSource) {
+      input.editor.view.dispatch(closeHistory(inline).scrollIntoView());
+      return true;
+    }
+    // Parse in the full document's context: parsing an isolated replacement
+    // creates a closed paragraph and loses surrounding marks/list structure.
+    const nextDoc = previousState.schema.nodeFromJSON(manager.parse(nextSource));
+    if (manager.serialize(nextDoc.toJSON()) !== nextSource) return false;
+    const start = previousState.doc.content.findDiffStart(nextDoc.content);
+    if (start === null) return true;
+    const end = previousState.doc.content.findDiffEnd(nextDoc.content)!;
+    const overlap = start - Math.min(end.a, end.b);
+    if (overlap > 0) { end.a += overlap; end.b += overlap; }
+    const transaction = closeHistory(previousState.tr.replace(start, end.a, nextDoc.slice(start, end.b)));
+    if (!transaction.doc.eq(nextDoc)) return false;
+    input.editor.view.dispatch(transaction.scrollIntoView());
+    return true;
+  } catch {
+    // Parsing/transaction failures must leave the original document and undo
+    // history intact so the caller can offer the validated result in Review.
+    if (input.editor.state !== previousState) input.editor.view.updateState(previousState);
+    return false;
+  }
 }
 
 function captureSelection(input: {
