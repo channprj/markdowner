@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { AiRunProgress } from './AiRunProgress';
 
 import {
   isReviewSourceCurrent,
@@ -176,7 +177,9 @@ export function AiReviewTab({
           </div>
         </header>
 
-        {review.status === 'running' ? (
+        {review.status === 'running' && review.origin.kind === 'openrouter' ? (
+          <AiRunProgress requestId={review.requestId} />
+        ) : review.status === 'running' ? (
           <p
             role="status"
             className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"

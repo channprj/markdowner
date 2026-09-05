@@ -352,7 +352,7 @@ vi.mock('@uiw/react-codemirror', () => ({
     extensions?: unknown[];
     onCreateEditor?: (view: unknown) => void;
   }) => {
-    sourceEditorMockState.lastProps = { onCreateEditor };
+    sourceEditorMockState.lastProps = { onCreateEditor, extensions };
     return (
       <textarea
         aria-label="Source editor"
@@ -1736,6 +1736,16 @@ describe('App recent documents', () => {
     expect(
       await screen.findByRole('dialog', { name: /prompt selected text/i }),
     ).toBeVisible();
+    expect(screen.getByText('beta')).toBeVisible();
+    // A CodeMirror selection transaction must not replace the captured target
+    // or unmount an already-open inline AI composer.
+    await act(async () => {
+      view.state.selection.main = { anchor: 0, head: 5 };
+      for (const extension of sourceEditorMockState.lastProps.extensions) {
+        extension?.listener?.({ view, selectionSet: true });
+      }
+    });
+    expect(screen.getByRole('dialog', { name: /prompt selected text/i })).toBeVisible();
     expect(screen.getByText('beta')).toBeVisible();
   });
 

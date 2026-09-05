@@ -78,6 +78,11 @@ export function AiActivityTab({
               ) : (
                 <p className="text-sm font-medium capitalize">{run.progress.stage || 'Preparing'}</p>
               )}
+              {progressLabel(run) && run.progress.receivedCharacters > 0 ? (
+                <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+                  {run.progress.receivedCharacters.toLocaleString()} characters received
+                </p>
+              ) : null}
               <ActivityProgressBar run={run} />
             </div>
             <Button

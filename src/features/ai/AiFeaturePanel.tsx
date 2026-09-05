@@ -72,8 +72,7 @@ export function AiFeaturePanel({
         </div>
       </header>
 
-      {tab === 'new' ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div hidden={tab !== 'new'} className={tab === 'new' ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : 'hidden'}>
           {runtime.activeRuns.length > 0 ? (
             <button
               type="button"
@@ -91,7 +90,7 @@ export function AiFeaturePanel({
             resumeInterviewRequest={resumeInterview}
           />
         </div>
-      ) : tab === 'activity' ? (
+      {tab === 'activity' ? (
         <div role="tabpanel" aria-label="Activity" className="min-h-0 flex-1 overflow-y-auto">
           <AiActivityTab
             runs={runtime.activeRuns}
@@ -100,7 +99,7 @@ export function AiFeaturePanel({
             onCancel={(requestId) => void cancelRun(requestId)}
           />
         </div>
-      ) : newRequestProps.settings.aiHistoryEnabled ? (
+      ) : tab === 'history' && newRequestProps.settings.aiHistoryEnabled ? (
         <div role="tabpanel" aria-label="History" className="flex min-h-0 flex-1">
           <AiHistoryTab
             history={runtime.history}
@@ -119,14 +118,14 @@ export function AiFeaturePanel({
             services={historyServices}
           />
         </div>
-      ) : (
+      ) : tab === 'history' ? (
         <div role="tabpanel" aria-label="History" className="p-3 text-sm text-muted-foreground">
           <p className="font-medium text-foreground">Local history is off</p>
           <p className="mt-1 text-xs leading-relaxed">
             Enable Keep local AI history in Settings → AI Feature Settings to retain run metadata.
           </p>
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

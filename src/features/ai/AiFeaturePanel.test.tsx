@@ -80,9 +80,14 @@ describe('AiFeaturePanel', () => {
     );
 
     expect(screen.getByRole('tab', { name: 'New' })).toHaveAttribute('aria-selected', 'true');
+    const instruction = screen.getByLabelText('Additional instruction');
+    fireEvent.change(instruction, { target: { value: 'Keep this request draft.' } });
     expect(await screen.findByText('1 AI request running')).toBeVisible();
     fireEvent.click(screen.getByRole('tab', { name: 'Activity (1)' }));
     expect(await screen.findByRole('heading', { name: 'Translate document' })).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: 'New' }));
+    expect(screen.getByLabelText('Additional instruction')).toHaveValue('Keep this request draft.');
+    fireEvent.click(screen.getByRole('tab', { name: 'Activity (1)' }));
     expect(screen.getByText('Files 0/1 · Chunks 3/8 · a.md')).toBeVisible();
 
     fireEvent.click(screen.getByRole('tab', { name: 'History' }));

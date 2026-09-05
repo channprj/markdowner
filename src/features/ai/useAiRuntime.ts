@@ -41,25 +41,41 @@ export function useAiRuntime({
   const [activityError, setActivityError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const historyPageRef = useRef(historyPageIndex);
+  const mounted = useRef(false);
+  const activityVersion = useRef(0);
+  const historyVersion = useRef(0);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      activityVersion.current += 1;
+      historyVersion.current += 1;
+    };
+  }, [services]);
 
   useEffect(() => {
     historyPageRef.current = historyPageIndex;
   }, [historyPageIndex]);
 
   const reloadActivity = useCallback(async () => {
+    const version = ++activityVersion.current;
     setActivityLoading(true);
     try {
-      setActiveRuns(await services.listActive());
+      const next = await services.listActive();
+      if (!mounted.current || version !== activityVersion.current) return;
+      setActiveRuns(next);
       setActivityError(null);
     } catch (reason) {
-      setActivityError(errorMessage(reason));
+      if (mounted.current && version === activityVersion.current) setActivityError(errorMessage(reason));
     } finally {
-      setActivityLoading(false);
+      if (mounted.current && version === activityVersion.current) setActivityLoading(false);
     }
   }, [services]);
 
   const loadHistoryPage = useCallback(
     async (page: number) => {
+      const version = ++historyVersion.current;
       if (!historyEnabled) {
         setHistory(EMPTY_HISTORY);
         setHistoryError(null);
@@ -69,6 +85,7 @@ export function useAiRuntime({
       setHistoryLoading(true);
       try {
         const next = await services.historyPage(page, 20);
+        if (!mounted.current || version !== historyVersion.current) return;
         const lastPage = Math.max(0, Math.ceil(next.total / next.pageSize) - 1);
         if (page > lastPage) {
           historyPageRef.current = lastPage;
@@ -78,9 +95,9 @@ export function useAiRuntime({
         setHistory(next);
         setHistoryError(null);
       } catch (reason) {
-        setHistoryError(errorMessage(reason));
+        if (mounted.current && version === historyVersion.current) setHistoryError(errorMessage(reason));
       } finally {
-        setHistoryLoading(false);
+        if (mounted.current && version === historyVersion.current) setHistoryLoading(false);
       }
     },
     [historyEnabled, services],
@@ -102,20 +119,25 @@ export function useAiRuntime({
   useEffect(() => {
     let disposed = false;
     const cleanups: Array<() => void> = [];
-    Promise.all([
-      services.listen(AI_ACTIVITY_CHANGED_EVENT, reloadActivity),
-      services.listen(AI_HISTORY_CHANGED_EVENT, reloadHistory),
-    ]).then((resolved) => {
-      if (disposed) {
-        resolved.forEach((cleanup) => cleanup());
-      } else {
-        cleanups.push(...resolved);
-      }
-    }).catch((reason) => {
-      if (!disposed) setActivityError(errorMessage(reason));
-    });
+    for (const [event, reload] of [
+      [AI_ACTIVITY_CHANGED_EVENT, reloadActivity],
+      [AI_HISTORY_CHANGED_EVENT, reloadHistory],
+    ] as const) {
+      services.listen(event, reload).then((cleanup) => {
+        if (disposed) { cleanup(); return; }
+        cleanups.push(cleanup);
+        // Close the gap between the initial snapshot and listener registration.
+        void reload();
+      }).catch((reason) => {
+        if (!disposed) setActivityError(errorMessage(reason));
+      });
+    }
+    // Events are hints, not the only source of truth. Recover after missed
+    // notifications, window suspension, or an unavailable event subscription.
+    const poll = window.setInterval(() => { void reloadActivity(); }, 2_000);
     return () => {
       disposed = true;
+      window.clearInterval(poll);
       cleanups.forEach((cleanup) => cleanup());
     };
   }, [reloadActivity, reloadHistory, services]);

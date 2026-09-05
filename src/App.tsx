@@ -4010,6 +4010,9 @@ export default function App() {
   );
 
   const handleSourceAiSelectionChange = useEffectEvent((view: EditorView) => {
+    // Focus/selection transactions may arrive while the composer is open.
+    // Its captured target stays immutable until it closes or returns a result.
+    if (aiSelectionPromptOpen) return;
     const activeDocumentTab = tabsRef.current.find(
       (tab) =>
         tab.id === activeTabIdRef.current && tab.kind === 'document',
@@ -4051,6 +4054,7 @@ export default function App() {
 
   const handleWysiwygAiSelection = useEffectEvent(
     (selection: { from: number; to: number }) => {
+      if (aiSelectionPromptOpen) return;
       const activeDocumentTab = tabsRef.current.find(
         (tab) =>
           tab.id === activeTabIdRef.current && tab.kind === 'document',
@@ -4090,6 +4094,7 @@ export default function App() {
   );
 
   const openAiForCurrentSelection = useEffectEvent(() => {
+    if (aiSelectionPromptOpen) return;
     if (currentMode === 'Wysiwyg') {
       const selection = editor?.state.selection;
       if (!selection || selection.from === selection.to) {
