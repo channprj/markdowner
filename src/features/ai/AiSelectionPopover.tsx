@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { LoaderCircle, Sparkles, Square, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ChevronUp, GripHorizontal, LoaderCircle, Minus, Sparkles, Square, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -97,11 +97,41 @@ export function AiSelectionPopover({
   const [runningRequestId, setRunningRequestId] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [minimized, setMinimized] = useState(false);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number; x: number; y: number; left: number; top: number;
+  } | null>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    promptRef.current?.focus();
-  }, []);
+    if (!minimized) promptRef.current?.focus();
+  }, [minimized]);
+
+  const clampPosition = (left: number, top: number) => {
+    const rect = panelRef.current?.getBoundingClientRect();
+    return {
+      left: Math.max(8, Math.min(left, window.innerWidth - (rect?.width ?? 0) - 8)),
+      top: Math.max(8, Math.min(top, window.innerHeight - (rect?.height ?? 0) - 8)),
+    };
+  };
+
+  useLayoutEffect(() => {
+    const keepVisible = () => setPosition((current) => {
+      if (!current) return current;
+      const next = clampPosition(current.left, current.top);
+      return current.left === next.left && current.top === next.top ? current : next;
+    });
+    keepVisible();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(keepVisible);
+    if (panelRef.current) observer?.observe(panelRef.current);
+    window.addEventListener('resize', keepVisible);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', keepVisible);
+    };
+  }, [minimized]);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,13 +182,14 @@ export function AiSelectionPopover({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || runningRequestId) return;
+      if (event.key !== 'Escape' || minimized) return;
       event.preventDefault();
-      onClose();
+      if (runningRequestId) setMinimized(true);
+      else onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, runningRequestId]);
+  }, [onClose, runningRequestId, minimized]);
 
   const modelOptions = useMemo(() => orderModels(models, 'custom'), [models]);
   const selectedModel =
@@ -298,25 +329,83 @@ export function AiSelectionPopover({
 
   return (
     <section
+      ref={panelRef}
       role="dialog"
       aria-modal="false"
       aria-labelledby="ai-selection-heading"
-      className="ai-motion-surface fixed bottom-12 left-1/2 z-[80] w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl"
+      className={`ai-motion-surface fixed z-[80] flex max-h-[calc(100dvh-4rem)] flex-col rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl ${minimized ? 'w-[min(22rem,calc(100vw-2rem))]' : 'w-[min(30rem,calc(100vw-2rem))]'}`}
+      style={position ?? { bottom: '3rem', left: '50%', transform: 'translateX(-50%)' }}
       data-testid="ai-selection-popover"
     >
-      <header className="flex items-start justify-between gap-3">
-        <div>
+      <header className="flex shrink-0 items-start justify-between gap-2">
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Move AI prompt"
+          title="Drag to move. Use arrow keys when focused."
+          className="min-w-0 flex-1 cursor-grab touch-none select-none rounded-md outline-none active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-ring"
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            const rect = panelRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            event.preventDefault();
+            dragRef.current = {
+              pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+              left: rect.left, top: rect.top,
+            };
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            const drag = dragRef.current;
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            setPosition(clampPosition(drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y));
+          }}
+          onPointerUp={(event) => {
+            if (dragRef.current?.pointerId !== event.pointerId) return;
+            dragRef.current = null;
+            event.currentTarget.releasePointerCapture?.(event.pointerId);
+          }}
+          onPointerCancel={() => { dragRef.current = null; }}
+          onLostPointerCapture={() => { dragRef.current = null; }}
+          onKeyDown={(event) => {
+            const directions: Record<string, [number, number]> = {
+              ArrowLeft: [-20, 0], ArrowRight: [20, 0], ArrowUp: [0, -20], ArrowDown: [0, 20],
+            };
+            const delta = directions[event.key];
+            const rect = panelRef.current?.getBoundingClientRect();
+            if (!delta || !rect) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setPosition(clampPosition(rect.left + delta[0], rect.top + delta[1]));
+          }}
+        >
           <h2
             id="ai-selection-heading"
             className="flex items-center gap-2 text-sm font-semibold"
           >
-            <Sparkles className="size-4" />
-            Prompt selected text
+            <GripHorizontal className="size-4 shrink-0 text-muted-foreground" />
+            {minimized ? 'AI prompt' : 'Prompt selected text'}
           </h2>
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+          {minimized ? (
+            <p aria-live="polite" className={`mt-1 truncate text-xs ${error ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {error || status || 'Prompt hidden · show to continue'}
+            </p>
+          ) : <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
             {snapshot.selectedText}
-          </p>
+          </p>}
         </div>
+        {minimized && runningRequestId ? (
+          <Button type="button" size="icon-sm" variant="ghost" aria-label="Cancel AI request"
+            onClick={() => void handleCancel()}>
+            <Square />
+          </Button>
+        ) : null}
+        <Button type="button" size="icon-sm" variant="ghost"
+          aria-label={minimized ? 'Show AI prompt' : 'Hide AI prompt'}
+          title={minimized ? 'Show AI prompt' : 'Hide without closing or cancelling'}
+          onClick={() => setMinimized((current) => !current)}>
+          {minimized ? <ChevronUp /> : <Minus />}
+        </Button>
         <Button
           type="button"
           size="icon-sm"
@@ -329,7 +418,7 @@ export function AiSelectionPopover({
         </Button>
       </header>
 
-      <div className="mt-3 grid gap-3">
+      <div hidden={minimized} className={minimized ? 'hidden' : 'mt-3 grid min-h-0 gap-3 overflow-y-auto'}>
         <div className="grid gap-1.5">
           <div className="flex flex-wrap gap-1.5" aria-label="Selection actions">
             {SELECTION_ACTIONS.map((action) => (

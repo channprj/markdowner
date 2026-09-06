@@ -1740,13 +1740,16 @@ describe('App recent documents', () => {
     ).toBeVisible();
     expect(screen.getByText('beta')).toBeVisible();
     // A CodeMirror selection transaction must not replace the captured target
-    // or unmount an already-open inline AI composer.
+    // or unmount an inline AI composer while it is hidden.
+    fireEvent.click(screen.getByRole('button', { name: 'Hide AI prompt' }));
     await act(async () => {
       view.state.selection.main = { anchor: 0, head: 5 };
       for (const extension of sourceEditorMockState.lastProps.extensions) {
         extension?.listener?.({ view, selectionSet: true });
       }
     });
+    expect(screen.getByRole('button', { name: 'Show AI prompt' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Show AI prompt' }));
     expect(screen.getByRole('dialog', { name: /prompt selected text/i })).toBeVisible();
     expect(screen.getByText('beta')).toBeVisible();
   });

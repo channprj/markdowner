@@ -4,14 +4,127 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '@/lib/settings';
 
 import { AiSelectionPopover } from './AiSelectionPopover';
+import type { AiSelectionServices } from './AiSelectionPopover';
 import { captureSourceSelection } from './selection';
 
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('AiSelectionPopover', () => {
+  function renderMovablePrompt(overrides: Partial<AiSelectionServices> = {}) {
+    const snapshot = captureSourceSelection('alpha beta', 6, 10, 'doc-1');
+    if (!snapshot) throw new Error('selection required');
+    const onClose = vi.fn();
+    const onResult = vi.fn();
+    const services: AiSelectionServices = {
+      keyStatus: async () => ({ configured: true, maskedLabel: null }),
+      listModels: async () => [],
+      run: vi.fn(),
+      cancel: vi.fn(async () => true),
+      ...overrides,
+    };
+    render(<AiSelectionPopover snapshot={snapshot}
+      settings={{ ...DEFAULT_SETTINGS, aiCloudDisclosureAccepted: true, aiZdrOnly: false }}
+      onClose={onClose} onResult={onResult} services={services} />);
+    return { snapshot, onClose, onResult, services };
+  }
+
+  it('hides and restores the prompt without losing the draft or selected action', async () => {
+    const { onClose } = renderMovablePrompt();
+    fireEvent.change(screen.getByLabelText('Prompt for selected text'), { target: { value: 'Translate to Korean' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Hide AI prompt' }));
+    expect(screen.queryByRole('textbox', { name: 'Prompt for selected text' })).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Show AI prompt' }));
+    expect(screen.getByRole('textbox', { name: 'Prompt for selected text' })).toHaveValue('Translate to Korean');
+    expect(screen.getByRole('textbox', { name: 'Prompt for selected text' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Custom instruction' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('keeps a hidden request alive and delivers its result once for the captured selection', async () => {
+    let finish: ((result: Awaited<ReturnType<AiSelectionServices['run']>>) => void) | undefined;
+    const run = vi.fn<AiSelectionServices['run']>(() => new Promise((resolve) => { finish = resolve; }));
+    const { onResult, snapshot, services } = renderMovablePrompt({ run });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run on selection' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Run on selection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hide AI prompt' }));
+    expect(screen.getByRole('button', { name: 'Cancel AI request' })).toBeEnabled();
+    expect(services.cancel).not.toHaveBeenCalled();
+    const request = run.mock.calls[0][0];
+    const result = {
+      requestId: request.requestId, documentId: 'doc-1', task: 'custom' as const,
+      model: request.model, generationId: null, result: null, validationIssues: [],
+      rawDiagnostic: null, usage: null, retryAfterSeconds: null,
+    };
+    await act(async () => finish?.(result));
+    expect(onResult).toHaveBeenCalledExactlyOnceWith(result, snapshot, request);
+  });
+
+  it('lets Escape hide a running request and keeps cancellation available', async () => {
+    const run = vi.fn<AiSelectionServices['run']>(() => new Promise(() => {}));
+    const { services, onClose } = renderMovablePrompt({ run });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run on selection' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Run on selection' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByRole('button', { name: 'Show AI prompt' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel AI request' }));
+    expect(services.cancel).toHaveBeenCalledWith(run.mock.calls[0][0].requestId);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('shows a hidden request failure and restores the draft for a deliberate retry', async () => {
+    let reject: ((error: Error) => void) | undefined;
+    const run = vi.fn<AiSelectionServices['run']>(() => new Promise((_, fail) => { reject = fail; }));
+    renderMovablePrompt({ run });
+    fireEvent.change(screen.getByLabelText('Prompt for selected text'), { target: { value: 'Improve this paragraph' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run on selection' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Run on selection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hide AI prompt' }));
+    await act(async () => reject?.(new Error('The provider is unavailable.')));
+    expect(screen.getAllByText('The provider is unavailable.').some((element) => !element.closest('[hidden]'))).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Show AI prompt' }));
+    expect(screen.getByLabelText('Prompt for selected text')).toHaveValue('Improve this paragraph');
+    expect(screen.getByRole('button', { name: 'Run on selection' })).toBeEnabled();
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves by dragging the title and keeps the panel inside the viewport', async () => {
+    renderMovablePrompt();
+    const panel = screen.getByTestId('ai-selection-popover');
+    vi.spyOn(panel, 'getBoundingClientRect').mockReturnValue({ left: 200, top: 300, width: 480, height: 400 } as DOMRect);
+    const handle = screen.getByRole('button', { name: 'Move AI prompt' });
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 240, clientY: 320, button: 0 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 300, clientY: 160 });
+    expect(panel).toHaveStyle({ left: '260px', top: '140px' });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: -900, clientY: -900 });
+    expect(panel).toHaveStyle({ left: '8px', top: '8px' });
+    fireEvent.pointerUp(handle, { pointerId: 1 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 500, clientY: 500 });
+    expect(panel).toHaveStyle({ left: '8px', top: '8px' });
+    fireEvent.pointerDown(handle, { pointerId: 2, clientX: 240, clientY: 320, button: 0 });
+    fireEvent.pointerMove(handle, { pointerId: 2, clientX: 9000, clientY: 9000 });
+    expect(panel).toHaveStyle({ left: `${window.innerWidth - 488}px`, top: `${window.innerHeight - 408}px` });
+    fireEvent.pointerCancel(handle, { pointerId: 2 });
+    fireEvent.pointerMove(handle, { pointerId: 2, clientX: -900, clientY: -900 });
+    expect(panel).toHaveStyle({ left: `${window.innerWidth - 488}px`, top: `${window.innerHeight - 408}px` });
+  });
+
+  it('supports keyboard movement and clamps its position when the window shrinks', () => {
+    renderMovablePrompt();
+    const panel = screen.getByTestId('ai-selection-popover');
+    vi.spyOn(panel, 'getBoundingClientRect').mockReturnValue({ left: 200, top: 300, width: 480, height: 400 } as DOMRect);
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Move AI prompt' }), { key: 'ArrowUp' });
+    expect(panel).toHaveStyle({ left: '200px', top: '280px' });
+    const previousHeight = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', { value: 500, configurable: true });
+    fireEvent(window, new Event('resize'));
+    expect(panel).toHaveStyle({ top: '92px' });
+    Object.defineProperty(window, 'innerHeight', { value: previousHeight, configurable: true });
+  });
+
   it('reserves output for the selected text even in a document larger than the model context', async () => {
     const source = `Edit this.\n\n${'Unselected paragraph.\n'.repeat(8_000)}`;
     const snapshot = captureSourceSelection(source, 0, 10, 'doc-large');
