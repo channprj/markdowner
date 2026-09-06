@@ -80,7 +80,8 @@ Useful shortcuts:
 
 Connect your OpenRouter key in **Settings → AI Feature**. Select a task and model for PRD improvement, summaries, translation, or custom instructions. Select text and use `Cmd+Shift+K` for an inline prompt in the source or WYSIWYG editor.
 
-- Only the selected, masked text is sent for inline edits; the complete source stays local for validation. Summaries receive the source once, without a duplicate document envelope.
+- Inline edits send only editable text fragments from the selection. Links, code, Markdown delimiters, and surrounding whitespace stay local and are restored before the complete document is validated. Every requested text fragment must be returned; incomplete results are never applied. Summaries receive the source once, without a duplicate document envelope.
+- Drag the inline prompt's title to move it, or focus the title and use the arrow keys. **Hide AI prompt** folds it into a compact status bar without losing the draft or cancelling a request. Use **Show AI prompt** to restore it; cancellation remains available while hidden. Pressing `Esc` during a request also hides the prompt.
 - Large requests are processed in smaller parts, with input and output budgets based on the selected model. Context and truncated-output failures trigger bounded subdivision. Long PRD interviews also condense document context and previous answers before asking the next question. These multi-call runs can take longer and cost more; very large instructions or an indivisible protected block can still exceed a model's limits.
 - Activity and Review show the current stage, completed parts, received characters, and cancellation. Switching AI panel tabs keeps work in progress.
 - In **Settings → AI Feature → System Prompts**, edit or reset the behavior of PRD improvement, summaries, translation, custom prompts, and PRD interviews independently. Changes apply to future requests; output schemas and Markdown protection remain enforced.
@@ -90,6 +91,12 @@ Model requests send content to OpenRouter and the chosen provider after cloud co
 
 ```bash
 MARKDOWNER_LIVE_AI_MODEL=upstage/solar-pro4 cargo test -p markdowner-desktop configured_provider_validates_synthetic_tasks_and_interview -- --ignored --nocapture
+```
+
+To verify inline translation of a synthetic list with 200 protected Markdown tokens:
+
+```bash
+MARKDOWNER_LIVE_AI_MODEL=upstage/solar-pro4 cargo test -p markdowner-desktop configured_provider_translates_dense_inline_markdown_with_local_structure -- --ignored --nocapture
 ```
 
 ## CLI Integration
