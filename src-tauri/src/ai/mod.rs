@@ -7,11 +7,13 @@ use std::{
 };
 
 use markdowner_core::ai_document::{
-    AiDocumentEnvelope, ByteRange, PrdResponse, ProtectionPolicy, SelectionResponse,
+    AiDocumentEnvelope, ByteRange, PrdResponse, ProtectionPolicy,
     SummaryResponse, TranslationResponse, ValidatedDocument, ValidationError,
     validate_batched_translation, validate_prd_response, validate_selection_response,
     validate_summary_response, validate_translation,
 };
+#[cfg(test)]
+use markdowner_core::ai_document::SelectionResponse;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State, ipc::Channel};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -50,6 +52,7 @@ pub mod history;
 pub mod interview;
 pub mod keychain;
 pub mod openrouter;
+mod selection_edits;
 
 const AI_ACTIVITY_CHANGED_EVENT: &str = "markdowner://ai-activity-changed";
 const AI_HISTORY_CHANGED_EVENT: &str = "markdowner://ai-history-changed";
@@ -1582,11 +1585,21 @@ fn merge_chunk_contents(task: AiTask, selection: bool, contents: Vec<String>) ->
     let response = match task {
         AiTask::Summary => serde_json::to_value(merge_chunked_summary_responses(decode::<SummaryResponse>(&contents)?)?),
         AiTask::Custom if selection => {
-            let responses = decode::<SelectionResponse>(&contents)?;
-            serde_json::to_value(SelectionResponse {
+            let responses = decode::<selection_edits::SelectionEditsResponse>(&contents)?;
+            let mut replacements = std::collections::BTreeMap::new();
+            let mut warnings = Vec::new();
+            for response in responses {
+                for (id, text) in response.replacements {
+                    if replacements.insert(id, text).is_some() {
+                        return Err(AiError::new("chunk_merge_failed", "Selection parts overlapped during reconstruction."));
+                    }
+                }
+                warnings.extend(response.warnings);
+            }
+            serde_json::to_value(selection_edits::SelectionEditsResponse {
                 schema_version: 1,
-                replacement_text: responses.iter().map(|response| response.replacement_text.as_str()).collect(),
-                warnings: responses.into_iter().flat_map(|response| response.warnings).collect(),
+                replacements,
+                warnings,
             })
         }
         AiTask::Translation => {
@@ -2318,8 +2331,7 @@ fn validate_provider_result(
                 validate_prd_response(envelope, response).map_err(validation_issues)
             }),
         AiTask::Custom if envelope.selection.is_some() => {
-            serde_json::from_str::<SelectionResponse>(content)
-                .map_err(schema_error)
+            selection_edits::restore_response(envelope, content)
                 .and_then(|response| {
                     validate_selection_response(envelope, response).map_err(validation_issues)
                 })
@@ -3077,6 +3089,32 @@ mod tests {
     }
 
     #[test]
+    fn selection_text_edits_preserve_dense_markdown_without_echoing_protected_tokens() {
+        let selected = (1..=20).map(|index| format!(
+            "- **Old course {index}**: [Old guide](https://example.test/{index}) · `code_{index}`\n"
+        )).collect::<String>();
+        let source = format!("Untouched prefix.\n{selected}Untouched suffix.\n");
+        let envelope = AiDocumentEnvelope::new("doc", &source, Some(ByteRange {
+            start: 18, end: 18 + selected.len(),
+        })).unwrap();
+        assert!(envelope.protected.len() > 105);
+        let document = super::openrouter::provider_document(
+            &serde_json::to_value(&envelope).unwrap(), AiTask::Custom,
+        );
+        assert!(!document.to_string().contains("MDNER_"), "the model must never copy structural placeholders");
+        assert!(!document.to_string().contains("https://example.test"));
+        assert!(!document.to_string().contains("Untouched"));
+        let replacements = document["segments"].as_array().unwrap().iter().map(|segment| (
+            segment["id"].as_str().unwrap().to_string(),
+            serde_json::json!(segment["text"].as_str().unwrap().replace("Old", "New")),
+        )).collect::<serde_json::Map<String, serde_json::Value>>();
+        let response = serde_json::json!({"schema_version":1,"replacements":replacements,"warnings":[]}).to_string();
+        let (result, issues) = validate_provider_result(&envelope, AiTask::Custom, &response, None, Some("stop"));
+        assert!(issues.is_empty(), "{issues:?}");
+        assert_eq!(result.unwrap().proposed_markdown, source.replace("Old", "New"));
+    }
+
+    #[test]
     fn mock_selection_result_validates_without_network() {
         let source = "Make this clear.";
         let envelope = AiDocumentEnvelope::new(
@@ -3090,7 +3128,7 @@ mod tests {
         .unwrap();
         let response = serde_json::json!({
             "schema_version": 1,
-            "replacement_text": "Make this measurable.",
+            "replacements": {"seg-0001:text:0":"Make this measurable."},
             "warnings": []
         })
         .to_string();
@@ -3106,7 +3144,7 @@ mod tests {
     }
 
     #[test]
-    fn unsafe_selection_replacement_fails_closed_without_a_result() {
+    fn legacy_selection_replacement_fails_closed_without_a_result() {
         let source = "Keep `cargo test` exactly.";
         let start = source.find('K').unwrap();
         let envelope = AiDocumentEnvelope::new(
@@ -3132,7 +3170,7 @@ mod tests {
         assert!(
             issues
                 .iter()
-                .any(|issue| issue.code == "protected_token_missing")
+                .any(|issue| issue.code == "invalid_schema")
         );
     }
 }

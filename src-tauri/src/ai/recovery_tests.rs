@@ -79,10 +79,9 @@ async fn provider(
                         response["summaryMarkdown"] = json!("# PRD context\n\nThe primary users are product managers. Preserve accessibility requirements and existing resolved decisions.");
                     }
                     if first_failure == "unsafe" {
-                        response["replacementText"] = json!(format!(
-                            "<script>{}",
-                            response["replacementText"].as_str().unwrap()
-                        ));
+                        let first = response["replacements"].as_object_mut().unwrap()
+                            .values_mut().next().unwrap();
+                        *first = json!(format!("<script>{}", first.as_str().unwrap()));
                     }
                     response.to_string()
                 };
@@ -148,9 +147,11 @@ fn echo_edit(body: &Value) -> Value {
             "summaryMarkdown":format!("# Summary\n\n{}", document["source"].as_str().unwrap()),"warnings":[]});
     }
     let segments = document["segments"].as_array().unwrap();
-    if schema == "selection_replacement" {
-        return json!({"schemaVersion":1,"replacementText":segments.iter().map(|segment|
-            segment["text"].as_str().unwrap().replace("Old", "New")).collect::<String>(),"warnings":[]});
+    if schema == "selection_text_edits" {
+        return json!({"schema_version":1,"replacements":segments.iter().map(|segment| (
+            segment["id"].as_str().unwrap().to_string(),
+            json!(segment["text"].as_str().unwrap().replace("Old", "New")),
+        )).collect::<serde_json::Map<_, _>>(),"warnings":[]});
     }
     if schema == "markdown_translation" {
         return json!({"schemaVersion":1,"detectedSourceLanguage":"en","targetLanguage":"ko",
