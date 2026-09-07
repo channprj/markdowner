@@ -132,6 +132,8 @@ export interface Settings extends InlineStyleColorSettings {
    */
   ignoreList: string[];
   aiModelDefaultsVersion: number;
+  aiPrimaryModel: string;
+  /** Empty task models inherit aiPrimaryModel. */
   aiPrdModel: string;
   aiSummaryModel: string;
   aiTranslationModel: string;
@@ -190,7 +192,7 @@ export interface CtrlGLauncherActionResult {
 
 export const CLI_BINARY_INSTALL_PATH = '/usr/local/bin/mdner';
 export const DEFAULT_AI_MODEL = 'upstage/solar-pro4';
-export const AI_MODEL_DEFAULTS_VERSION = 1;
+export const AI_MODEL_DEFAULTS_VERSION = 2;
 const LEGACY_DEFAULT_AI_MODEL = 'z-ai/glm-5.2';
 const AI_MODEL_SETTING_KEYS = [
   'aiPrdModel',
@@ -283,10 +285,11 @@ export const DEFAULT_SETTINGS: Settings = {
   keybindingOverrides: {},
   ignoreList: [...DEFAULT_IGNORE_LIST],
   aiModelDefaultsVersion: AI_MODEL_DEFAULTS_VERSION,
-  aiPrdModel: DEFAULT_AI_MODEL,
-  aiSummaryModel: DEFAULT_AI_MODEL,
-  aiTranslationModel: DEFAULT_AI_MODEL,
-  aiCustomPromptModel: DEFAULT_AI_MODEL,
+  aiPrimaryModel: DEFAULT_AI_MODEL,
+  aiPrdModel: '',
+  aiSummaryModel: '',
+  aiTranslationModel: '',
+  aiCustomPromptModel: '',
   aiSystemPrompts: {},
   aiSummaryTargetLanguage: 'source',
   aiTranslationTargetLanguage: defaultAiTranslationTargetLanguage(),
@@ -588,8 +591,12 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): {
   if (typeof merged.defaultAppPromptSeen !== 'boolean') {
     merged.defaultAppPromptSeen = DEFAULT_SETTINGS.defaultAppPromptSeen;
   }
-  for (const key of AI_MODEL_SETTING_KEYS) {
+  for (const key of ['aiPrimaryModel', ...AI_MODEL_SETTING_KEYS] as const) {
     const value = merged[key];
+    if (key !== 'aiPrimaryModel' && typeof value === 'string' && !value.trim()) {
+      merged[key] = '';
+      continue;
+    }
     if (
       typeof value !== 'string' ||
       value.trim().length === 0 ||
@@ -597,15 +604,16 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): {
       !value.includes('/') ||
       /\s/.test(value)
     ) {
-      merged[key] = DEFAULT_AI_MODEL;
+      merged[key] = key === 'aiPrimaryModel' ? DEFAULT_AI_MODEL : '';
     } else {
       merged[key] = value.trim();
     }
   }
   if (migratedAiModelDefaults) {
     for (const key of AI_MODEL_SETTING_KEYS) {
-      if (merged[key] === LEGACY_DEFAULT_AI_MODEL) {
-        merged[key] = DEFAULT_AI_MODEL;
+      if (merged[key] === DEFAULT_AI_MODEL ||
+          (storedAiModelDefaultsVersion < 1 && merged[key] === LEGACY_DEFAULT_AI_MODEL)) {
+        merged[key] = '';
       }
     }
     merged.aiModelDefaultsVersion = AI_MODEL_DEFAULTS_VERSION;

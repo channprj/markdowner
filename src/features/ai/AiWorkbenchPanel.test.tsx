@@ -36,6 +36,27 @@ const solar: AiModel = {
 };
 
 describe('AiWorkbenchPanel', () => {
+  it.each(['prd', 'summary', 'translation', 'custom'] as const)(
+    'uses the primary model and the edited system prompt for %s requests', async (task) => {
+      const run = vi.fn().mockImplementation(async (request: AiRunRequest) => runResult(request));
+      render(<AiWorkbenchPanel documentId="doc-1" source="Original document facts." selection={null}
+        settings={{ ...DEFAULT_SETTINGS, aiPrimaryModel: 'z-ai/glm-5.3',
+          aiPrdModel: '', aiSummaryModel: '', aiTranslationModel: '', aiCustomPromptModel: '',
+          aiTranslationTargetLanguage: 'ko', aiCloudDisclosureAccepted: true,
+          aiSystemPrompts: { [task]: 'Focus on accessibility.' } }}
+        onSettingsChange={vi.fn()} onResult={vi.fn()}
+        services={{ keyStatus: async () => ({ configured: true, maskedLabel: null }),
+          listModels: async () => [{ ...glm, id: 'z-ai/glm-5.3', name: 'GLM 5.3' }], run, cancel: vi.fn() }} />);
+      fireEvent.change(screen.getByLabelText('AI task'), { target: { value: task } });
+      if (task === 'custom') fireEvent.change(screen.getByLabelText('Custom prompt'), { target: { value: 'Improve clarity.' } });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled());
+      fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+      await waitFor(() => expect(run).toHaveBeenCalledWith(expect.objectContaining({
+        task, model: 'z-ai/glm-5.3', systemPrompt: 'Focus on accessibility.',
+      }), expect.any(Function)));
+    },
+  );
+
   it('summarizes the current document in the source language without a selection', async () => {
     const run = vi.fn().mockImplementation(async (request: AiRunRequest) => runResult(request));
     render(

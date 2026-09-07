@@ -14,6 +14,35 @@ afterEach(() => {
 });
 
 describe('AiSelectionPopover', () => {
+  it.each([
+    ['', 'z-ai/glm-5.3'],
+    ['vendor/inline', 'vendor/inline'],
+  ])('uses the primary model unless an inline override is set (%s)', async (override, expected) => {
+    const snapshot = captureSourceSelection('alpha beta', 6, 10, 'doc-1')!;
+    const run = vi.fn<AiSelectionServices['run']>(() => new Promise(() => {}));
+    render(<AiSelectionPopover snapshot={snapshot}
+      settings={{ ...DEFAULT_SETTINGS, aiPrimaryModel: 'z-ai/glm-5.3', aiCustomPromptModel: override,
+        aiCloudDisclosureAccepted: true, aiZdrOnly: false }} onClose={vi.fn()} onResult={vi.fn()}
+      services={{ keyStatus: async () => ({ configured: true, maskedLabel: null }),
+        listModels: async () => [{ id: expected, name: expected, contextLength: 100_000,
+          inputModalities: ['text'], outputModalities: ['text'], supportedParameters: ['structured_outputs'],
+          pricing: { prompt: 0, completion: 0, updatedAt: '' } }], run, cancel: vi.fn() }} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run on selection' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Run on selection' }));
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ model: expected }), expect.any(Function));
+  });
+
+  it('blocks an unavailable saved model instead of silently using the first model', async () => {
+    const snapshot = captureSourceSelection('alpha beta', 6, 10, 'doc-1')!;
+    render(<AiSelectionPopover snapshot={snapshot}
+      settings={{ ...DEFAULT_SETTINGS, aiCustomPromptModel: 'vendor/removed',
+        aiCloudDisclosureAccepted: true, aiZdrOnly: false }} onClose={vi.fn()} onResult={vi.fn()}
+      services={{ keyStatus: async () => ({ configured: true, maskedLabel: null }),
+        listModels: async () => [], run: vi.fn(), cancel: vi.fn() }} />);
+    expect(await screen.findByRole('option', { name: 'vendor/removed · unavailable' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run on selection' })).toBeDisabled();
+  });
+
   function renderMovablePrompt(overrides: Partial<AiSelectionServices> = {}) {
     const snapshot = captureSourceSelection('alpha beta', 6, 10, 'doc-1');
     if (!snapshot) throw new Error('selection required');
@@ -140,7 +169,7 @@ describe('AiSelectionPopover', () => {
         aiSystemPrompts: { custom: 'Keep inline edits concise.' } }}
       onClose={vi.fn()} onResult={vi.fn()} services={{
         keyStatus: async () => ({ configured: true, maskedLabel: null }),
-        listModels: async () => [{ id: DEFAULT_SETTINGS.aiCustomPromptModel,
+        listModels: async () => [{ id: DEFAULT_SETTINGS.aiPrimaryModel,
           name: 'Small model', contextLength: 8_192, maxCompletionTokens: 4_096,
           inputModalities: ['text'], outputModalities: ['text'],
           supportedParameters: ['structured_outputs'],
@@ -236,7 +265,7 @@ describe('AiSelectionPopover', () => {
           keyStatus: vi.fn(async () => ({ configured: true, maskedLabel: 'sk-or-…test' })),
           listModels: vi.fn(async () => [
             {
-              id: DEFAULT_SETTINGS.aiCustomPromptModel,
+              id: DEFAULT_SETTINGS.aiPrimaryModel,
               name: 'Solar Pro 4',
               description: null,
               contextLength: 524_288,
@@ -381,7 +410,7 @@ describe('AiSelectionPopover', () => {
           })),
           listModels: vi.fn(async () => [
             {
-              id: DEFAULT_SETTINGS.aiCustomPromptModel,
+              id: DEFAULT_SETTINGS.aiPrimaryModel,
               name: 'Default model',
               description: null,
               contextLength: 131_072,

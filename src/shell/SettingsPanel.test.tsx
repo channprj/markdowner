@@ -36,6 +36,7 @@ vi.mock('@/lib/desktop', () => ({
     configured: false,
     maskedLabel: null,
   }),
+  aiListModels: vi.fn().mockResolvedValue([]),
   aiSaveKey: vi.fn(),
   aiVerifyKey: vi.fn(),
   aiDeleteKey: vi.fn(),

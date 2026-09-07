@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, KeyRound, LoaderCircle, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
+import { CheckCircle2, KeyRound, LoaderCircle, RefreshCw, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,23 +8,28 @@ import { Switch } from '@/components/ui/switch';
 import {
   aiDeleteKey,
   aiKeyStatus,
+  aiListModels,
   aiSaveKey,
   aiVerifyKey,
 } from '@/lib/desktop';
 
-import { PINNED_AI_MODEL_CHOICES } from './model';
-import type { AiKeyMetadata, AiKeyStatus } from './types';
+import { orderModels } from './model';
+import type { AiKeyMetadata, AiKeyStatus, AiModel, AiModelOption } from './types';
 import { AiSystemPromptSettings } from './AiSystemPromptSettings';
 import type { AiSystemPrompts } from './systemPrompts';
+import { AI_METADATA_UI_TIMEOUT_MS } from './requestTimeout';
 
 export interface OpenRouterSettingsServices {
   keyStatus: () => Promise<AiKeyStatus>;
   saveKey: (apiKey: string) => Promise<AiKeyStatus>;
   verifyKey: () => Promise<AiKeyMetadata>;
   deleteKey: () => Promise<AiKeyStatus>;
+  listModels?: () => Promise<AiModel[]>;
 }
 
 export interface OpenRouterSettingsProps {
+  primaryModel: string;
+  onPrimaryModelChange: (model: string) => void;
   zdrOnly: boolean;
   disclosureAccepted: boolean;
   prdModel: string;
@@ -55,9 +60,12 @@ const DEFAULT_SERVICES: OpenRouterSettingsServices = {
   saveKey: aiSaveKey,
   verifyKey: aiVerifyKey,
   deleteKey: aiDeleteKey,
+  listModels: aiListModels,
 };
 
 export function OpenRouterSettings({
+  primaryModel,
+  onPrimaryModelChange,
   zdrOnly,
   disclosureAccepted,
   prdModel,
@@ -92,6 +100,36 @@ export function OpenRouterSettings({
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [models, setModels] = useState<AiModel[]>([]);
+  const [modelQuery, setModelQuery] = useState('');
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
+  const [catalogAttempt, setCatalogAttempt] = useState(0);
+  const modelOptions = orderModels(models, 'prd');
+
+  useEffect(() => {
+    if (!status.configured || !services.listModels) {
+      setCatalogLoading(false);
+      setCatalogError('');
+      return;
+    }
+    let cancelled = false;
+    setCatalogLoading(true);
+    setCatalogError('');
+    const timeout = window.setTimeout(() => {
+      cancelled = true;
+      setCatalogLoading(false);
+      setCatalogError('The model catalog did not respond. Try refreshing the models.');
+    }, AI_METADATA_UI_TIMEOUT_MS);
+    Promise.resolve().then(() => services.listModels!())
+      .then((catalog) => { if (!cancelled) setModels(catalog); })
+      .catch((reason) => { if (!cancelled) setCatalogError(errorMessage(reason)); })
+      .finally(() => {
+        window.clearTimeout(timeout);
+        if (!cancelled) setCatalogLoading(false);
+      });
+    return () => { cancelled = true; window.clearTimeout(timeout); };
+  }, [status.configured, services, catalogAttempt]);
 
   useEffect(() => {
     let cancelled = false;
@@ -276,38 +314,64 @@ export function OpenRouterSettings({
       >
         <div>
           <h4 id="ai-task-defaults-heading" className="text-sm font-medium">
-            Task Defaults
+            Models & Task Defaults
           </h4>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Choose a default model for each task. Markdowner never
-            falls back to another model automatically.
+            Choose your primary model, then override it for individual tasks as needed.
+            New requests use these defaults, including inline editing and PRD interviews.
           </p>
         </div>
 
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="grid min-w-0 flex-1 gap-1.5">
+            <Label htmlFor="ai-default-model-search">Search default models</Label>
+            <Input id="ai-default-model-search" type="search" value={modelQuery}
+              onChange={(event) => setModelQuery(event.target.value)} placeholder="Search by model name or ID" />
+          </div>
+          <Button type="button" variant="outline" disabled={catalogLoading || !status.configured || !services.listModels}
+            onClick={() => setCatalogAttempt((attempt) => attempt + 1)}>
+            {catalogLoading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
+            {catalogLoading ? 'Refreshing models…' : 'Refresh models'}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {status.configured ? 'Search the OpenRouter catalog or refresh to discover newly released models.'
+            : 'Featured models are available below. Connect OpenRouter to load the full catalog.'}
+          {' '}Models without structured output support cannot be used for these tasks.
+        </p>
+        {catalogError ? <p role="alert" className="text-xs text-destructive">{catalogError} Saved model choices are kept.</p> : null}
+        {modelQuery && !modelOptions.some((model) => matchesModel(model, modelQuery)) ?
+          <p role="status" className="text-xs text-muted-foreground">No matching models. Clear the search or refresh the catalog.</p> : null}
+        <ModelDefaultSelect id="ai-primary-model" label="Primary model" value={primaryModel}
+          onChange={onPrimaryModelChange} models={modelOptions} query={modelQuery} />
         <div className="grid gap-3 sm:grid-cols-2">
           <ModelDefaultSelect
             id="ai-prd-default-model"
             label="PRD default model"
             value={prdModel}
             onChange={onPrdModelChange}
+            models={modelOptions} query={modelQuery} primaryModel={primaryModel}
           />
           <ModelDefaultSelect
             id="ai-summary-default-model"
             label="Summary default model"
             value={summaryModel}
             onChange={onSummaryModelChange}
+            models={modelOptions} query={modelQuery} primaryModel={primaryModel}
           />
           <ModelDefaultSelect
             id="ai-translation-default-model"
             label="Translation default model"
             value={translationModel}
             onChange={onTranslationModelChange}
+            models={modelOptions} query={modelQuery} primaryModel={primaryModel}
           />
           <ModelDefaultSelect
             id="ai-custom-default-model"
             label="Custom prompt default model"
             value={customPromptModel}
             onChange={onCustomPromptModelChange}
+            models={modelOptions} query={modelQuery} primaryModel={primaryModel}
           />
           <div className="grid gap-1.5">
             <Label htmlFor="ai-summary-language">Summary language</Label>
@@ -441,13 +505,20 @@ function ModelDefaultSelect({
   label,
   value,
   onChange,
+  models,
+  query,
+  primaryModel,
 }: {
   id: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
+  models: AiModelOption[];
+  query: string;
+  primaryModel?: string;
 }) {
-  const known = PINNED_AI_MODEL_CHOICES.some((choice) => choice.id === value);
+  const known = models.some((choice) => choice.id === value);
+  const primaryLabel = models.find((choice) => choice.id === primaryModel)?.name ?? primaryModel;
   return (
     <div className="grid gap-1.5">
       <Label htmlFor={id}>{label}</Label>
@@ -457,15 +528,20 @@ function ModelDefaultSelect({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
-        {!known ? <option value={value}>{value} · unavailable</option> : null}
-        {PINNED_AI_MODEL_CHOICES.map((choice) => (
-          <option key={choice.id} value={choice.id}>
-            {choice.label} · {choice.id}
+        {primaryModel !== undefined ? <option value="">Use primary model · {primaryLabel}</option> : null}
+        {value && !known ? <option value={value}>{value} · not in catalog</option> : null}
+        {models.filter((choice) => choice.id === value || matchesModel(choice, query)).map((choice) => (
+          <option key={choice.id} value={choice.id} disabled={!choice.enabled}>
+            {choice.name} · {choice.id}{choice.enabled ? '' : ' · structured output unavailable'}
           </option>
         ))}
       </select>
     </div>
   );
+}
+
+function matchesModel(model: AiModelOption, query: string): boolean {
+  return `${model.name} ${model.id}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
 }
 
 function formatCreditMetadata(metadata: AiKeyMetadata): string {

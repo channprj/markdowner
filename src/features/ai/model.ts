@@ -6,16 +6,35 @@ import type {
   AiTask,
   AiUsage,
 } from './types';
+import type { Settings } from '@/lib/settings';
 
 export type { AiModel, AiModelOption, AiScope, AiTask } from './types';
 
 export const DEFAULT_AI_MODEL = 'upstage/solar-pro4';
+export function defaultModelForTask(settings: Settings, task: AiTask): string {
+  const override = task === 'prd' ? settings.aiPrdModel
+    : task === 'summary' ? settings.aiSummaryModel
+    : task === 'translation' ? settings.aiTranslationModel : settings.aiCustomPromptModel;
+  return override || settings.aiPrimaryModel || DEFAULT_AI_MODEL;
+}
+
+// OpenRouter catalog checked 2026-09-07. Live metadata overrides these offline choices.
 export const PINNED_AI_MODEL_CHOICES = [
   {
     id: DEFAULT_AI_MODEL,
     label: 'Solar Pro 4',
     contextLength: 524_288,
   },
+  { id: 'z-ai/glm-5.3', label: 'GLM 5.3', contextLength: 1_310_720 },
+  { id: 'z-ai/glm-5.3-flash', label: 'GLM 5.3 Flash', contextLength: 1_310_720 },
+  { id: 'anthropic/claude-fable-5.1', label: 'Claude Fable 5.1', contextLength: 1_000_000 },
+  { id: 'anthropic/claude-opus-5', label: 'Claude Opus 5', contextLength: 1_000_000 },
+  { id: 'anthropic/claude-sonnet-5', label: 'Claude Sonnet 5', contextLength: 1_000_000 },
+  { id: 'openai/gpt-6-astra', label: 'GPT-6 Astra', contextLength: 1_050_000 },
+  { id: 'openai/gpt-5.6-sol', label: 'GPT-5.6 Sol', contextLength: 1_050_000 },
+  { id: 'google/gemini-3.8-flash', label: 'Gemini 3.8 Flash', contextLength: 1_048_576 },
+  { id: 'deepseek/deepseek-v4-pro-0813', label: 'DeepSeek V4 Pro 0813', contextLength: 1_048_576 },
+  { id: 'x-ai/grok-4.6', label: 'Grok 4.6', contextLength: 500_000 },
   { id: 'z-ai/glm-5.2', label: 'GLM 5.2', contextLength: 1_048_576 },
   { id: 'moonshotai/kimi-k3', label: 'Kimi K3', contextLength: 1_048_576 },
   {
@@ -40,6 +59,16 @@ export const PINNED_AI_MODEL_CHOICES = [
 type PinnedAiModelId = (typeof PINNED_AI_MODEL_CHOICES)[number]['id'];
 const PINNED_MAX_COMPLETION_TOKENS: Partial<Record<PinnedAiModelId, number>> = {
   'upstage/solar-pro4': 131_072,
+  'z-ai/glm-5.3': 943_718,
+  'z-ai/glm-5.3-flash': 131_072,
+  'anthropic/claude-fable-5.1': 128_000,
+  'anthropic/claude-opus-5': 128_000,
+  'anthropic/claude-sonnet-5': 128_000,
+  'openai/gpt-6-astra': 128_000,
+  'openai/gpt-5.6-sol': 128_000,
+  'google/gemini-3.8-flash': 65_536,
+  'deepseek/deepseek-v4-pro-0813': 384_000,
+  'x-ai/grok-4.6': 450_000,
 };
 export const PINNED_AI_MODELS: readonly PinnedAiModelId[] =
   PINNED_AI_MODEL_CHOICES.map((choice) => choice.id);

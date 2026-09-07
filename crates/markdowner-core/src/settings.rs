@@ -5,7 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::EditorMode;
 
 pub const DEFAULT_AI_MODEL: &str = "upstage/solar-pro4";
-pub const AI_MODEL_DEFAULTS_VERSION: u32 = 1;
+pub const AI_MODEL_DEFAULTS_VERSION: u32 = 2;
 
 #[test]
 fn system_prompt_settings_round_trip_without_rejecting_legacy_or_malformed_entries() {
@@ -55,7 +55,7 @@ fn default_ai_translation_target_language() -> String {
         .unwrap_or_else(|| "en".to_string())
 }
 
-fn normalize_ai_model(value: serde_json::Value) -> String {
+fn normalize_ai_model(value: serde_json::Value, fallback: &str) -> String {
     value
         .as_str()
         .map(str::trim)
@@ -66,7 +66,7 @@ fn normalize_ai_model(value: serde_json::Value) -> String {
                 && !candidate.chars().any(char::is_whitespace)
         })
         .map(ToOwned::to_owned)
-        .unwrap_or_else(|| DEFAULT_AI_MODEL.to_string())
+        .unwrap_or_else(|| fallback.to_string())
 }
 
 fn deserialize_ai_model<'de, D>(deserializer: D) -> Result<String, D::Error>
@@ -74,7 +74,15 @@ where
     D: Deserializer<'de>,
 {
     let value = serde_json::Value::deserialize(deserializer)?;
-    Ok(normalize_ai_model(value))
+    Ok(normalize_ai_model(value, DEFAULT_AI_MODEL))
+}
+
+fn deserialize_ai_task_model<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(normalize_ai_model(value, ""))
 }
 
 fn normalize_target_language(value: serde_json::Value) -> String {
@@ -266,12 +274,15 @@ pub struct Settings {
     #[serde(default = "legacy_ai_model_defaults_version")]
     pub ai_model_defaults_version: u32,
     #[serde(deserialize_with = "deserialize_ai_model")]
+    pub ai_primary_model: String,
+    /// An empty task model inherits the primary model.
+    #[serde(deserialize_with = "deserialize_ai_task_model")]
     pub ai_prd_model: String,
-    #[serde(deserialize_with = "deserialize_ai_model")]
+    #[serde(deserialize_with = "deserialize_ai_task_model")]
     pub ai_summary_model: String,
-    #[serde(deserialize_with = "deserialize_ai_model")]
+    #[serde(deserialize_with = "deserialize_ai_task_model")]
     pub ai_translation_model: String,
-    #[serde(deserialize_with = "deserialize_ai_model")]
+    #[serde(deserialize_with = "deserialize_ai_task_model")]
     pub ai_custom_prompt_model: String,
     #[serde(default, deserialize_with = "deserialize_ai_system_prompts")]
     pub ai_system_prompts: BTreeMap<String, String>,
@@ -343,10 +354,11 @@ impl Default for Settings {
             keybinding_overrides: BTreeMap::new(),
             ignore_list: crate::storage::default_ignore_list(),
             ai_model_defaults_version: AI_MODEL_DEFAULTS_VERSION,
-            ai_prd_model: DEFAULT_AI_MODEL.to_string(),
-            ai_summary_model: DEFAULT_AI_MODEL.to_string(),
-            ai_translation_model: DEFAULT_AI_MODEL.to_string(),
-            ai_custom_prompt_model: DEFAULT_AI_MODEL.to_string(),
+            ai_primary_model: DEFAULT_AI_MODEL.to_string(),
+            ai_prd_model: String::new(),
+            ai_summary_model: String::new(),
+            ai_translation_model: String::new(),
+            ai_custom_prompt_model: String::new(),
             ai_system_prompts: BTreeMap::new(),
             ai_summary_target_language: "source".to_string(),
             ai_translation_target_language: default_ai_translation_target_language(),
@@ -742,6 +754,23 @@ mod tests {
     }
 
     #[test]
+    fn primary_model_and_inherited_task_choices_survive_disk_round_trip() {
+        let settings: Settings = serde_json::from_value(serde_json::json!({
+            "aiModelDefaultsVersion": 2, "aiPrimaryModel": "z-ai/glm-5.3",
+            "aiPrdModel": "", "aiSummaryModel": "vendor/summary", "aiTranslationModel": "",
+            "aiCustomPromptModel": "", "aiSystemPrompts": { "custom": "Keep it concise." }
+        })).unwrap();
+        let encoded = serde_json::to_value(&settings).unwrap();
+        assert_eq!(encoded["aiPrimaryModel"], "z-ai/glm-5.3");
+        assert_eq!(encoded["aiPrdModel"], "");
+        assert_eq!(encoded["aiSummaryModel"], "vendor/summary");
+        assert_eq!(encoded["aiTranslationModel"], "");
+        assert_eq!(encoded["aiCustomPromptModel"], "");
+        let decoded: Settings = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.ai_system_prompts["custom"], "Keep it concise.");
+    }
+
+    #[test]
     fn ai_settings_default_and_recover_malformed_fields_independently() {
         let parsed: Settings = serde_json::from_value(serde_json::json!({
             "autoSave": true,
@@ -759,9 +788,9 @@ mod tests {
         .expect("settings parse");
 
         assert_eq!(parsed.ai_model_defaults_version, 0);
-        assert_eq!(parsed.ai_prd_model, "upstage/solar-pro4");
-        assert_eq!(parsed.ai_summary_model, "upstage/solar-pro4");
-        assert_eq!(parsed.ai_translation_model, "upstage/solar-pro4");
+        assert_eq!(parsed.ai_prd_model, "");
+        assert_eq!(parsed.ai_summary_model, "");
+        assert_eq!(parsed.ai_translation_model, "");
         assert_eq!(parsed.ai_custom_prompt_model, "vendor/model");
         assert_eq!(parsed.ai_summary_target_language, "source");
         assert_eq!(parsed.ai_translation_target_language, "en");
@@ -773,9 +802,9 @@ mod tests {
 
         let serialized = serde_json::to_value(parsed).expect("settings serialize");
         assert_eq!(serialized["aiModelDefaultsVersion"], 0);
-        assert_eq!(serialized["aiPrdModel"], "upstage/solar-pro4");
-        assert_eq!(serialized["aiSummaryModel"], "upstage/solar-pro4");
-        assert_eq!(serialized["aiTranslationModel"], "upstage/solar-pro4");
+        assert_eq!(serialized["aiPrdModel"], "");
+        assert_eq!(serialized["aiSummaryModel"], "");
+        assert_eq!(serialized["aiTranslationModel"], "");
         assert_eq!(serialized["aiCustomPromptModel"], "vendor/model");
         assert_eq!(serialized["aiSummaryTargetLanguage"], "source");
         assert_eq!(serialized["aiTranslationTargetLanguage"], "en");
@@ -788,11 +817,12 @@ mod tests {
     #[test]
     fn new_ai_defaults_use_solar_while_legacy_version_is_zero() {
         let defaults = Settings::default();
-        assert_eq!(defaults.ai_model_defaults_version, 1);
-        assert_eq!(defaults.ai_prd_model, "upstage/solar-pro4");
-        assert_eq!(defaults.ai_summary_model, "upstage/solar-pro4");
-        assert_eq!(defaults.ai_translation_model, "upstage/solar-pro4");
-        assert_eq!(defaults.ai_custom_prompt_model, "upstage/solar-pro4");
+        assert_eq!(defaults.ai_model_defaults_version, 2);
+        assert_eq!(defaults.ai_primary_model, "upstage/solar-pro4");
+        assert_eq!(defaults.ai_prd_model, "");
+        assert_eq!(defaults.ai_summary_model, "");
+        assert_eq!(defaults.ai_translation_model, "");
+        assert_eq!(defaults.ai_custom_prompt_model, "");
 
         let legacy: Settings = serde_json::from_str(
             r#"{"aiPrdModel":"z-ai/glm-5.2","aiCustomPromptModel":"vendor/custom"}"#,

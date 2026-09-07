@@ -27,6 +27,7 @@ import {
   NON_ZDR_CONFIRMATION_LABEL,
   outputTokenLimitForTask,
   orderModels,
+  defaultModelForTask,
   resolveUsageCost,
   resolveRunGate,
   searchLanguages,
@@ -144,7 +145,7 @@ export function AiWorkbenchPanel({
       : { kind: 'document', target: currentDocument },
   );
   const [models, setModels] = useState<AiModel[]>([]);
-  const [model, setModel] = useState(settings.aiPrdModel);
+  const [model, setModel] = useState(() => defaultModelForTask(settings, 'prd'));
   const [modelQuery, setModelQuery] = useState('');
   const [livePricing, setLivePricing] = useState<{
     modelId: string;
@@ -243,6 +244,7 @@ export function AiWorkbenchPanel({
     setLanguageQuery('');
     setConfirmed(false);
   }, [
+    settings.aiPrimaryModel,
     settings.aiCustomPromptModel,
     settings.aiPrdModel,
     settings.aiSummaryModel,
@@ -1437,13 +1439,6 @@ function taskLabel(task: AiTask): string {
       : task === 'translation'
         ? 'translation'
         : 'custom';
-}
-
-function defaultModelForTask(settings: Settings, task: AiTask): string {
-  if (task === 'prd') return settings.aiPrdModel;
-  if (task === 'summary') return settings.aiSummaryModel;
-  if (task === 'translation') return settings.aiTranslationModel;
-  return settings.aiCustomPromptModel;
 }
 
 function settingsWithDefaultModel(

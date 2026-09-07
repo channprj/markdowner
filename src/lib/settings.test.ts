@@ -551,13 +551,38 @@ describe('inline style color settings', () => {
 });
 
 describe('AI settings', () => {
-  it('defaults every AI task to Solar Pro 4 with migration version 1', () => {
+  it('migrates old built-in defaults to inheritance while retaining task choices', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValueOnce({ aiModelDefaultsVersion: 1,
+      aiPrdModel: 'upstage/solar-pro4', aiSummaryModel: 'z-ai/glm-5.2',
+      aiTranslationModel: 'vendor/chosen', aiCustomPromptModel: 'upstage/solar-pro4' });
+    const settings = await loadSettings();
+    expect(settings).toMatchObject({ aiPrimaryModel: 'upstage/solar-pro4',
+      aiPrdModel: '', aiSummaryModel: 'z-ai/glm-5.2',
+      aiTranslationModel: 'vendor/chosen', aiCustomPromptModel: '' });
+    expect(invokeMock).toHaveBeenLastCalledWith('save_settings', { settings });
+  });
+
+  it('round-trips a primary model with independent task overrides and inheritance', async () => {
+    invokeMock.mockReset();
+    const stored = { ...DEFAULT_SETTINGS, aiModelDefaultsVersion: 2,
+      aiPrimaryModel: 'z-ai/glm-5.3', aiPrdModel: '', aiSummaryModel: 'vendor/summary',
+      aiTranslationModel: '', aiCustomPromptModel: '' };
+    invokeMock.mockResolvedValueOnce(stored);
+    const settings = await loadSettings();
+    expect(settings).toMatchObject(stored);
+    await saveSettings(settings);
+    expect(invokeMock).toHaveBeenLastCalledWith('save_settings', { settings: expect.objectContaining(stored) });
+  });
+
+  it('defaults every AI task to Solar Pro 4 through the primary model', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
-      aiModelDefaultsVersion: 1,
-      aiPrdModel: 'upstage/solar-pro4',
-      aiSummaryModel: 'upstage/solar-pro4',
-      aiTranslationModel: 'upstage/solar-pro4',
-      aiCustomPromptModel: 'upstage/solar-pro4',
+      aiModelDefaultsVersion: 2,
+      aiPrimaryModel: 'upstage/solar-pro4',
+      aiPrdModel: '',
+      aiSummaryModel: '',
+      aiTranslationModel: '',
+      aiCustomPromptModel: '',
       aiSummaryTargetLanguage: 'source',
       aiTranslationTargetLanguage: 'en',
       aiZdrOnly: true,
@@ -585,11 +610,12 @@ describe('AI settings', () => {
 
     await expect(loadSettings()).resolves.toMatchObject({
       autoSave: true,
-      aiModelDefaultsVersion: 1,
-      aiPrdModel: 'upstage/solar-pro4',
-      aiSummaryModel: 'upstage/solar-pro4',
+      aiModelDefaultsVersion: 2,
+      aiPrimaryModel: 'upstage/solar-pro4',
+      aiPrdModel: '',
+      aiSummaryModel: '',
       aiTranslationModel: 'moonshotai/kimi-k3',
-      aiCustomPromptModel: 'upstage/solar-pro4',
+      aiCustomPromptModel: '',
       aiSummaryTargetLanguage: 'source',
       aiTranslationTargetLanguage: 'en',
       aiZdrOnly: true,
@@ -614,19 +640,21 @@ describe('AI settings', () => {
     });
 
     await expect(loadSettings()).resolves.toMatchObject({
-      aiModelDefaultsVersion: 1,
-      aiPrdModel: 'upstage/solar-pro4',
+      aiModelDefaultsVersion: 2,
+      aiPrimaryModel: 'upstage/solar-pro4',
+      aiPrdModel: '',
       aiSummaryModel: 'moonshotai/kimi-k3',
-      aiTranslationModel: 'upstage/solar-pro4',
+      aiTranslationModel: '',
       aiCustomPromptModel: 'vendor/custom',
     });
     expect(invokeMock).toHaveBeenCalledTimes(2);
     expect(invokeMock).toHaveBeenLastCalledWith('save_settings', {
       settings: expect.objectContaining({
-        aiModelDefaultsVersion: 1,
-        aiPrdModel: 'upstage/solar-pro4',
+        aiModelDefaultsVersion: 2,
+        aiPrimaryModel: 'upstage/solar-pro4',
+        aiPrdModel: '',
         aiSummaryModel: 'moonshotai/kimi-k3',
-        aiTranslationModel: 'upstage/solar-pro4',
+        aiTranslationModel: '',
         aiCustomPromptModel: 'vendor/custom',
       }),
     });
@@ -636,12 +664,14 @@ describe('AI settings', () => {
     invokeMock.mockReset();
     invokeMock.mockResolvedValue({
       ...DEFAULT_SETTINGS,
-      aiModelDefaultsVersion: 1,
+      aiModelDefaultsVersion: 2,
+      aiPrimaryModel: 'upstage/solar-pro4',
       aiPrdModel: 'z-ai/glm-5.2',
     });
 
     await expect(loadSettings()).resolves.toMatchObject({
-      aiModelDefaultsVersion: 1,
+      aiModelDefaultsVersion: 2,
+      aiPrimaryModel: 'upstage/solar-pro4',
       aiPrdModel: 'z-ai/glm-5.2',
     });
     expect(invokeMock).toHaveBeenCalledTimes(1);
@@ -659,8 +689,9 @@ describe('AI settings', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     await expect(loadSettings()).resolves.toMatchObject({
-      aiModelDefaultsVersion: 1,
-      aiPrdModel: 'upstage/solar-pro4',
+      aiModelDefaultsVersion: 2,
+      aiPrimaryModel: 'upstage/solar-pro4',
+      aiPrdModel: '',
     });
     expect(consoleError).toHaveBeenCalledWith(
       'Failed to migrate AI model defaults:',

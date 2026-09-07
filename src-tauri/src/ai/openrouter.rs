@@ -519,12 +519,13 @@ pub struct OpenRouterClient {
 struct ModelLimits {
     context: u64,
     output: u64,
+    supports_temperature: bool,
 }
 
 impl Default for ModelLimits {
     fn default() -> Self {
         // A missing/stale catalog is not permission to reserve 100,000 tokens.
-        Self { context: 32_768, output: 8_192 }
+        Self { context: 32_768, output: 8_192, supports_temperature: false }
     }
 }
 
@@ -580,6 +581,7 @@ impl OpenRouterClient {
                 limits.insert(model.id.clone(), ModelLimits {
                     context: if model.context_length > 0 { model.context_length } else { ModelLimits::default().context },
                     output: model.max_completion_tokens.filter(|limit| *limit > 0).unwrap_or(ModelLimits::default().output),
+                    supports_temperature: model.supported_parameters.iter().any(|parameter| parameter == "temperature"),
                 });
             }
         }
@@ -591,6 +593,11 @@ impl OpenRouterClient {
 
     fn budget_body(&self, body: &mut Value) -> Result<(), AiError> {
         let limits = self.limits(body["model"].as_str().unwrap_or_default());
+        // Requiring an unsupported optional parameter would exclude every
+        // provider for some reasoning models. Keep the required schema/ZDR policy.
+        if !limits.supports_temperature {
+            body.as_object_mut().expect("chat request object").remove("temperature");
+        }
         // UTF-8 bytes are a conservative bound, unlike chars/4 for Korean or
         // escaped JSON. Include both the actual messages and the output schema.
         let input = body["messages"].to_string().len() as u64
@@ -1562,6 +1569,44 @@ mod tests {
         assert!(!redacted.contains("sk-or-v1-another-secret"));
         assert!(!redacted.contains("Bearer"));
         assert!(redacted.contains("[REDACTED]"));
+    }
+
+    #[tokio::test]
+    async fn outbound_tasks_and_interviews_only_send_supported_temperature() {
+        for temperature_supported in [None, Some(false), Some(true)] {
+            for interview in [false, true] {
+                let (base_url, request_rx) = spawn_mock_response(200, "text/event-stream",
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"{}\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n");
+                let client = OpenRouterClient::with_base_url(&base_url).unwrap();
+                if let Some(supported) = temperature_supported {
+                    let mut parameters = vec!["response_format", "structured_outputs"];
+                    if supported { parameters.push("temperature"); }
+                    let model = super::parse_model(&json!({ "id": "vendor/flagship",
+                        "context_length": 1_000_000, "supported_parameters": parameters,
+                        "top_provider": {"max_completion_tokens": 128_000} }), "now").unwrap();
+                    client.remember_models(&[model]);
+                }
+                let body = if interview {
+                    build_interview_chat_request(&PrdInterviewCompletionRequest {
+                        model: "vendor/flagship".to_string(), document: json!({"source":"Notes app"}),
+                        interview_history: json!([]), instruction: None, system_prompt: None,
+                        zdr_only: true, max_output_tokens: 1024,
+                    })
+                } else {
+                    let mut request = fixture_request(AiTask::Summary);
+                    request.model = "vendor/flagship".to_string();
+                    build_chat_request(&request)
+                };
+                client.stream_body("sk-or-v1-test", body, &CancellationToken::new(), |_| {}).await.unwrap();
+                let request = request_rx.recv().unwrap();
+                let body: serde_json::Value = serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap();
+                assert_eq!(body.get("temperature").is_some(), temperature_supported == Some(true));
+                assert_eq!(body["model"], "vendor/flagship");
+                assert_eq!(body["provider"]["require_parameters"], true);
+                assert_eq!(body["provider"]["zdr"], true);
+                assert_eq!(body["response_format"]["type"], "json_schema");
+            }
+        }
     }
 
     #[tokio::test]

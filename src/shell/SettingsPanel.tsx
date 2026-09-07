@@ -1505,6 +1505,8 @@ export function SettingsPanel({
 
         <Separator />
         <OpenRouterSettings
+          primaryModel={settings.aiPrimaryModel}
+          onPrimaryModelChange={(aiPrimaryModel) => onSettingsChange({ ...settings, aiPrimaryModel })}
           zdrOnly={settings.aiZdrOnly}
           disclosureAccepted={settings.aiCloudDisclosureAccepted}
           prdModel={settings.aiPrdModel}

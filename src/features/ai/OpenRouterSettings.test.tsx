@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { OpenRouterSettings } from './OpenRouterSettings';
@@ -6,6 +7,8 @@ import { OpenRouterSettings } from './OpenRouterSettings';
 afterEach(() => cleanup());
 
 const defaultProps = {
+  primaryModel: 'upstage/solar-pro4',
+  onPrimaryModelChange: vi.fn(),
   prdModel: 'upstage/solar-pro4',
   summaryModel: 'upstage/solar-pro4',
   translationModel: 'upstage/solar-pro4',
@@ -25,6 +28,57 @@ const defaultProps = {
 };
 
 describe('OpenRouterSettings', () => {
+  it('loads new catalog models, searches, refreshes, and keeps primary and task choices independent', async () => {
+    const freshModel = { id: 'vendor/new-flagship', name: 'New Flagship', contextLength: 100_000,
+      inputModalities: ['text'], outputModalities: ['text'], supportedParameters: ['structured_outputs'],
+      pricing: { prompt: 0, completion: 0, updatedAt: '' } };
+    const services = { keyStatus: async () => ({ configured: true, maskedLabel: null }),
+      listModels: vi.fn().mockResolvedValueOnce([freshModel,
+        { ...freshModel, id: 'vendor/plain', name: 'Plain model', supportedParameters: [] }])
+        .mockResolvedValueOnce([{ ...freshModel, id: 'vendor/refreshed', name: 'Refreshed model' }]),
+      saveKey: vi.fn(), verifyKey: vi.fn(), deleteKey: vi.fn() };
+    function Settings() {
+      const [primaryModel, setPrimaryModel] = useState('upstage/solar-pro4');
+      const [summaryModel, setSummaryModel] = useState('');
+      return <OpenRouterSettings {...defaultProps} zdrOnly disclosureAccepted
+        primaryModel={primaryModel} onPrimaryModelChange={setPrimaryModel}
+        summaryModel={summaryModel} onSummaryModelChange={setSummaryModel}
+        onZdrOnlyChange={vi.fn()} onDisclosureAcceptedChange={vi.fn()} services={services} />;
+    }
+    render(<Settings />);
+    const primary = screen.getByLabelText('Primary model');
+    await waitFor(() => expect(within(primary).getByRole('option', { name: /New Flagship/ })).toBeEnabled());
+    expect(within(primary).getByRole('option', { name: /Plain model/ })).toBeDisabled();
+    fireEvent.change(primary, { target: { value: 'vendor/new-flagship' } });
+    expect(primary).toHaveValue('vendor/new-flagship');
+    expect(screen.getByLabelText('Summary default model')).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('Summary default model'), { target: { value: 'z-ai/glm-5.3' } });
+    expect(primary).toHaveValue('vendor/new-flagship');
+    fireEvent.change(screen.getByLabelText('Search default models'), { target: { value: 'glm-5.3' } });
+    expect(within(primary).getByRole('option', { name: /GLM 5.3 ·/ })).toBeEnabled();
+    expect(primary).toHaveValue('vendor/new-flagship');
+    fireEvent.change(screen.getByLabelText('Search default models'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+    await waitFor(() => expect(within(primary).getByRole('option', { name: /Refreshed model/ })).toBeEnabled());
+    expect(primary).toHaveValue('vendor/new-flagship');
+    expect(screen.getByLabelText('Summary default model')).toHaveValue('z-ai/glm-5.3');
+    fireEvent.change(screen.getByLabelText('Summary default model'), { target: { value: '' } });
+    expect(screen.getByLabelText('Summary default model')).toHaveValue('');
+  });
+
+  it('keeps saved models and allows retry after a catalog failure', async () => {
+    const services = { keyStatus: async () => ({ configured: true, maskedLabel: null }),
+      listModels: vi.fn().mockRejectedValueOnce(new Error('Catalog offline')).mockResolvedValueOnce([]),
+      saveKey: vi.fn(), verifyKey: vi.fn(), deleteKey: vi.fn() };
+    render(<OpenRouterSettings {...defaultProps} primaryModel="vendor/saved" zdrOnly disclosureAccepted
+      onZdrOnlyChange={vi.fn()} onDisclosureAcceptedChange={vi.fn()} services={services} />);
+    expect(await screen.findByText(/Catalog offline/)).toBeVisible();
+    expect(screen.getByLabelText('Primary model')).toHaveValue('vendor/saved');
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh models' }));
+    await waitFor(() => expect(screen.queryByText(/Catalog offline/)).toBeNull());
+    expect(screen.getByLabelText('Primary model')).toHaveValue('vendor/saved');
+  });
+
   it('explains the per-request confirmation used when a model has no ZDR endpoint', () => {
     render(
       <OpenRouterSettings
@@ -84,7 +138,8 @@ describe('OpenRouterSettings', () => {
         (screen.getByLabelText(label) as HTMLSelectElement).options,
         (option) => option.value,
       );
-      expect(values).toEqual(expectedModels);
+      expect(values).toEqual(expect.arrayContaining([...expectedModels, '', 'z-ai/glm-5.3',
+        'openai/gpt-6-astra', 'anthropic/claude-fable-5.1', 'google/gemini-3.8-flash']));
     }
   });
 
@@ -158,7 +213,7 @@ describe('OpenRouterSettings', () => {
     );
 
     expect(screen.getByRole('heading', { name: 'OpenRouter Connection' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Task Defaults' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Models & Task Defaults' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'History & Privacy' })).toBeInTheDocument();
     expect(screen.getByTestId('settings-ai-connection')).toHaveAttribute(
       'aria-labelledby',

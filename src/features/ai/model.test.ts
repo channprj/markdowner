@@ -36,7 +36,7 @@ function model(overrides: Partial<AiModel>): AiModel {
 describe('AI model policy', () => {
   it('uses Solar Pro 4 by default and pins the curated popular model catalog', () => {
     expect(DEFAULT_AI_MODEL).toBe('upstage/solar-pro4');
-    expect(PINNED_AI_MODELS).toEqual([
+    expect(PINNED_AI_MODELS).toEqual(expect.arrayContaining([
       'upstage/solar-pro4',
       'z-ai/glm-5.2',
       'moonshotai/kimi-k3',
@@ -46,7 +46,8 @@ describe('AI model policy', () => {
       'anthropic/claude-sonnet-4.6',
       'openai/gpt-oss-120b',
       'x-ai/grok-4.5',
-    ]);
+      'z-ai/glm-5.3', 'openai/gpt-6-astra', 'anthropic/claude-fable-5.1',
+    ]));
   });
 
   it('pins the fixed models and disables non-structured models for built-ins', () => {

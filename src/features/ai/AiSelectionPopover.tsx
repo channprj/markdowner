@@ -18,6 +18,7 @@ import {
   NO_ZDR_ENDPOINT_REASON,
   outputTokenLimitForTask,
   orderModels,
+  defaultModelForTask,
   resolveUsageCost,
 } from './model';
 import type { AiSelectionSnapshot } from './selection';
@@ -83,7 +84,7 @@ export function AiSelectionPopover({
   const [prompt, setPrompt] = useState('');
   const [actionId, setActionId] = useState<SelectionActionId>('improve');
   const [models, setModels] = useState<AiModel[]>([]);
-  const [model, setModel] = useState(settings.aiCustomPromptModel);
+  const [model, setModel] = useState(() => defaultModelForTask(settings, 'custom'));
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState('');
@@ -194,7 +195,6 @@ export function AiSelectionPopover({
   const modelOptions = useMemo(() => orderModels(models, 'custom'), [models]);
   const selectedModel =
     modelOptions.find((candidate) => candidate.id === model) ??
-    modelOptions[0] ??
     null;
   const selectedModelId = selectedModel?.id ?? null;
 
@@ -486,6 +486,7 @@ export function AiSelectionPopover({
             }}
             className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
+            {!selectedModel ? <option value={model} disabled>{model} · unavailable</option> : null}
             {modelOptions.map((option) => (
               <option
                 key={option.id}
