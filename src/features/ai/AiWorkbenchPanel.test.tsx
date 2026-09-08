@@ -28,31 +28,30 @@ const glm: AiModel = {
   },
 };
 
-const solar: AiModel = {
+const flash: AiModel = {
   ...glm,
-  id: 'upstage/solar-pro4',
-  name: 'Solar Pro 4',
-  contextLength: 524_288,
+  id: 'z-ai/glm-5.3-flash',
+  name: 'GLM 5.3 Flash',
+  contextLength: 1_310_720,
 };
 
 describe('AiWorkbenchPanel', () => {
   it.each(['prd', 'summary', 'translation', 'custom'] as const)(
-    'uses the primary model and the edited system prompt for %s requests', async (task) => {
+    'uses GLM 5.3 Flash by default and the edited system prompt for %s requests', async (task) => {
       const run = vi.fn().mockImplementation(async (request: AiRunRequest) => runResult(request));
       render(<AiWorkbenchPanel documentId="doc-1" source="Original document facts." selection={null}
-        settings={{ ...DEFAULT_SETTINGS, aiPrimaryModel: 'z-ai/glm-5.3',
-          aiPrdModel: '', aiSummaryModel: '', aiTranslationModel: '', aiCustomPromptModel: '',
+        settings={{ ...DEFAULT_SETTINGS,
           aiTranslationTargetLanguage: 'ko', aiCloudDisclosureAccepted: true,
           aiSystemPrompts: { [task]: 'Focus on accessibility.' } }}
         onSettingsChange={vi.fn()} onResult={vi.fn()}
         services={{ keyStatus: async () => ({ configured: true, maskedLabel: null }),
-          listModels: async () => [{ ...glm, id: 'z-ai/glm-5.3', name: 'GLM 5.3' }], run, cancel: vi.fn() }} />);
+          listModels: async () => [flash], run, cancel: vi.fn() }} />);
       fireEvent.change(screen.getByLabelText('AI task'), { target: { value: task } });
       if (task === 'custom') fireEvent.change(screen.getByLabelText('Custom prompt'), { target: { value: 'Improve clarity.' } });
       await waitFor(() => expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled());
       fireEvent.click(screen.getByRole('button', { name: 'Run' }));
       await waitFor(() => expect(run).toHaveBeenCalledWith(expect.objectContaining({
-        task, model: 'z-ai/glm-5.3', systemPrompt: 'Focus on accessibility.',
+        task, model: 'z-ai/glm-5.3-flash', systemPrompt: 'Focus on accessibility.',
       }), expect.any(Function)));
     },
   );
@@ -74,7 +73,7 @@ describe('AiWorkbenchPanel', () => {
         onResult={vi.fn()}
         services={{
           keyStatus: vi.fn().mockResolvedValue({ configured: true, maskedLabel: '••••secret' }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           run,
           cancel: vi.fn(),
         }}
@@ -123,7 +122,7 @@ describe('AiWorkbenchPanel', () => {
         onResult={vi.fn()}
         services={{
           keyStatus: vi.fn().mockResolvedValue({ configured: true, maskedLabel: '••••secret' }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           run,
           cancel: vi.fn(),
         }}
@@ -179,7 +178,7 @@ describe('AiWorkbenchPanel', () => {
             configured: true,
             maskedLabel: '••••secret',
           }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           run,
           cancel,
           openActivity,
@@ -227,7 +226,7 @@ describe('AiWorkbenchPanel', () => {
             configured: true,
             maskedLabel: '••••secret',
           }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           run: vi.fn(),
           cancel: vi.fn(),
         }}
@@ -344,7 +343,7 @@ describe('AiWorkbenchPanel', () => {
             configured: true,
             maskedLabel: '••••secret',
           }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           run: vi.fn(),
           cancel: vi.fn(),
         }}
@@ -382,7 +381,7 @@ describe('AiWorkbenchPanel', () => {
             maskedLabel: '••••secret',
           }),
           listModels: vi.fn().mockResolvedValue([
-            solar,
+            flash,
             glm,
             {
               ...glm,
@@ -430,7 +429,7 @@ describe('AiWorkbenchPanel', () => {
             maskedLabel: '••••secret',
           }),
           listModels: vi.fn().mockResolvedValue([
-            solar,
+            flash,
             glm,
             {
               ...glm,
@@ -471,7 +470,7 @@ describe('AiWorkbenchPanel', () => {
             configured: true,
             maskedLabel: '••••secret',
           }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           run: vi.fn(),
           cancel: vi.fn(),
         }}
@@ -512,7 +511,7 @@ describe('AiWorkbenchPanel', () => {
             configured: true,
             maskedLabel: '••••secret',
           }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           modelPricing,
           run: vi.fn(),
           cancel: vi.fn(),
@@ -522,7 +521,7 @@ describe('AiWorkbenchPanel', () => {
 
     const runButton = await screen.findByRole('button', { name: 'Run' });
     await waitFor(() =>
-      expect(modelPricing).toHaveBeenCalledWith('upstage/solar-pro4', true),
+      expect(modelPricing).toHaveBeenCalledWith('z-ai/glm-5.3-flash', true),
     );
     expect(runButton).toBeDisabled();
 
@@ -554,7 +553,7 @@ describe('AiWorkbenchPanel', () => {
             configured: true,
             maskedLabel: '••••secret',
           }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           modelPricing: vi.fn().mockResolvedValue({
             prompt: null,
             completion: null,
@@ -581,7 +580,7 @@ describe('AiWorkbenchPanel', () => {
     await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
     expect(run).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: 'upstage/solar-pro4',
+        model: 'z-ai/glm-5.3-flash',
         zdrOnly: false,
       }),
       expect.any(Function),
@@ -606,7 +605,7 @@ describe('AiWorkbenchPanel', () => {
             configured: true,
             maskedLabel: '••••secret',
           }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           modelPricing: vi.fn().mockResolvedValue({
             prompt: null,
             completion: null,
@@ -657,7 +656,7 @@ describe('AiWorkbenchPanel', () => {
             configured: true,
             maskedLabel: '••••secret',
           }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           run,
           cancel: vi.fn(),
         }}
@@ -701,7 +700,7 @@ describe('AiWorkbenchPanel', () => {
         onResult={vi.fn()}
         services={{
           keyStatus: vi.fn().mockResolvedValue({ configured: true, maskedLabel: '••••secret' }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           run,
           cancel: vi.fn(),
         }}
@@ -754,7 +753,7 @@ describe('AiWorkbenchPanel', () => {
         onResult={onResult}
         services={{
           keyStatus: vi.fn().mockResolvedValue({ configured: true, maskedLabel: '••••secret' }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           run,
           cancel: vi.fn(),
           readDocuments: vi.fn().mockResolvedValue([
@@ -777,8 +776,8 @@ describe('AiWorkbenchPanel', () => {
 
     await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
     expect(run.mock.calls.map(([request]) => request.model)).toEqual([
-      'upstage/solar-pro4',
-      'upstage/solar-pro4',
+      'z-ai/glm-5.3-flash',
+      'z-ai/glm-5.3-flash',
     ]);
     expect(run.mock.calls[0][0]).toMatchObject({
       source: '# Current draft',
@@ -809,7 +808,7 @@ describe('AiWorkbenchPanel', () => {
         onResult={onResult}
         services={{
           keyStatus: vi.fn().mockResolvedValue({ configured: true, maskedLabel: '••••secret' }),
-          listModels: vi.fn().mockResolvedValue([solar, glm]),
+          listModels: vi.fn().mockResolvedValue([flash, glm]),
           run,
           cancel: vi.fn(),
           readDocuments: vi.fn().mockResolvedValue([
@@ -845,7 +844,7 @@ describe('AiWorkbenchPanel', () => {
     expect(run.mock.calls[2][0]).toMatchObject({
       requestId: failedRequest.requestId,
       documentId: failedRequest.documentId,
-      model: 'upstage/solar-pro4',
+      model: 'z-ai/glm-5.3-flash',
       resume: true,
     });
     expect(onResult).toHaveBeenCalledTimes(2);

@@ -191,9 +191,10 @@ export interface CtrlGLauncherActionResult {
 }
 
 export const CLI_BINARY_INSTALL_PATH = '/usr/local/bin/mdner';
-export const DEFAULT_AI_MODEL = 'upstage/solar-pro4';
-export const AI_MODEL_DEFAULTS_VERSION = 2;
+export const DEFAULT_AI_MODEL = 'z-ai/glm-5.3-flash';
+export const AI_MODEL_DEFAULTS_VERSION = 3;
 const LEGACY_DEFAULT_AI_MODEL = 'z-ai/glm-5.2';
+const LEGACY_SOLAR_DEFAULT_AI_MODEL = 'upstage/solar-pro4';
 const AI_MODEL_SETTING_KEYS = [
   'aiPrdModel',
   'aiSummaryModel',
@@ -610,11 +611,18 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): {
     }
   }
   if (migratedAiModelDefaults) {
-    for (const key of AI_MODEL_SETTING_KEYS) {
-      if (merged[key] === DEFAULT_AI_MODEL ||
-          (storedAiModelDefaultsVersion < 1 && merged[key] === LEGACY_DEFAULT_AI_MODEL)) {
-        merged[key] = '';
+    // Before v2, built-in models were stored on each task instead of inherited.
+    // Task overrides saved since v2 are explicit choices and must survive upgrades.
+    if (storedAiModelDefaultsVersion < 2) {
+      for (const key of AI_MODEL_SETTING_KEYS) {
+        if (merged[key] === LEGACY_SOLAR_DEFAULT_AI_MODEL ||
+            (storedAiModelDefaultsVersion < 1 && merged[key] === LEGACY_DEFAULT_AI_MODEL)) {
+          merged[key] = '';
+        }
       }
+    }
+    if (storedAiModelDefaultsVersion < 3 && merged.aiPrimaryModel === LEGACY_SOLAR_DEFAULT_AI_MODEL) {
+      merged.aiPrimaryModel = DEFAULT_AI_MODEL;
     }
     merged.aiModelDefaultsVersion = AI_MODEL_DEFAULTS_VERSION;
   }

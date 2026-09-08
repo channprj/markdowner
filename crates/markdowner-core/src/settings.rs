@@ -4,8 +4,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::EditorMode;
 
-pub const DEFAULT_AI_MODEL: &str = "upstage/solar-pro4";
-pub const AI_MODEL_DEFAULTS_VERSION: u32 = 2;
+pub const DEFAULT_AI_MODEL: &str = "z-ai/glm-5.3-flash";
+pub const AI_MODEL_DEFAULTS_VERSION: u32 = 3;
 
 #[test]
 fn system_prompt_settings_round_trip_without_rejecting_legacy_or_malformed_entries() {
@@ -774,6 +774,7 @@ mod tests {
     fn ai_settings_default_and_recover_malformed_fields_independently() {
         let parsed: Settings = serde_json::from_value(serde_json::json!({
             "autoSave": true,
+            "aiPrimaryModel": false,
             "aiPrdModel": 7,
             "aiSummaryModel": 42,
             "aiTranslationModel": "",
@@ -788,6 +789,7 @@ mod tests {
         .expect("settings parse");
 
         assert_eq!(parsed.ai_model_defaults_version, 0);
+        assert_eq!(parsed.ai_primary_model, "z-ai/glm-5.3-flash");
         assert_eq!(parsed.ai_prd_model, "");
         assert_eq!(parsed.ai_summary_model, "");
         assert_eq!(parsed.ai_translation_model, "");
@@ -802,6 +804,7 @@ mod tests {
 
         let serialized = serde_json::to_value(parsed).expect("settings serialize");
         assert_eq!(serialized["aiModelDefaultsVersion"], 0);
+        assert_eq!(serialized["aiPrimaryModel"], "z-ai/glm-5.3-flash");
         assert_eq!(serialized["aiPrdModel"], "");
         assert_eq!(serialized["aiSummaryModel"], "");
         assert_eq!(serialized["aiTranslationModel"], "");
@@ -815,10 +818,10 @@ mod tests {
     }
 
     #[test]
-    fn new_ai_defaults_use_solar_while_legacy_version_is_zero() {
+    fn new_ai_defaults_use_glm_flash_while_legacy_version_is_zero() {
         let defaults = Settings::default();
-        assert_eq!(defaults.ai_model_defaults_version, 2);
-        assert_eq!(defaults.ai_primary_model, "upstage/solar-pro4");
+        assert_eq!(defaults.ai_model_defaults_version, 3);
+        assert_eq!(defaults.ai_primary_model, "z-ai/glm-5.3-flash");
         assert_eq!(defaults.ai_prd_model, "");
         assert_eq!(defaults.ai_summary_model, "");
         assert_eq!(defaults.ai_translation_model, "");
@@ -829,6 +832,7 @@ mod tests {
         )
         .expect("legacy settings parse");
         assert_eq!(legacy.ai_model_defaults_version, 0);
+        assert_eq!(legacy.ai_primary_model, "z-ai/glm-5.3-flash");
         assert_eq!(legacy.ai_prd_model, "z-ai/glm-5.2");
         assert_eq!(legacy.ai_custom_prompt_model, "vendor/custom");
     }

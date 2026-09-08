@@ -551,13 +551,51 @@ describe('inline style color settings', () => {
 });
 
 describe('AI settings', () => {
+  it('upgrades the previous primary default once while preserving explicit task overrides', async () => {
+    invokeMock.mockReset();
+    const stored = { ...DEFAULT_SETTINGS, aiModelDefaultsVersion: 2,
+      aiPrimaryModel: 'upstage/solar-pro4', aiPrdModel: 'upstage/solar-pro4',
+      aiSummaryModel: 'z-ai/glm-5.3', aiTranslationModel: '', aiCustomPromptModel: 'vendor/custom' };
+    invokeMock.mockResolvedValueOnce(stored);
+
+    const settings = await loadSettings();
+    expect(settings).toMatchObject({ ...stored, aiModelDefaultsVersion: 3,
+      aiPrimaryModel: 'z-ai/glm-5.3-flash' });
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(invokeMock).toHaveBeenLastCalledWith('save_settings', { settings });
+
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValueOnce(settings);
+    await expect(loadSettings()).resolves.toEqual(settings);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves a customized primary model when upgrading previous defaults', async () => {
+    invokeMock.mockReset();
+    const stored = { ...DEFAULT_SETTINGS, aiModelDefaultsVersion: 2,
+      aiPrimaryModel: 'z-ai/glm-5.3', aiCustomPromptModel: 'z-ai/glm-5.3-flash' };
+    invokeMock.mockResolvedValueOnce(stored);
+    await expect(loadSettings()).resolves.toMatchObject({ ...stored, aiModelDefaultsVersion: 3 });
+  });
+
+  it('preserves an intentional Solar choice in current and future settings versions', async () => {
+    for (const aiModelDefaultsVersion of [3, 4]) {
+      invokeMock.mockReset();
+      const stored = { ...DEFAULT_SETTINGS, aiModelDefaultsVersion,
+        aiPrimaryModel: 'upstage/solar-pro4', aiSummaryModel: 'upstage/solar-pro4' };
+      invokeMock.mockResolvedValueOnce(stored);
+      await expect(loadSettings()).resolves.toEqual(stored);
+      expect(invokeMock).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it('migrates old built-in defaults to inheritance while retaining task choices', async () => {
     invokeMock.mockReset();
     invokeMock.mockResolvedValueOnce({ aiModelDefaultsVersion: 1,
       aiPrdModel: 'upstage/solar-pro4', aiSummaryModel: 'z-ai/glm-5.2',
       aiTranslationModel: 'vendor/chosen', aiCustomPromptModel: 'upstage/solar-pro4' });
     const settings = await loadSettings();
-    expect(settings).toMatchObject({ aiPrimaryModel: 'upstage/solar-pro4',
+    expect(settings).toMatchObject({ aiPrimaryModel: 'z-ai/glm-5.3-flash',
       aiPrdModel: '', aiSummaryModel: 'z-ai/glm-5.2',
       aiTranslationModel: 'vendor/chosen', aiCustomPromptModel: '' });
     expect(invokeMock).toHaveBeenLastCalledWith('save_settings', { settings });
@@ -565,7 +603,7 @@ describe('AI settings', () => {
 
   it('round-trips a primary model with independent task overrides and inheritance', async () => {
     invokeMock.mockReset();
-    const stored = { ...DEFAULT_SETTINGS, aiModelDefaultsVersion: 2,
+    const stored = { ...DEFAULT_SETTINGS, aiModelDefaultsVersion: 3,
       aiPrimaryModel: 'z-ai/glm-5.3', aiPrdModel: '', aiSummaryModel: 'vendor/summary',
       aiTranslationModel: '', aiCustomPromptModel: '' };
     invokeMock.mockResolvedValueOnce(stored);
@@ -575,10 +613,10 @@ describe('AI settings', () => {
     expect(invokeMock).toHaveBeenLastCalledWith('save_settings', { settings: expect.objectContaining(stored) });
   });
 
-  it('defaults every AI task to Solar Pro 4 through the primary model', () => {
+  it('defaults every AI task to GLM 5.3 Flash through the primary model', () => {
     expect(DEFAULT_SETTINGS).toMatchObject({
-      aiModelDefaultsVersion: 2,
-      aiPrimaryModel: 'upstage/solar-pro4',
+      aiModelDefaultsVersion: 3,
+      aiPrimaryModel: 'z-ai/glm-5.3-flash',
       aiPrdModel: '',
       aiSummaryModel: '',
       aiTranslationModel: '',
@@ -610,8 +648,8 @@ describe('AI settings', () => {
 
     await expect(loadSettings()).resolves.toMatchObject({
       autoSave: true,
-      aiModelDefaultsVersion: 2,
-      aiPrimaryModel: 'upstage/solar-pro4',
+      aiModelDefaultsVersion: 3,
+      aiPrimaryModel: 'z-ai/glm-5.3-flash',
       aiPrdModel: '',
       aiSummaryModel: '',
       aiTranslationModel: 'moonshotai/kimi-k3',
@@ -640,8 +678,8 @@ describe('AI settings', () => {
     });
 
     await expect(loadSettings()).resolves.toMatchObject({
-      aiModelDefaultsVersion: 2,
-      aiPrimaryModel: 'upstage/solar-pro4',
+      aiModelDefaultsVersion: 3,
+      aiPrimaryModel: 'z-ai/glm-5.3-flash',
       aiPrdModel: '',
       aiSummaryModel: 'moonshotai/kimi-k3',
       aiTranslationModel: '',
@@ -650,8 +688,8 @@ describe('AI settings', () => {
     expect(invokeMock).toHaveBeenCalledTimes(2);
     expect(invokeMock).toHaveBeenLastCalledWith('save_settings', {
       settings: expect.objectContaining({
-        aiModelDefaultsVersion: 2,
-        aiPrimaryModel: 'upstage/solar-pro4',
+        aiModelDefaultsVersion: 3,
+        aiPrimaryModel: 'z-ai/glm-5.3-flash',
         aiPrdModel: '',
         aiSummaryModel: 'moonshotai/kimi-k3',
         aiTranslationModel: '',
@@ -664,14 +702,14 @@ describe('AI settings', () => {
     invokeMock.mockReset();
     invokeMock.mockResolvedValue({
       ...DEFAULT_SETTINGS,
-      aiModelDefaultsVersion: 2,
-      aiPrimaryModel: 'upstage/solar-pro4',
+      aiModelDefaultsVersion: 3,
+      aiPrimaryModel: 'z-ai/glm-5.3-flash',
       aiPrdModel: 'z-ai/glm-5.2',
     });
 
     await expect(loadSettings()).resolves.toMatchObject({
-      aiModelDefaultsVersion: 2,
-      aiPrimaryModel: 'upstage/solar-pro4',
+      aiModelDefaultsVersion: 3,
+      aiPrimaryModel: 'z-ai/glm-5.3-flash',
       aiPrdModel: 'z-ai/glm-5.2',
     });
     expect(invokeMock).toHaveBeenCalledTimes(1);
@@ -689,8 +727,8 @@ describe('AI settings', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     await expect(loadSettings()).resolves.toMatchObject({
-      aiModelDefaultsVersion: 2,
-      aiPrimaryModel: 'upstage/solar-pro4',
+      aiModelDefaultsVersion: 3,
+      aiPrimaryModel: 'z-ai/glm-5.3-flash',
       aiPrdModel: '',
     });
     expect(consoleError).toHaveBeenCalledWith(

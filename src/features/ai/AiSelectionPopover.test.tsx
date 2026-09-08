@@ -15,13 +15,14 @@ afterEach(() => {
 
 describe('AiSelectionPopover', () => {
   it.each([
-    ['', 'z-ai/glm-5.3'],
-    ['vendor/inline', 'vendor/inline'],
-  ])('uses the primary model unless an inline override is set (%s)', async (override, expected) => {
+    ['z-ai/glm-5.3-flash', '', 'z-ai/glm-5.3-flash'],
+    ['z-ai/glm-5.3', '', 'z-ai/glm-5.3'],
+    ['z-ai/glm-5.3-flash', 'vendor/inline', 'vendor/inline'],
+  ])('uses the primary model unless an inline override is set (%s)', async (primary, override, expected) => {
     const snapshot = captureSourceSelection('alpha beta', 6, 10, 'doc-1')!;
     const run = vi.fn<AiSelectionServices['run']>(() => new Promise(() => {}));
     render(<AiSelectionPopover snapshot={snapshot}
-      settings={{ ...DEFAULT_SETTINGS, aiPrimaryModel: 'z-ai/glm-5.3', aiCustomPromptModel: override,
+      settings={{ ...DEFAULT_SETTINGS, aiPrimaryModel: primary, aiCustomPromptModel: override,
         aiCloudDisclosureAccepted: true, aiZdrOnly: false }} onClose={vi.fn()} onResult={vi.fn()}
       services={{ keyStatus: async () => ({ configured: true, maskedLabel: null }),
         listModels: async () => [{ id: expected, name: expected, contextLength: 100_000,
@@ -225,7 +226,7 @@ describe('AiSelectionPopover', () => {
 
     const runButton = await screen.findByRole('button', { name: 'Run on selection' });
     await waitFor(() =>
-      expect(modelPricing).toHaveBeenCalledWith('upstage/solar-pro4', true),
+      expect(modelPricing).toHaveBeenCalledWith('z-ai/glm-5.3-flash', true),
     );
     expect(runButton).toBeDisabled();
 
@@ -266,9 +267,9 @@ describe('AiSelectionPopover', () => {
           listModels: vi.fn(async () => [
             {
               id: DEFAULT_SETTINGS.aiPrimaryModel,
-              name: 'Solar Pro 4',
+              name: 'GLM 5.3 Flash',
               description: null,
-              contextLength: 524_288,
+              contextLength: 1_310_720,
               inputModalities: ['text'],
               outputModalities: ['text'],
               supportedParameters: ['structured_outputs'],
@@ -298,7 +299,7 @@ describe('AiSelectionPopover', () => {
 
     await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
     expect(run.mock.calls[0][0]).toMatchObject({
-      model: 'upstage/solar-pro4',
+      model: 'z-ai/glm-5.3-flash',
       zdrOnly: false,
     });
   });

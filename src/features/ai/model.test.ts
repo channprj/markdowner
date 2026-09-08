@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_SETTINGS } from '@/lib/settings';
 
 import {
   DEFAULT_AI_MODEL,
   PINNED_AI_MODELS,
   SUMMARY_SOURCE_LANGUAGE,
+  defaultModelForTask,
   detectDocumentLanguage,
   estimateAiRun,
   estimateInputTokens,
@@ -34,8 +36,10 @@ function model(overrides: Partial<AiModel>): AiModel {
 }
 
 describe('AI model policy', () => {
-  it('uses Solar Pro 4 by default and pins the curated popular model catalog', () => {
-    expect(DEFAULT_AI_MODEL).toBe('upstage/solar-pro4');
+  it('uses GLM 5.3 Flash by default and pins the curated popular model catalog', () => {
+    expect(DEFAULT_AI_MODEL).toBe('z-ai/glm-5.3-flash');
+    expect(PINNED_AI_MODELS[0]).toBe(DEFAULT_AI_MODEL);
+    expect(new Set(PINNED_AI_MODELS).size).toBe(PINNED_AI_MODELS.length);
     expect(PINNED_AI_MODELS).toEqual(expect.arrayContaining([
       'upstage/solar-pro4',
       'z-ai/glm-5.2',
@@ -50,6 +54,20 @@ describe('AI model policy', () => {
     ]));
   });
 
+  it.each(['prd', 'summary', 'translation', 'custom'] as const)(
+    'resolves the %s default, primary choice, and task override independently', (task) => {
+      expect(defaultModelForTask(DEFAULT_SETTINGS, task)).toBe('z-ai/glm-5.3-flash');
+      expect(defaultModelForTask({ ...DEFAULT_SETTINGS, aiPrimaryModel: '' }, task))
+        .toBe('z-ai/glm-5.3-flash');
+      const settings = { ...DEFAULT_SETTINGS, aiPrimaryModel: 'vendor/primary' };
+      expect(defaultModelForTask(settings, task)).toBe('vendor/primary');
+      const keys = { prd: 'aiPrdModel', summary: 'aiSummaryModel',
+        translation: 'aiTranslationModel', custom: 'aiCustomPromptModel' } as const;
+      expect(defaultModelForTask({ ...settings, [keys[task]]: 'vendor/override' }, task))
+        .toBe('vendor/override');
+    },
+  );
+
   it('pins the fixed models and disables non-structured models for built-ins', () => {
     const options = orderModels(
       [
@@ -63,6 +81,14 @@ describe('AI model policy', () => {
     expect(options.slice(0, PINNED_AI_MODELS.length).map((entry) => entry.id)).toEqual(
       PINNED_AI_MODELS,
     );
+    expect(options[0]).toMatchObject({
+      id: 'z-ai/glm-5.3-flash',
+      name: 'GLM 5.3 Flash',
+      contextLength: 1_310_720,
+      maxCompletionTokens: 131_072,
+      pinned: true,
+      enabled: true,
+    });
     expect(options.find((entry) => entry.id === 'upstage/solar-pro4')).toMatchObject({
       name: 'Solar Pro 4',
       contextLength: 524_288,

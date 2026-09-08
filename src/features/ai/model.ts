@@ -6,11 +6,11 @@ import type {
   AiTask,
   AiUsage,
 } from './types';
-import type { Settings } from '@/lib/settings';
+import { DEFAULT_AI_MODEL, type Settings } from '@/lib/settings';
 
 export type { AiModel, AiModelOption, AiScope, AiTask } from './types';
 
-export const DEFAULT_AI_MODEL = 'upstage/solar-pro4';
+export { DEFAULT_AI_MODEL };
 export function defaultModelForTask(settings: Settings, task: AiTask): string {
   const override = task === 'prd' ? settings.aiPrdModel
     : task === 'summary' ? settings.aiSummaryModel
@@ -22,11 +22,15 @@ export function defaultModelForTask(settings: Settings, task: AiTask): string {
 export const PINNED_AI_MODEL_CHOICES = [
   {
     id: DEFAULT_AI_MODEL,
+    label: 'GLM 5.3 Flash',
+    contextLength: 1_310_720,
+  },
+  {
+    id: 'upstage/solar-pro4',
     label: 'Solar Pro 4',
     contextLength: 524_288,
   },
   { id: 'z-ai/glm-5.3', label: 'GLM 5.3', contextLength: 1_310_720 },
-  { id: 'z-ai/glm-5.3-flash', label: 'GLM 5.3 Flash', contextLength: 1_310_720 },
   { id: 'anthropic/claude-fable-5.1', label: 'Claude Fable 5.1', contextLength: 1_000_000 },
   { id: 'anthropic/claude-opus-5', label: 'Claude Opus 5', contextLength: 1_000_000 },
   { id: 'anthropic/claude-sonnet-5', label: 'Claude Sonnet 5', contextLength: 1_000_000 },

@@ -2,17 +2,19 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { DEFAULT_SETTINGS } from '@/lib/settings';
+
 import { OpenRouterSettings } from './OpenRouterSettings';
 
 afterEach(() => cleanup());
 
 const defaultProps = {
-  primaryModel: 'upstage/solar-pro4',
+  primaryModel: DEFAULT_SETTINGS.aiPrimaryModel,
   onPrimaryModelChange: vi.fn(),
-  prdModel: 'upstage/solar-pro4',
-  summaryModel: 'upstage/solar-pro4',
-  translationModel: 'upstage/solar-pro4',
-  customPromptModel: 'upstage/solar-pro4',
+  prdModel: DEFAULT_SETTINGS.aiPrdModel,
+  summaryModel: DEFAULT_SETTINGS.aiSummaryModel,
+  translationModel: DEFAULT_SETTINGS.aiTranslationModel,
+  customPromptModel: DEFAULT_SETTINGS.aiCustomPromptModel,
   summaryTargetLanguage: 'source',
   translationTargetLanguage: 'ko',
   defaultScope: 'document' as const,
@@ -38,7 +40,7 @@ describe('OpenRouterSettings', () => {
         .mockResolvedValueOnce([{ ...freshModel, id: 'vendor/refreshed', name: 'Refreshed model' }]),
       saveKey: vi.fn(), verifyKey: vi.fn(), deleteKey: vi.fn() };
     function Settings() {
-      const [primaryModel, setPrimaryModel] = useState('upstage/solar-pro4');
+      const [primaryModel, setPrimaryModel] = useState(DEFAULT_SETTINGS.aiPrimaryModel);
       const [summaryModel, setSummaryModel] = useState('');
       return <OpenRouterSettings {...defaultProps} zdrOnly disclosureAccepted
         primaryModel={primaryModel} onPrimaryModelChange={setPrimaryModel}
@@ -116,7 +118,9 @@ describe('OpenRouterSettings', () => {
       />,
     );
 
+    expect(screen.getByLabelText('Primary model')).toHaveValue('z-ai/glm-5.3-flash');
     const expectedModels = [
+      'z-ai/glm-5.3-flash',
       'upstage/solar-pro4',
       'z-ai/glm-5.2',
       'moonshotai/kimi-k3',
@@ -166,7 +170,7 @@ describe('OpenRouterSettings', () => {
       />,
     );
 
-    expect(screen.getByLabelText('Summary default model')).toHaveValue('upstage/solar-pro4');
+    expect(screen.getByLabelText('Summary default model')).toHaveValue('');
     expect(screen.getByLabelText('Summary language')).toHaveValue('source');
 
     fireEvent.change(screen.getByLabelText('Summary default model'), {
