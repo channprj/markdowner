@@ -129,7 +129,8 @@ export function buildRelease({
 
   run(runner, projectRoot, 'pnpm', ['sync-version', '--check']);
   run(runner, projectRoot, 'pnpm', ['test']);
-  run(runner, projectRoot, 'cargo', ['test']);
+  // Process fixtures exercise short deadlines and shared OS resources.
+  run(runner, projectRoot, 'cargo', ['test', '--', '--test-threads=1']);
   run(runner, projectRoot, 'pnpm', ['build', 'universal', 'dmg']);
 
   const artifact = requireReleaseDmg(projectRoot, version);

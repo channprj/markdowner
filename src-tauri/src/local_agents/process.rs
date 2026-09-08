@@ -3728,7 +3728,17 @@ mod tests {
         cancellation: CancellationToken,
         timeout: Duration,
     ) -> Result<super::ProcessOutput, crate::local_agents::LocalAgentError> {
-        run_process_until(owned, cancellation, StdInstant::now() + timeout).await
+        // Give fixtures the requested execution time in addition to the production
+        // cleanup reserve. A one-second total budget otherwise allows only 250 ms
+        // for spawning, validating the executable, and exchanging pipe contents.
+        let cleanup_reserve = (timeout * 3)
+            .min(super::PROCESS_CLEANUP_TIMEOUT + Duration::from_millis(250));
+        run_process_until(
+            owned,
+            cancellation,
+            StdInstant::now() + timeout + cleanup_reserve,
+        )
+        .await
     }
 
     #[cfg(unix)]

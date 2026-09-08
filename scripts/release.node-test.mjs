@@ -101,7 +101,7 @@ test('build runs local gates before creating and verifying the universal DMG', (
       'git rev-parse HEAD',
       'pnpm sync-version --check',
       'pnpm test',
-      'cargo test',
+      'cargo test -- --test-threads=1',
       'pnpm build universal dmg',
       `hdiutil verify ${artifact}`,
       'git status --porcelain',
@@ -133,7 +133,7 @@ test('publish reuses the current verified build after local and remote preflight
     assert.ok(commands.includes(`hdiutil verify ${artifact}`));
     assert.ok(!commands.includes('pnpm build universal dmg'));
     assert.ok(!commands.includes('pnpm test'));
-    assert.ok(!commands.includes('cargo test'));
+    assert.ok(!commands.includes('cargo test -- --test-threads=1'));
     assert.ok(commands.includes('gh auth status --hostname github.com'));
     assert.ok(commands.includes(`git show-ref --verify --quiet refs/tags/v${version}`));
     assert.ok(commands.includes(`git ls-remote --exit-code --tags origin refs/tags/v${version}`));
@@ -186,8 +186,8 @@ for (const [reason, invalidate] of Object.entries(rebuildCases)) {
       assert.ok(buildIndex > commands.indexOf('gh auth status --hostname github.com'));
       assert.ok(commands.indexOf('pnpm test') < buildIndex);
       assert.ok(commands.includes('pnpm test'));
-      assert.ok(commands.indexOf('cargo test') < buildIndex);
-      assert.ok(commands.includes('cargo test'));
+      assert.ok(commands.indexOf('cargo test -- --test-threads=1') < buildIndex);
+      assert.ok(commands.includes('cargo test -- --test-threads=1'));
       assert.ok(publishIndex > commands.indexOf(`hdiutil verify ${artifact}`));
       assert.ok(publishIndex > buildIndex);
 
@@ -216,7 +216,7 @@ test('publish builds and releases from a checkout without any prior artifacts', 
   }
 });
 
-for (const failedCommand of ['pnpm test', 'cargo test', 'pnpm build universal dmg', 'hdiutil verify']) {
+for (const failedCommand of ['pnpm test', 'cargo test -- --test-threads=1', 'pnpm build universal dmg', 'hdiutil verify']) {
   test(`publish stops and invalidates the old build record if ${failedCommand} fails`, () => {
     const { projectRoot, version } = fixture();
     try {
