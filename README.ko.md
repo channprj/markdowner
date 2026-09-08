@@ -87,7 +87,7 @@ curl -fsSL https://raw.githubusercontent.com/channprj/markdowner/main/install.sh
 
 **Settings → AI Feature**에서 OpenRouter 키를 연결한 뒤 PRD 개선, 요약, 번역, 사용자 프롬프트에 사용할 모델을 선택합니다. 소스 에디터나 WYSIWYG에서 텍스트를 선택하고 `Cmd+Shift+K`를 누르면 인라인 프롬프트를 실행할 수 있습니다.
 
-- **Models & Task Defaults → Primary model**에서 공통으로 사용할 모델을 정합니다. 각 기능은 **Use primary model**을 유지하거나 별도 모델을 선택할 수 있습니다. PRD 인터뷰는 PRD 기본 모델을, 인라인 수정은 사용자 프롬프트 기본 모델을 사용합니다. 설정은 앱을 다시 열어도 유지하며, 업데이트 전에 따로 선택한 기능별 모델도 보존합니다.
+- 모든 AI 기능은 **GLM 5.3 Flash**(`z-ai/glm-5.3-flash`)를 기본으로 사용합니다. **Models & Task Defaults → Primary model**에서 공통 모델을 바꾸고, 각 기능은 **Use primary model**을 유지하거나 별도 모델을 선택할 수 있습니다. PRD 인터뷰는 PRD 기본 모델을, 인라인 수정은 사용자 프롬프트 기본 모델을 사용합니다. 설정은 앱을 다시 열어도 유지합니다. 업데이트 시 기존 Solar 공통 기본값은 GLM 5.3 Flash로 전환하며, 다른 공통 모델과 기능별로 따로 선택한 모델은 보존합니다.
 - 추천 목록에 GLM 5.3 / Flash, Claude Fable 5.1 / Opus 5 / Sonnet 5, GPT-6 Astra / GPT-5.6 Sol, Gemini 3.8 Flash, DeepSeek V4 Pro 0813, Grok 4.6을 포함합니다. OpenRouter 전체 목록을 검색하거나 **Refresh models**로 새 모델을 불러올 수 있습니다. 구조화된 출력을 지원하는 모델만 사용할 수 있으며, 제공자와 ZDR 설정에 따라 사용 가능 여부가 달라집니다.
 - 인라인 수정은 선택 영역에서 편집할 텍스트만 전송합니다. 링크·코드·Markdown 구분자·앞뒤 공백은 앱에서 보관했다가 응답에 다시 조립하고, 전체 문서를 검증합니다. 요청한 텍스트가 누락된 응답은 적용하지 않습니다. 요약은 중복된 문서 구조 없이 원문을 한 번만 전송합니다.
 - 인라인 프롬프트의 제목을 드래그해 위치를 옮길 수 있습니다. 제목에 키보드 포커스를 둔 뒤 방향키로 이동할 수도 있습니다. **Hide AI prompt**를 누르면 프롬프트와 실행 상태를 유지한 채 작은 상태 표시줄로 접힙니다. **Show AI prompt**로 다시 열 수 있고, 접은 상태에서도 요청을 취소할 수 있습니다. 실행 중 `Esc`를 눌러도 프롬프트가 접힙니다.
