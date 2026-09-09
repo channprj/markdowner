@@ -900,8 +900,19 @@ fn run_privileged_shell_command(_shell_command: &str) -> Result<(), String> {
 
 fn write_cli_binary_script(install_path: &Path, script: &str) -> Result<(), String> {
     if let Some(parent) = install_path.parent() {
+        // A directory we create here must end up traversable by everyone, not
+        // just by whoever ran the installer: the whole point of the wrapper is
+        // that *any* login shell can exec it. `create_dir_all` applies the
+        // process umask, which is not ours to assume, so stamp the mode
+        // explicitly — but only on a directory that did not exist yet, so we
+        // never re-mode a prefix the user or Homebrew already owns.
+        let created_parent = !parent.exists();
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
+        if created_parent {
+            set_directory_traversable(parent)
+                .map_err(|error| format!("Could not set mode on {}: {error}", parent.display()))?;
+        }
     }
     std::fs::write(install_path, script).map_err(|error| error.to_string())?;
     set_executable_permission(install_path).map_err(|error| error.to_string())?;
@@ -919,6 +930,39 @@ fn set_executable_permission(path: &Path) -> std::io::Result<()> {
 #[cfg(not(unix))]
 fn set_executable_permission(_path: &Path) -> std::io::Result<()> {
     Ok(())
+}
+
+/// On Unix the executable bit on a directory *is* the traversable bit, so a
+/// directory we just created gets the same 0o755 as the wrapper inside it.
+fn set_directory_traversable(path: &Path) -> std::io::Result<()> {
+    set_executable_permission(path)
+}
+
+/// The one-shot root command behind the escalated install.
+///
+/// `mkdir -p` alone is not enough: it applies whatever umask the escalated
+/// shell happens to carry, and a restrictive one (077) leaves a brand-new
+/// /usr/local/bin as `drwx------ root:wheel`. The wrapper inside it is then
+/// chmod 755 but unreachable — every shell reports `permission denied:
+/// /usr/local/bin/mdner`, so Ctrl+G in Claude Code / Codex silently fails to
+/// open Markdowner. `umask 022` fixes the creation case; `chmod go+rx` repairs
+/// a prefix an earlier build already created that way. `go+rx` only *adds*
+/// bits, so a Homebrew-style group-writable /usr/local/bin keeps its mode.
+fn privileged_cli_binary_install_command(
+    parent: &Path,
+    tmp_path: &Path,
+    install_path: &Path,
+) -> String {
+    let quote = |value: &Path| format!("\"{}\"", double_quote_shell_value(&value.to_string_lossy()));
+    let parent = quote(parent);
+    let dest = quote(install_path);
+    format!(
+        "umask 022 && mkdir -p {parent} && chmod go+rx {parent} \
+&& mv {tmp} {dest} && chmod 755 {dest}",
+        parent = parent,
+        tmp = quote(tmp_path),
+        dest = dest,
+    )
 }
 
 fn install_cli_binary_at(
@@ -965,18 +1009,7 @@ fn install_cli_binary_at(
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("/usr/local/bin"));
 
-    let shell_command = format!(
-        "mkdir -p {parent} && mv {tmp} {dest} && chmod 755 {dest}",
-        parent = double_quote_shell_value(&parent.to_string_lossy()),
-        tmp = format_args!(
-            "\"{}\"",
-            double_quote_shell_value(&tmp_path.to_string_lossy())
-        ),
-        dest = format_args!(
-            "\"{}\"",
-            double_quote_shell_value(&install_path.to_string_lossy())
-        ),
-    );
+    let shell_command = privileged_cli_binary_install_command(&parent, &tmp_path, install_path);
 
     let escalation_result = run_privileged_shell_command(&shell_command);
     // Best-effort cleanup if mv didn't consume the tmp file (e.g. on cancel).
@@ -2401,9 +2434,9 @@ mod tests {
         ctrl_g_launcher_managed_block, infer_image_mime, install_cli_binary_at,
         install_cli_launcher_alias, install_ctrl_g_launcher_block, login_shell_path_value,
         menu_command_from_id, open_startup_paths, open_startup_paths_with_snapshots,
-        path_value_contains_dir, read_image_data_uri, resolve_cli_open_paths, resolve_cli_path,
-        shell_config_path_for_shell, top_level_menu_sections, uninstall_cli_binary_at,
-        uninstall_ctrl_g_launcher_block,
+        path_value_contains_dir, privileged_cli_binary_install_command, read_image_data_uri,
+        resolve_cli_open_paths, resolve_cli_path, shell_config_path_for_shell,
+        top_level_menu_sections, uninstall_cli_binary_at, uninstall_ctrl_g_launcher_block,
     };
 
     #[test]
@@ -2645,6 +2678,51 @@ mod tests {
         {
             assert!(path_value_contains_dir(&shell_path, &first));
         }
+    }
+
+    #[test]
+    fn privileged_install_leaves_the_install_directory_traversable() {
+        // Regression: the command used to be a bare `mkdir -p` + `chmod 755`
+        // on the wrapper only. Under a 077 umask that produced
+        // `drwx------ root:wheel /usr/local/bin`, so every non-root shell hit
+        // `permission denied: /usr/local/bin/mdner` and Ctrl+G never opened
+        // Markdowner even though the wrapper itself was 755.
+        let command = privileged_cli_binary_install_command(
+            Path::new("/usr/local/bin"),
+            Path::new("/tmp/markdowner-cli-wrapper-1-2.sh"),
+            Path::new("/usr/local/bin/mdner"),
+        );
+
+        assert!(command.starts_with("umask 022 &&"), "{command}");
+        assert!(
+            command.contains("chmod go+rx \"/usr/local/bin\""),
+            "{command}"
+        );
+        assert!(
+            command.contains("chmod 755 \"/usr/local/bin/mdner\""),
+            "{command}"
+        );
+        // `go+rx` adds bits only: a Homebrew-style group-writable prefix must
+        // not be flattened back to 755 by the install.
+        assert!(
+            !command.contains("chmod 755 \"/usr/local/bin\""),
+            "{command}"
+        );
+    }
+
+    #[test]
+    fn privileged_install_quotes_every_path_it_interpolates() {
+        let command = privileged_cli_binary_install_command(
+            Path::new("/opt/my tools/bin"),
+            Path::new("/tmp/stage me.sh"),
+            Path::new("/opt/my tools/bin/mdner"),
+        );
+
+        assert!(
+            command.contains("mkdir -p \"/opt/my tools/bin\""),
+            "{command}"
+        );
+        assert!(command.contains("mv \"/tmp/stage me.sh\""), "{command}");
     }
 
     #[test]
