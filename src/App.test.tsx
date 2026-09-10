@@ -4870,7 +4870,8 @@ describe('App recent documents', () => {
     fireEvent.click(exportButton);
 
     expect(await screen.findByText('Export failed')).toBeInTheDocument();
-    expect(screen.getByText(/meeting-notes-001\.png.*already exists/i)).toBeInTheDocument();
+    const exportAlert = screen.getByText('Export failed').closest('[role="alert"]');
+    expect(exportAlert).toHaveTextContent(/meeting-notes-001\.png.*already exists/i);
     expect(screen.getByRole('tab', { name: /Export Preview/i })).toHaveAttribute(
       'aria-selected',
       'true',
@@ -7453,7 +7454,13 @@ describe('App recent documents', () => {
     render(<App />);
 
     const sourceEditor = await screen.findByRole('textbox', { name: /source editor/i });
-    (sourceEditor as HTMLTextAreaElement).setSelectionRange(7, 7);
+    await waitFor(() => expect(sourceEditor).toHaveValue('# Alpha'));
+    const sourceView = createMockSourceEditorView(7, 7);
+    await act(async () => {
+      sourceEditorMockState.lastProps.onCreateEditor(sourceView);
+    });
+    await waitFor(() => expect(sourceView.dispatch).toHaveBeenCalled());
+    sourceView.state.selection.main = { anchor: 7, head: 7 };
 
     fireEvent.keyDown(window, { key: '¡', code: 'Digit1', altKey: true });
 
