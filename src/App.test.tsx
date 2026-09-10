@@ -1966,7 +1966,7 @@ describe('App recent documents', () => {
     expect(screen.queryByTestId('ai-selection-popover')).toBeNull();
   });
 
-  it('opens a local agent mention at an eligible WYSIWYG caret without inserting @', async () => {
+  it('opens a local agent only on the second @ and consumes the trigger', async () => {
     const source = 'hello ';
     const editor = createMockTiptapEditor(source, [{ text: source, from: 0 }]);
     tiptapMockState.editor = editor;
@@ -1983,6 +1983,12 @@ describe('App recent documents', () => {
     render(<App />);
     await screen.findByTestId('mock-tiptap-editor');
     setEligibleLocalAgentMentionSelection(editor, 6);
+    const firstAt = new KeyboardEvent('keydown', { key: '@', cancelable: true });
+    expect(tiptapMockState.lastOptions.editorProps.handleKeyDown(editor.view, firstAt)).toBe(false);
+    expect(firstAt.defaultPrevented).toBe(false);
+    // jsdom does not perform the browser's default contenteditable insertion.
+    editor.view.dispatch(editor.state.tr.insertText('@', 6, 6));
+    setEligibleLocalAgentMentionSelection(editor, 7);
 
     const event = new KeyboardEvent('keydown', {
       key: '@',
@@ -1999,6 +2005,7 @@ describe('App recent documents', () => {
     expect(handled).toBe(true);
     expect(preventDefault).toHaveBeenCalledOnce();
     expect(editor.insertContentMock).not.toHaveBeenCalled();
+    expect(editor.markdown).toBe(source);
     expect(
       await screen.findByRole('dialog', { name: /run a local agent/i }),
     ).toBeVisible();
@@ -2027,6 +2034,12 @@ describe('App recent documents', () => {
     render(<App />);
     await screen.findByTestId('mock-tiptap-editor');
     setEligibleLocalAgentMentionSelection(editor, 6);
+    const firstAt = new KeyboardEvent('keydown', { key: '@', cancelable: true });
+    expect(tiptapMockState.lastOptions.editorProps.handleKeyDown(editor.view, firstAt)).toBe(false);
+    expect(firstAt.defaultPrevented).toBe(false);
+    // jsdom does not perform the browser's default contenteditable insertion.
+    editor.view.dispatch(editor.state.tr.insertText('@', 6, 6));
+    setEligibleLocalAgentMentionSelection(editor, 7);
 
     const event = new KeyboardEvent('keydown', {
       key: '@',
@@ -2168,7 +2181,8 @@ describe('App recent documents', () => {
     });
     expect(screen.getByText('@codex')).toBeVisible();
 
-    setEligibleLocalAgentMentionSelection(editor, 6);
+    editor.view.dispatch(editor.state.tr.insertText('@', 6, 6));
+    setEligibleLocalAgentMentionSelection(editor, 7);
     const event = new KeyboardEvent('keydown', {
       key: '@',
       shiftKey: true,
@@ -2245,6 +2259,12 @@ describe('App recent documents', () => {
     render(<App />);
     await screen.findByTestId('mock-tiptap-editor');
     setEligibleLocalAgentMentionSelection(editor, 6);
+    const firstAt = new KeyboardEvent('keydown', { key: '@', cancelable: true });
+    expect(tiptapMockState.lastOptions.editorProps.handleKeyDown(editor.view, firstAt)).toBe(false);
+    expect(firstAt.defaultPrevented).toBe(false);
+    // jsdom does not perform the browser's default contenteditable insertion.
+    editor.view.dispatch(editor.state.tr.insertText('@', 6, 6));
+    setEligibleLocalAgentMentionSelection(editor, 7);
 
     const event = new KeyboardEvent('keydown', {
       key: '@',

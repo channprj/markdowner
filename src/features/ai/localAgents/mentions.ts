@@ -33,8 +33,8 @@ const UNSAFE_NODE_NAMES = new Set([
 ]);
 
 /**
- * Returns the no-op replacement range for an @ mention only in a narrow,
- * text-only ProseMirror context. Callers must prevent the original key event.
+ * Returns the first @ to remove when a second @ starts a mention in a safe
+ * text-only context. Callers must prevent the second key and consume the range.
  */
 export function isEligibleLocalAgentMentionKey(
   view: Pick<EditorView, "state"> & { composing?: boolean },
@@ -62,7 +62,7 @@ export function isEligibleLocalAgentMentionKey(
     !selection ||
     !Number.isInteger(selection.from) ||
     !Number.isInteger(selection.to) ||
-    selection.from > selection.to ||
+    selection.from !== selection.to ||
     !$from ||
     !$to
   )
@@ -76,9 +76,11 @@ export function isEligibleLocalAgentMentionKey(
   }
 
   const position = selection.from;
-  const range = { from: position, to: selection.to };
-  if ($from.parentOffset === 0 || position <= 1) return range;
-  const preceding = view.state.doc.textBetween(position - 1, position);
+  if ($from.parentOffset < 1 || position < 1) return null;
+  if (view.state.doc.textBetween(position - 1, position) !== "@") return null;
+  const range = { from: position - 1, to: position };
+  if ($from.parentOffset === 1) return range;
+  const preceding = view.state.doc.textBetween(position - 2, position - 1);
   return /\s/u.test(preceding) ? range : null;
 }
 

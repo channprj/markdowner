@@ -88,32 +88,36 @@ describe("local agent mentions", () => {
     expect(filterLocalAgentMentions("@new-agent")).toEqual([]);
   });
 
-  it("allows @ only at a safe block boundary or after whitespace", () => {
-    expect(isEligibleLocalAgentMentionKey(viewAt("", 1), key())).toEqual({
-      from: 1,
-      to: 1,
-    });
-    expect(isEligibleLocalAgentMentionKey(viewAt("hello ", 7), key())).toEqual({
-      from: 7,
-      to: 7,
-    });
-    expect(
-      isEligibleLocalAgentMentionKey(
-        viewAt("second block", 12, { parentOffset: 0 }),
-        key(),
-      ),
-    ).toEqual({ from: 12, to: 12 });
+  it.each(["", "hello ", "@name "])("leaves the first @ as ordinary text after %j", (text) => {
+    expect(isEligibleLocalAgentMentionKey(viewAt(text, text.length + 1), key())).toBeNull();
   });
 
-  it("captures an ordinary same-block text selection at a safe boundary", () => {
+  it("allows the second @ only at a safe block boundary or after whitespace", () => {
+    expect(isEligibleLocalAgentMentionKey(viewAt("@", 2), key())).toEqual({
+      from: 1,
+      to: 2,
+    });
+    expect(isEligibleLocalAgentMentionKey(viewAt("hello @", 8), key())).toEqual({
+      from: 7,
+      to: 8,
+    });
     expect(
       isEligibleLocalAgentMentionKey(
-        viewAt(" hello", 2, {
+        viewAt("second block@", 14, { parentOffset: 1 }),
+        key(),
+      ),
+    ).toEqual({ from: 13, to: 14 });
+  });
+
+  it("leaves @ over a text selection as ordinary replacement input", () => {
+    expect(
+      isEligibleLocalAgentMentionKey(
+        viewAt("@hello", 2, {
           selection: { from: 2, to: 7, empty: false },
         }),
         key(),
       ),
-    ).toEqual({ from: 2, to: 7 });
+    ).toBeNull();
   });
 
   it("rejects a collapsed paragraph selection inside a real table cell", () => {
@@ -131,7 +135,7 @@ describe("local agent mentions", () => {
       schema.node("table", null, [
         schema.node("tableRow", null, [
           schema.node("tableCell", null, [
-            schema.node("paragraph", null, [schema.text(" ")]),
+            schema.node("paragraph", null, [schema.text("@")]),
           ]),
         ]),
       ]),
@@ -151,21 +155,23 @@ describe("local agent mentions", () => {
   it.each([
     ["inside a word", viewAt("hello", 6)],
     ["inside an email", viewAt("me@example", 11)],
-    ["inline code", viewAt("code ", 6, { marks: ["code"] })],
+    ["after an email at-sign", viewAt("me@", 4)],
+    ["after two at-signs", viewAt("@@", 3)],
+    ["inline code", viewAt("@", 2, { marks: ["code"] })],
     [
       "a code block",
-      viewAt("", 1, { parent: "codeBlock", ancestors: ["codeBlock", "doc"] }),
+      viewAt("@", 2, { parent: "codeBlock", ancestors: ["codeBlock", "doc"] }),
     ],
     [
       "frontmatter",
-      viewAt("", 1, {
+      viewAt("@", 2, {
         parent: "frontMatter",
         ancestors: ["frontMatter", "doc"],
       }),
     ],
     [
       "an unsupported node",
-      viewAt("", 1, { parent: "image", ancestors: ["image", "doc"] }),
+      viewAt("@", 2, { parent: "image", ancestors: ["image", "doc"] }),
     ],
     [
       "a multi-cell table selection",
@@ -189,13 +195,13 @@ describe("local agent mentions", () => {
     key({ metaKey: true }),
     key({ altKey: true }),
   ])("rejects composing and unsafe keyboard events", (event) => {
-    expect(isEligibleLocalAgentMentionKey(viewAt("", 1), event)).toBeNull();
+    expect(isEligibleLocalAgentMentionKey(viewAt("@", 2), event)).toBeNull();
   });
 
   it("rejects @ while the ProseMirror view is composing", () => {
     expect(
       isEligibleLocalAgentMentionKey(
-        viewAt("", 1, { composing: true }),
+        viewAt("@", 2, { composing: true }),
         key({ isComposing: false }),
       ),
     ).toBeNull();

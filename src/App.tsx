@@ -2037,7 +2037,13 @@ export default function App() {
         const mentionRange = isEligibleLocalAgentMentionKey(view, event);
         if (mentionRange) {
           event.preventDefault();
-          openLocalAgentComposerRef.current(mentionRange);
+          // The first @ was ordinary input. Consume it before capturing the
+          // destination so neither trigger character leaks into the document.
+          view.dispatch(view.state.tr.insertText('', mentionRange.from, mentionRange.to));
+          openLocalAgentComposerRef.current({
+            from: mentionRange.from,
+            to: mentionRange.from,
+          });
           return true;
         }
         // ArrowUp at the very first cursor position of a code_block parks the
