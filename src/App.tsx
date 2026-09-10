@@ -7518,6 +7518,7 @@ export default function App() {
       ) : null}
       {aiSelectionSnapshot && aiSelectionPromptOpen ? (
         <AiSelectionPopover
+          editor={currentMode === 'Wysiwyg' ? editor : null}
           snapshot={aiSelectionSnapshot}
           settings={settings}
           onClose={() => {
@@ -7530,6 +7531,7 @@ export default function App() {
       ) : null}
       {localAgentSnapshot && localAgentComposerOpen ? (
         <LocalAgentComposer
+          editor={currentMode === 'Wysiwyg' ? editor : null}
           key={localAgentComposerSessionId}
           snapshot={localAgentSnapshot}
           documentLabel={localAgentDocumentLabel || 'Untitled'}

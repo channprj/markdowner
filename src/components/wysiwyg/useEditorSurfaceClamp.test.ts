@@ -1,6 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { renderHook } from '@testing-library/react';
+import type { Editor } from '@tiptap/react';
 
-import { clampAxisDelta } from './useEditorSurfaceClamp';
+import { clampAxisDelta, useEditorSurfaceClamp } from './useEditorSurfaceClamp';
+
+it('moves an edge-clamped toolbar below the active line instead of covering it', () => {
+  const dom = document.createElement('div');
+  const panel = document.createElement('div');
+  vi.spyOn(dom, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 100, 800, 500));
+  // A 40px toolbar originally above the line at y=110..130.
+  vi.spyOn(panel, 'getBoundingClientRect').mockReturnValue(new DOMRect(200, 60, 300, 40));
+  const editor = {
+    state: { selection: { head: 1, from: 1, to: 1 } },
+    view: { dom, coordsAtPos: () => ({ left: 300, right: 300, top: 110, bottom: 130 }) },
+  } as unknown as Editor;
+  const panelRef = { current: panel };
+  const { result } = renderHook(() => useEditorSurfaceClamp(editor, panelRef, 1));
+  expect(60 + result.current.dy).toBeGreaterThanOrEqual(138);
+});
 
 /**
  * The clamp math that keeps floating editor popovers inside the editor surface.

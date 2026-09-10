@@ -315,6 +315,7 @@ export function LinkPopup({ editor, enabled = true }: Props) {
     containerRef,
     positionStyle,
     VIEWPORT_MARGIN_PX,
+    state.mode === 'closed' ? null : state.anchor,
   );
 
   const setViewingStatus = (status: string) => {
@@ -437,6 +438,8 @@ export function LinkPopup({ editor, enabled = true }: Props) {
 
   const clampedStyle: CSSProperties = {
     ...positionStyle,
+    maxHeight: clamp.maxHeight,
+    overflowY: 'auto',
     top: (typeof positionStyle.top === 'number' ? positionStyle.top : 0) + clamp.dy,
     left:
       (typeof positionStyle.left === 'number' ? positionStyle.left : 0) +

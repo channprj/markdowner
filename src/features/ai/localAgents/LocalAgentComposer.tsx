@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Square, X } from "lucide-react";
+import type { Editor } from '@tiptap/react';
+import { useEditorPopoverPosition } from '@/components/wysiwyg/useEditorPopoverPosition';
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -36,6 +38,7 @@ export interface LocalAgentComposerServices {
 }
 
 export interface LocalAgentComposerProps {
+  editor?: Editor | null;
   snapshot: LocalAgentTargetSnapshot;
   documentLabel: string;
   disclosureAccepted: boolean;
@@ -60,6 +63,7 @@ const DEFAULT_SERVICES: LocalAgentComposerServices = {
 };
 
 export function LocalAgentComposer({
+  editor = null,
   snapshot,
   documentLabel,
   disclosureAccepted,
@@ -72,6 +76,8 @@ export function LocalAgentComposer({
   onResult,
   services = DEFAULT_SERVICES,
 }: LocalAgentComposerProps) {
+  const panelRef = useRef<HTMLElement | null>(null);
+  const position = useEditorPopoverPosition(editor, panelRef);
   const [statuses, setStatuses] = useState<LocalAgentStatus[]>([]);
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusError, setStatusError] = useState("");
@@ -395,11 +401,13 @@ export function LocalAgentComposer({
 
   return (
     <section
+      ref={panelRef}
       role="dialog"
       aria-modal="false"
       aria-labelledby="local-agent-composer-heading"
       data-testid="local-agent-composer"
-      className="ai-motion-surface fixed bottom-12 left-1/2 z-[80] w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl"
+      className="ai-motion-surface fixed z-[80] max-h-[calc(100dvh-4rem)] w-[min(30rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl"
+      style={position ?? { bottom: '3rem', left: '50%', transform: 'translateX(-50%)' }}
     >
       <header className="flex items-start justify-between gap-3">
         <div>

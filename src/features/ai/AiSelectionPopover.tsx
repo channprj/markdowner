@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronUp, GripHorizontal, LoaderCircle, Minus, Sparkles, Square, X } from 'lucide-react';
+import type { Editor } from '@tiptap/react';
+import { useEditorPopoverPosition } from '@/components/wysiwyg/useEditorPopoverPosition';
 
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -53,6 +55,7 @@ export interface AiSelectionServices {
 }
 
 export interface AiSelectionPopoverProps {
+  editor?: Editor | null;
   snapshot: AiSelectionSnapshot;
   settings: Settings;
   onClose: () => void;
@@ -74,6 +77,7 @@ const DEFAULT_SERVICES: AiSelectionServices = {
 };
 
 export function AiSelectionPopover({
+  editor = null,
   snapshot,
   settings,
   onClose,
@@ -101,6 +105,7 @@ export function AiSelectionPopover({
   const [minimized, setMinimized] = useState(false);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
+  const editorPosition = useEditorPopoverPosition(editor, panelRef, position);
   const dragRef = useRef<{
     pointerId: number; x: number; y: number; left: number; top: number;
   } | null>(null);
@@ -334,7 +339,7 @@ export function AiSelectionPopover({
       aria-modal="false"
       aria-labelledby="ai-selection-heading"
       className={`ai-motion-surface fixed z-[80] flex max-h-[calc(100dvh-4rem)] flex-col rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl ${minimized ? 'w-[min(22rem,calc(100vw-2rem))]' : 'w-[min(30rem,calc(100vw-2rem))]'}`}
-      style={position ?? { bottom: '3rem', left: '50%', transform: 'translateX(-50%)' }}
+      style={{ ...(editorPosition ?? position ?? { bottom: '3rem', left: '50%', transform: 'translateX(-50%)' }), overflowY: 'auto' }}
       data-testid="ai-selection-popover"
     >
       <header className="flex shrink-0 items-start justify-between gap-2">

@@ -763,6 +763,9 @@ export function SlashCommandMenu({
     placement === 'above'
       ? { bottom: viewportHeight - menu.cursorTop + MENU_GUTTER, left: menu.left }
       : { top: menu.cursorBottom + MENU_GUTTER, left: menu.left };
+  positionStyle.maxHeight = Math.max(0, Math.min(360, placement === 'above'
+    ? menu.cursorTop - MENU_GUTTER - VIEWPORT_MARGIN
+    : viewportHeight - menu.cursorBottom - MENU_GUTTER - VIEWPORT_MARGIN));
 
   const handleImageSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

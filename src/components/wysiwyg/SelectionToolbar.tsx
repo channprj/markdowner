@@ -214,7 +214,7 @@ export function SelectionToolbar({
       aria-label="Text formatting"
       data-testid="selection-toolbar"
       className="selection-toolbar"
-      style={{ top: position.top + clamp.dy, left: position.left + clamp.dx }}
+      style={{ top: position.top + clamp.dy, left: position.left + clamp.dx, maxHeight: clamp.maxHeight, overflowY: 'auto' }}
       onMouseDown={(event) => {
         // Don't let mousedown collapse the active selection.
         event.preventDefault();
