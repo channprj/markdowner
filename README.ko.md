@@ -87,6 +87,8 @@ curl -fsSL https://raw.githubusercontent.com/channprj/markdowner/main/install.sh
 
 **Settings → AI Feature**에서 OpenRouter 키를 연결한 뒤 PRD 개선, 요약, 번역, 사용자 프롬프트에 사용할 모델을 선택합니다. 소스 에디터나 WYSIWYG에서 텍스트를 선택하고 `Cmd+Shift+K`를 누르면 인라인 프롬프트를 실행할 수 있습니다.
 
+- WYSIWYG에서 문단 시작이나 공백 뒤에 `@@`를 입력하면 로컬 에이전트 창이 열립니다. `@` 하나는 일반 텍스트로 입력됩니다. 명령 팔레트의 **Run local agent**로도 열 수 있습니다.
+- WYSIWYG 팝오버는 작성 중인 내용의 위나 아래에 표시합니다. 공간이 부족하면 팝오버 내부를 스크롤하며, 선택 영역이 화면 대부분을 차지하면 커서가 있는 쪽을 보이게 유지합니다.
 - 모든 AI 기능은 **GLM 5.3 Flash**(`z-ai/glm-5.3-flash`)를 기본으로 사용합니다. **Models & Task Defaults → Primary model**에서 공통 모델을 바꾸고, 각 기능은 **Use primary model**을 유지하거나 별도 모델을 선택할 수 있습니다. PRD 인터뷰는 PRD 기본 모델을, 인라인 수정은 사용자 프롬프트 기본 모델을 사용합니다. 설정은 앱을 다시 열어도 유지합니다. 업데이트 시 기존 Solar 공통 기본값은 GLM 5.3 Flash로 전환하며, 다른 공통 모델과 기능별로 따로 선택한 모델은 보존합니다.
 - 추천 목록에 GLM 5.3 / Flash, Claude Fable 5.1 / Opus 5 / Sonnet 5, GPT-6 Astra / GPT-5.6 Sol, Gemini 3.8 Flash, DeepSeek V4 Pro 0813, Grok 4.6을 포함합니다. OpenRouter 전체 목록을 검색하거나 **Refresh models**로 새 모델을 불러올 수 있습니다. 구조화된 출력을 지원하는 모델만 사용할 수 있으며, 제공자와 ZDR 설정에 따라 사용 가능 여부가 달라집니다.
 - 인라인 수정은 선택 영역에서 편집할 텍스트만 전송합니다. 링크·코드·Markdown 구분자·앞뒤 공백은 앱에서 보관했다가 응답에 다시 조립하고, 전체 문서를 검증합니다. 요청한 텍스트가 누락된 응답은 적용하지 않습니다. 요약은 중복된 문서 구조 없이 원문을 한 번만 전송합니다.
