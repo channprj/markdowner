@@ -251,7 +251,7 @@ export const DEFAULT_SETTINGS: Settings = {
   editorLineHeight: 1.6,
   editorFontFamily: '',
   editorLineWrap: true,
-  editorWrapColumn: 120,
+  editorWrapColumn: 0,
   editorShowWrapLine: true,
   editorWordBreakKeepAll: true,
   wysiwygCodeBlockWrap: false,

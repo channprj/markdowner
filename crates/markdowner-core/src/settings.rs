@@ -312,7 +312,7 @@ impl Default for Settings {
             editor_line_height: 0.0,
             editor_font_family: String::new(),
             editor_line_wrap: true,
-            editor_wrap_column: 120,
+            editor_wrap_column: 0,
             editor_show_wrap_line: true,
             editor_word_break_keep_all: true,
             wysiwyg_code_block_wrap: false,

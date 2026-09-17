@@ -387,8 +387,8 @@ describe('ignore list', () => {
 });
 
 describe('word wrap column + wrap line', () => {
-  it('defaults to a 120-column cap with the wrap line on', () => {
-    expect(DEFAULT_SETTINGS.editorWrapColumn).toBe(120);
+  it('defaults to wrapping at the window width with the wrap line on', () => {
+    expect(DEFAULT_SETTINGS.editorWrapColumn).toBe(0);
     expect(DEFAULT_SETTINGS.editorShowWrapLine).toBe(true);
     expect(DEFAULT_SETTINGS.editorWordBreakKeepAll).toBe(true);
   });
