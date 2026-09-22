@@ -42,6 +42,48 @@ struct TerminalSession {
     child: Box<dyn Child + Send + Sync>,
 }
 
+#[derive(Default)]
+struct TerminalDecoder {
+    pending: Vec<u8>,
+}
+
+impl TerminalDecoder {
+    fn push(&mut self, bytes: &[u8]) -> String {
+        self.pending.extend_from_slice(bytes);
+        let mut output = String::new();
+        let mut consumed = 0;
+        loop {
+            match std::str::from_utf8(&self.pending[consumed..]) {
+                Ok(valid) => {
+                    output.push_str(valid);
+                    consumed = self.pending.len();
+                    break;
+                }
+                Err(error) => {
+                    let valid_end = consumed + error.valid_up_to();
+                    output.push_str(&String::from_utf8_lossy(&self.pending[consumed..valid_end]));
+                    consumed = valid_end;
+                    if let Some(invalid_length) = error.error_len() {
+                        output.push('\u{fffd}');
+                        consumed += invalid_length;
+                    } else {
+                        // At most three bytes of an unfinished character remain.
+                        break;
+                    }
+                }
+            }
+        }
+        self.pending.drain(..consumed);
+        output
+    }
+
+    fn finish(&mut self) -> String {
+        let output = String::from_utf8_lossy(&self.pending).into_owned();
+        self.pending.clear();
+        output
+    }
+}
+
 pub struct TerminalState {
     next_id: AtomicU64,
     sessions: Arc<Mutex<HashMap<u64, TerminalSession>>>,
@@ -162,18 +204,29 @@ pub fn terminal_start(
     let thread_app_handle = app_handle.clone();
     thread::spawn(move || {
         let mut buffer = [0_u8; 8192];
+        let mut decoder = TerminalDecoder::default();
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let data = String::from_utf8_lossy(&buffer[..n]).into_owned();
-                    let _ = thread_app_handle.emit(
-                        TERMINAL_OUTPUT_EVENT,
-                        TerminalOutputPayload { id, data },
-                    );
+                    let data = decoder.push(&buffer[..n]);
+                    if data.is_empty() {
+                        continue;
+                    }
+                    let _ = thread_app_handle
+                        .emit(TERMINAL_OUTPUT_EVENT, TerminalOutputPayload { id, data });
                 }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => break,
             }
+        }
+
+        let tail = decoder.finish();
+        if !tail.is_empty() {
+            let _ = thread_app_handle.emit(
+                TERMINAL_OUTPUT_EVENT,
+                TerminalOutputPayload { id, data: tail },
+            );
         }
 
         if let Ok(mut sessions) = sessions.lock()
@@ -248,7 +301,50 @@ pub fn terminal_close(state: State<'_, TerminalState>, id: u64) -> Result<(), St
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_terminal_cwd, terminal_size};
+    use super::{TerminalDecoder, resolve_terminal_cwd, terminal_size};
+
+    #[test]
+    fn terminal_utf8_survives_every_read_boundary() {
+        let source = "한글 😀 café 日本語\r\n\x1b[31mred\x1b[0m";
+        for split in 0..=source.len() {
+            let mut decoder = TerminalDecoder::default();
+            let output = decoder.push(&source.as_bytes()[..split])
+                + &decoder.push(&source.as_bytes()[split..])
+                + &decoder.finish();
+            assert_eq!(output, source, "split at byte {split}");
+        }
+        let mut decoder = TerminalDecoder::default();
+        let mut output = String::new();
+        for byte in source.as_bytes() {
+            output.push_str(&decoder.push(&[*byte]));
+        }
+        output.push_str(&decoder.finish());
+        assert_eq!(output, source);
+    }
+
+    #[test]
+    fn terminal_utf8_retains_incomplete_characters_until_eof() {
+        let mut decoder = TerminalDecoder::default();
+        assert_eq!(decoder.push(b"hello\xf0\x9f"), "hello");
+        assert_eq!(decoder.push(&[]), "");
+        assert_eq!(decoder.finish(), "\u{fffd}");
+        assert_eq!(decoder.finish(), "");
+    }
+
+    #[test]
+    fn terminal_utf8_invalid_sequences_match_whole_stream_lossy_decoding() {
+        let bytes = b"a\xff\xe2\x82Z\xf0\x9f\x98\x80\xed\xa0\x80\xe3\x81";
+        for split in 0..=bytes.len() {
+            let mut decoder = TerminalDecoder::default();
+            let output =
+                decoder.push(&bytes[..split]) + &decoder.push(&bytes[split..]) + &decoder.finish();
+            assert_eq!(
+                output,
+                String::from_utf8_lossy(bytes),
+                "split at byte {split}"
+            );
+        }
+    }
 
     #[test]
     fn terminal_size_clamps_to_safe_bounds() {
