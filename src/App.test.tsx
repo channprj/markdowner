@@ -11772,6 +11772,7 @@ describe('App recent documents', () => {
     const { default: App } = await import('./App');
 
     render(<App />);
+    await waitFor(() => expect(saveOpenTabsMock).toHaveBeenCalled());
 
     fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
 
@@ -12579,6 +12580,7 @@ describe('App recent documents', () => {
     const { default: App } = await import('./App');
 
     render(<App />);
+    await waitFor(() => expect(saveOpenTabsMock).toHaveBeenCalled());
 
     await waitFor(() => {
       expect(menuCommandHandler).toBeTypeOf('function');
@@ -12622,6 +12624,42 @@ describe('App recent documents', () => {
     await waitFor(() => {
       expect(setModeMock).toHaveBeenCalledWith('SplitView');
     });
+  });
+
+  it.each(['drafts', 'tabs'])('hot exit: a failed %s write blocks close and quit until retry succeeds', async (store) => {
+    bootstrapMock.mockResolvedValue(baseSnapshot({
+      activeDocumentName: 'notes.md', activeDocumentPath: '/notes.md',
+      activeDocumentSource: 'disk', mode: 'Editor',
+    }));
+    const { default: App } = await import('./App');
+    render(<App />);
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    fireEvent.change(editor, { target: { value: 'latest unsaved draft' } });
+    await waitFor(() => expect(saveOpenTabsMock).toHaveBeenCalled());
+    const failingWrite = store === 'drafts' ? saveDraftBackupsMock : saveOpenTabsMock;
+    failingWrite.mockRejectedValue(new Error('disk full'));
+    messageMock.mockResolvedValue('Cancel');
+    const preventDefault = vi.fn();
+    await act(async () => { await closeRequestedHandler?.({ preventDefault }); });
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(destroyWindowMock).not.toHaveBeenCalled();
+    expect(editor).toHaveValue('latest unsaved draft');
+
+    messageMock.mockClear();
+    fireEvent.keyDown(window, { key: 'q', metaKey: true });
+    await waitFor(() => expect(messageMock).toHaveBeenCalled());
+    expect(quitAppMock).not.toHaveBeenCalled();
+
+    messageMock.mockImplementation(async () => {
+      failingWrite.mockResolvedValue(undefined);
+      return 'Retry';
+    });
+    preventDefault.mockClear();
+    await act(async () => { await closeRequestedHandler?.({ preventDefault }); });
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(saveDraftBackupsMock).toHaveBeenLastCalledWith([
+      { path: '/notes.md', untitledId: null, name: 'notes.md', draft: 'latest unsaved draft' },
+    ]);
   });
 
   it('hot exit: closing a dirty window persists the draft backup without prompting', async () => {

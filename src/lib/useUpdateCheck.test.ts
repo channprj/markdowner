@@ -143,8 +143,8 @@ describe('useUpdateCheck install', () => {
     expect(callOrder).toEqual(['flush', 'install']);
   });
 
-  it('still installs when the pre-install flush fails', async () => {
-    const onBeforeInstall = vi.fn(async () => {
+  it('keeps documents open when the pre-install flush fails and allows a retry', async () => {
+    const onBeforeInstall = vi.fn(async (): Promise<void> => {
       throw new Error('flush failed');
     });
 
@@ -164,8 +164,10 @@ describe('useUpdateCheck install', () => {
       await result.current.install();
     });
 
-    expect(downloadAndInstallUpdateMock).toHaveBeenCalledWith(
-      'https://example.invalid/markdowner.dmg',
-    );
+    expect(downloadAndInstallUpdateMock).not.toHaveBeenCalled();
+    expect(result.current.installing).toBe(false);
+    onBeforeInstall.mockResolvedValueOnce(undefined);
+    await act(async () => { await result.current.install(); });
+    expect(downloadAndInstallUpdateMock).toHaveBeenCalledOnce();
   });
 });

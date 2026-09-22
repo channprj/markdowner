@@ -1,3 +1,4 @@
+import { useDocumentPersistence } from './lib/useDocumentPersistence';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -152,9 +153,7 @@ import {
   completeCliWait,
   quitApp,
   loadOpenTabs,
-  saveOpenTabs,
   loadDraftBackups,
-  saveDraftBackups,
   searchWorkspace,
   aiCancel,
   aiDiscardResult,
@@ -184,7 +183,6 @@ import {
 import { resolvePdfPaper } from '@/lib/pdfPaper';
 import {
   applyDraftBackupsToRestoredTabs,
-  buildDraftBackupEntries,
 } from './lib/draftBackups';
 import {
   buildEditorDocumentMetrics,
@@ -434,7 +432,6 @@ import {
   resolveQuickOpenViewState,
 } from './lib/quickOpenItems';
 import {
-  buildOpenTabsPayload,
   cursorPositionsMapFromOpenTabsPayload,
   loadStartupCursorRestoreState,
   loadOpenTabsWithEmptyRetry,
@@ -511,7 +508,6 @@ type OpenedDocumentResolution = {
 // Debounce window for the hot-exit draft backup file while the user types.
 // Tab-list changes and close/quit flush immediately; this only bounds the
 // data-loss window for hard crashes.
-const DRAFT_BACKUP_DEBOUNCE_MS = 1000;
 // Max gap between a syllable's compositionend and the next syllable's
 // compositionstart for the table-cell caret carry-forward to apply. Continuous
 // CJK typing fires these within tens of ms; deliberate caret moves are slower.
@@ -808,8 +804,6 @@ export default function App() {
   // session on launch, updated as the user moves the caret (both modes),
   // and re-persisted via saveOpenTabs on a small debounce.
   const cursorByPathRef = useRef<Map<string, SourceCursorLocation>>(new Map());
-  const cursorPersistTimerRef = useRef<number | null>(null);
-  const draftBackupTimerRef = useRef<number | null>(null);
   // One-shot startup directive: when the bootstrap effect picks an active
   // tab, it stashes the path here. The active-tab cursor restore effect
   // consumes it once the editor surface for that path is ready and then
@@ -1265,52 +1259,11 @@ export default function App() {
     schedulePersistOpenTabs();
   };
 
-  // Debounced persistence trigger. The base persistence effect already fires
-  // when the tab list or active tab changes; cursor motion is high-frequency,
-  // so we coalesce on a small timer rather than dispatching a save per move.
-  const schedulePersistOpenTabs = () => {
-    if (cursorPersistTimerRef.current !== null) {
-      window.clearTimeout(cursorPersistTimerRef.current);
-    }
-    cursorPersistTimerRef.current = window.setTimeout(() => {
-      cursorPersistTimerRef.current = null;
-      persistOpenTabsAndCursorsNow();
-    }, 800);
-  };
-
-  // Eagerly snapshot the open-tabs + cursor map into the session file. Shared
-  // by the tab-list effect (immediate) and the cursor debounce (after motion).
-  // Reads tabs/activeTabId from refs so the latest values win even if React
-  // hasn't committed a pending render yet.
-  const persistOpenTabsAndCursorsNow = () => {
-    if (!startupTabsReadyRef.current) return Promise.resolve();
-    return saveOpenTabs(
-      buildOpenTabsPayload({
-        tabs: tabsRef.current,
-        activeTabId: activeTabIdRef.current,
-        cursorPositions: cursorByPathRef.current,
-      }),
-    ).catch((error) => {
-      console.warn('[Markdowner] Failed to persist open tabs:', error);
-    });
-  };
-
-  // Snapshot every dirty buffer into the hot-exit backup file. The payload is
-  // rebuilt from the live refs on each write, so any flow that closes or
-  // saves a tab — including an explicit "Don't Save" discard — drops its
-  // entry on the next persist and the draft can never be restored.
-  const persistDraftBackupsNow = (draftOverride?: string | null) => {
-    if (!startupTabsReadyRef.current) return Promise.resolve();
-    return saveDraftBackups(
-      buildDraftBackupEntries({
-        tabs: tabsRef.current,
-        activeTabId: activeTabIdRef.current,
-        localDraft: draftOverride ?? localDraftRef.current,
-      }),
-    ).catch((error) => {
-      console.warn('[Markdowner] Failed to persist draft backups:', error);
-    });
-  };
+  const { flushSession, schedulePersistOpenTabs } = useDocumentPersistence({
+    tabs, activeTabId, localDraft, ready: startupTabsReady,
+    tabsRef, activeTabIdRef, localDraftRef, readyRef: startupTabsReadyRef,
+    cursorByPathRef,
+  });
 
   const isFocusInsideExplorer = () => {
     const active = document.activeElement as HTMLElement | null;
@@ -3329,11 +3282,12 @@ export default function App() {
     onManualCheckComplete: (result) => {
       setManualUpdateCheckInfo(result.available ? null : result);
     },
+    onInstallError: (error) => reportOperationError(error, 'Could not install update. Your documents are still open; please retry.'),
     onBeforeInstall: async () => {
       // The installer relaunches the app without a close-requested event —
       // flush the hot-exit backups now so unsaved buffers survive the update.
       const fresh = flushWysiwygDraftNow();
-      await persistDraftBackupsNow(fresh ?? localDraftRef.current);
+      await flushSession(fresh ?? localDraftRef.current);
     },
   });
 
@@ -3432,34 +3386,6 @@ export default function App() {
   useEffect(() => {
     document.title = buildWindowTitle(snapshot);
   }, [snapshot]);
-
-  // Persist open tabs whenever the tab list or active tab changes. Only
-  // path-bearing tabs are saved; untitled drafts live in the backup file.
-  useEffect(() => {
-    if (!startupTabsReady) return;
-    // Cursors travel with the same payload — persistOpenTabsAndCursorsNow
-    // reads from the refs that have already been updated for this render.
-    void persistOpenTabsAndCursorsNow();
-    // Draft backups must track every tab-list change too: this is the write
-    // that makes a "Don't Save" discard durable before the next launch.
-    void persistDraftBackupsNow();
-  }, [tabs, activeTabId, startupTabsReady]);
-
-  // While the user types, keep the hot-exit backup at most one debounce
-  // window stale so even a hard crash loses almost nothing.
-  useEffect(() => {
-    if (!startupTabsReady) return;
-    draftBackupTimerRef.current = window.setTimeout(() => {
-      draftBackupTimerRef.current = null;
-      void persistDraftBackupsNow();
-    }, DRAFT_BACKUP_DEBOUNCE_MS);
-    return () => {
-      if (draftBackupTimerRef.current !== null) {
-        window.clearTimeout(draftBackupTimerRef.current);
-        draftBackupTimerRef.current = null;
-      }
-    };
-  }, [localDraft, startupTabsReady]);
 
   useEffect(() => {
     setCollapsedFolderKeys((current) =>
@@ -6804,16 +6730,23 @@ export default function App() {
       // Flush any pending WYSIWYG keystrokes so the backup carries the
       // user's last ≤120ms of typing. For other tabs we rely on the
       // already-stashed `tab.draft` set on tab switch (which also flushes).
-      const fresh = flushWysiwygDraftNow();
-      const currentDraft = fresh ?? localDraft;
-      await Promise.all([
-        persistDraftBackupsNow(currentDraft),
-        // The cursor debounce (800ms) may not have fired yet — snapshot the
-        // session one last time alongside the backups.
-        persistOpenTabsAndCursorsNow(),
-      ]);
-      if (_target === 'window') {
-        await invoke('close_window_session');
+      while (true) {
+        try {
+          await flushSession(flushWysiwygDraftNow() ?? localDraftRef.current);
+          if (_target === 'window') await invoke('close_window_session');
+          return;
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          reportOperationError(error, 'Could not save recovery data. Your documents are still open.');
+          const decision = await message(
+            `Could not save recovery data. Markdowner will stay open to protect your changes.\n\n${reason}`,
+            { title: WINDOW_TITLE, kind: 'error', buttons: { ok: 'Retry', cancel: 'Cancel' } },
+          );
+          if (decision !== 'Retry') {
+            event.preventDefault();
+            return;
+          }
+        }
       }
     },
   );

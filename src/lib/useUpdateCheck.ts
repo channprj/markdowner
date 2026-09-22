@@ -35,6 +35,7 @@ interface UseUpdateCheckOptions {
    * the last chance to flush state (hot-exit draft backups) to disk.
    */
   onBeforeInstall?: () => Promise<void> | void;
+  onInstallError?: (error: unknown) => void;
 }
 
 /**
@@ -65,6 +66,9 @@ export function useUpdateCheck(
   onManualCheckCompleteRef.current = options.onManualCheckComplete;
   const onBeforeInstallRef = useRef(options.onBeforeInstall);
   onBeforeInstallRef.current = options.onBeforeInstall;
+  const onInstallErrorRef = useRef(options.onInstallError);
+  onInstallErrorRef.current = options.onInstallError;
+  const installInProgressRef = useRef(false);
 
   const runCheck = useCallback(async (manual = false) => {
     setChecking(true);
@@ -137,27 +141,25 @@ export function useUpdateCheck(
   }, [info]);
 
   const install = useCallback(async () => {
-    if (!info) {
+    if (!info || installInProgressRef.current) {
       return;
     }
     if (!info.dmgUrl) {
       void openExternalUrl(info.releaseUrl);
       return;
     }
+    installInProgressRef.current = true;
     setInstalling(true);
     try {
-      // Best-effort: a failed flush must never block the update itself.
       await onBeforeInstallRef.current?.();
-    } catch (error) {
-      console.warn('Pre-install state flush failed:', error);
-    }
-    try {
       await downloadAndInstallUpdate(info.dmgUrl);
     } catch (error) {
       console.error('Update install failed:', error);
+      onInstallErrorRef.current?.(error);
+    } finally {
+      installInProgressRef.current = false;
       setInstalling(false);
     }
-    // On success the app exits and relaunches, so we leave `installing` true.
   }, [info]);
 
   return {
