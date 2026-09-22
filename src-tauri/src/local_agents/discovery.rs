@@ -3231,6 +3231,9 @@ Usage: opencode debug config
             owned_opencode_environment().into_iter().collect();
         let environments = runner.environments.lock().unwrap();
         assert_eq!(environments.len(), 4);
+        // OwnedTempCapability::drop schedules cleanup on a worker thread.
+        // Prove eventual removal within its budget instead of racing that worker.
+        let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(5);
         for environment in environments.iter() {
             let environment: BTreeMap<OsString, OsString> = environment.iter().cloned().collect();
             for (name, value) in &expected {
@@ -3252,6 +3255,9 @@ Usage: opencode debug config
                 "XDG_STATE_HOME",
             ] {
                 let path = Path::new(environment.get(OsStr::new(name)).unwrap());
+                while path.exists() && std::time::Instant::now() < cleanup_deadline {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
                 assert!(!path.exists(), "OpenCode probe isolation leaked {name}");
             }
             assert_eq!(environment.len(), expected.len() + 7);
