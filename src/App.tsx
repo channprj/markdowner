@@ -2930,6 +2930,18 @@ export default function App() {
           });
           let { mergedTabs } = restoredMerge;
           const { nextActiveId, nextActiveTab } = restoredMerge;
+          if (persistedTabs.openTabs.length === 0 && nextActiveTab && tabsRef.current.some(
+            (tab) => tab.id === nextActiveTab.id,
+          )) {
+            // Opening a file while the empty-session retry is pending wins.
+            // No backend document was activated by restoration in this path;
+            // reopening the live tab would replace its newer draft/selection.
+            startTransition(() => {
+              setTabs(mergedTabs);
+              setStartupTabsReady(true);
+            });
+            return;
+          }
           const activeHydration = await hydrateRestoredActiveDocumentTab({
             tabs: mergedTabs,
             activeTab: nextActiveTab,

@@ -501,6 +501,11 @@ describe('App core Markdown editing flow', () => {
   it(
     'opens a dropped Markdown file as the active tab and keeps all modes usable',
     async () => {
+      let finishRestore!: () => void;
+      const restoringTabs = new Promise<{ openTabs: string[]; activeTabPath: null; cursorPositions: {} }>((resolve) => {
+        finishRestore = () => resolve({ openTabs: [], activeTabPath: null, cursorPositions: {} });
+      });
+      loadOpenTabsMock.mockReturnValue(restoringTabs);
       const droppedPath = '/tmp/project/dropped.md';
       const droppedSource = ['# Dropped file', '', 'Opened by drag and drop.'].join('\n');
       const droppedSnapshot = baseSnapshot({
@@ -527,6 +532,7 @@ describe('App core Markdown editing flow', () => {
 
         await waitFor(() => {
           expect(dragDropHandler).toBeTypeOf('function');
+          expect(loadOpenTabsMock).toHaveBeenCalled();
         });
 
         await act(async () => {
@@ -540,6 +546,11 @@ describe('App core Markdown editing flow', () => {
 
         expect(await screen.findByRole('tab', { name: /dropped\.md/i })).toBeInTheDocument();
         expect(screen.getAllByText('Dropped file').length).toBeGreaterThan(0);
+        await act(async () => { finishRestore(); });
+        await waitFor(() => expect(saveOpenTabsMock).toHaveBeenCalledWith(
+          expect.objectContaining({ openTabs: [droppedPath] }),
+        ));
+        expect(openDocumentMock).not.toHaveBeenCalledWith(droppedPath);
 
         fireEvent.keyDown(window, { key: 'k', metaKey: true });
         fireEvent.keyDown(window, { key: 'e', metaKey: true });
