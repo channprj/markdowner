@@ -1,3 +1,4 @@
+import { useDocumentSession } from './lib/useDocumentSession';
 import { useDocumentPersistence } from './lib/useDocumentPersistence';
 import { useSessionExit } from './lib/useSessionExit';
 import { invoke } from '@tauri-apps/api/core';
@@ -238,7 +239,6 @@ import {
 } from './lib/externalChanges';
 import { nextCursorPositionFromStatistics } from './lib/cursorPosition';
 import {
-  clearActiveDocumentSnapshot,
   resolveSyncedDraftSnapshot,
   setSnapshotLastError,
   setSnapshotMode,
@@ -548,9 +548,13 @@ export default function App() {
     () => new URLSearchParams(window.location.search).get(NEW_WINDOW_QUERY_PARAM) === '1',
     [],
   );
-  const [snapshot, setSnapshot] = useState<AppSnapshot>(EMPTY_SNAPSHOT);
-  const snapshotRef = useRef<AppSnapshot>(snapshot);
-  const [localDraft, setLocalDraft] = useState('');
+  const {
+    snapshot, setSnapshot, snapshotRef, localDraft, setLocalDraft, localDraftRef,
+    tabs, setTabs, tabsRef, activeTabId, setActiveTabId, activeTabIdRef,
+    closedDocumentTabs, setClosedDocumentTabs, closedDocumentTabsRef,
+    startupTabsReady, setStartupTabsReady, startupTabsReadyRef,
+    applySnapshot: applySessionSnapshot, clearActiveDocument: clearSessionActiveDocument,
+  } = useDocumentSession(EMPTY_SNAPSHOT);
   const [busy, setBusy] = useState(false);
   const [externalChangeMessage, setExternalChangeMessage] = useState<string | null>(null);
   const [showExternalChangeActions, setShowExternalChangeActions] = useState(false);
@@ -874,41 +878,6 @@ export default function App() {
     };
   }, []);
 
-  // Tab state lives entirely in the frontend. The active tab's path/source
-  // is mirrored through Rust's single-active-document model on switch.
-  const [tabs, setTabs] = useState<DocumentTab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [closedDocumentTabs, setClosedDocumentTabs] = useState<DocumentTab[]>([]);
-  const [startupTabsReady, setStartupTabsReady] = useState(false);
-  // Mirror tabs/activeTabId in refs so async callbacks (bootstrap.then,
-  // openDocument.then) can read the *current* values instead of stale
-  // closures — without this, a user opening Settings before bootstrap
-  // finishes loses the settings tab when upsertActiveTabFromSnapshot fires.
-  const tabsRef = useRef<DocumentTab[]>(tabs);
-  const activeTabIdRef = useRef<string | null>(activeTabId);
-  const closedDocumentTabsRef = useRef<DocumentTab[]>(closedDocumentTabs);
-  const startupTabsReadyRef = useRef<boolean>(startupTabsReady);
-  useEffect(() => {
-    snapshotRef.current = snapshot;
-  }, [snapshot]);
-  useEffect(() => {
-    tabsRef.current = tabs;
-  }, [tabs]);
-  useEffect(() => {
-    activeTabIdRef.current = activeTabId;
-  }, [activeTabId]);
-  useEffect(() => {
-    closedDocumentTabsRef.current = closedDocumentTabs;
-  }, [closedDocumentTabs]);
-  useEffect(() => {
-    startupTabsReadyRef.current = startupTabsReady;
-  }, [startupTabsReady]);
-  // Mirror the live editor draft for the hot-exit backup writers, which run
-  // from effects and async close paths that must see the current text.
-  const localDraftRef = useRef(localDraft);
-  useEffect(() => {
-    localDraftRef.current = localDraft;
-  }, [localDraft]);
   // Monotonic counter for file/tab operations. Each open/new/switch flow
   // captures the value at start; after every async hop it re-checks against
   // the current value and aborts if a newer operation has begun. Without
@@ -2837,33 +2806,14 @@ export default function App() {
   };
 
   const applySnapshot = (next: AppSnapshot, preserveDraft = false) => {
-    snapshotRef.current = next;
-    if (!preserveDraft) {
-      localDraftRef.current = next.activeDocumentSource ?? '';
-    }
-    startTransition(() => {
-      setSnapshot(next);
-      clearExternalChangeState();
-      if (!preserveDraft) {
-        setLocalDraft(next.activeDocumentSource ?? '');
-      }
-    });
+    if (applySessionSnapshot(next, preserveDraft)) clearExternalChangeState();
   };
 
   const clearActiveDocumentSurface = () => {
-    tabsRef.current = [];
-    activeTabIdRef.current = null;
     preSettingsDocTabIdRef.current = null;
     externalConflictPathsRef.current.clear();
-    snapshotRef.current = clearActiveDocumentSnapshot(snapshotRef.current);
-    localDraftRef.current = '';
-    startTransition(() => {
-      setTabs([]);
-      setActiveTabId(null);
-      setLocalDraft('');
-      clearExternalChangeState();
-      setSnapshot(clearActiveDocumentSnapshot);
-    });
+    clearSessionActiveDocument();
+    startTransition(clearExternalChangeState);
   };
 
   const applyModeOptimistically = (mode: EditorMode) => {
