@@ -19,7 +19,7 @@ use markdowner_core::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tauri::{
-    AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
 };
 use shell_managed_block::ManagedShellBlock;
@@ -38,6 +38,8 @@ mod terminal;
 mod updater;
 mod web_export;
 mod workspace_search;
+mod window_sessions;
+use window_sessions::DesktopAppState;
 
 const MENU_COMMAND_EVENT: &str = "markdowner://menu-command";
 const MENU_FILE_ID: &str = "file";
@@ -570,17 +572,6 @@ impl DesktopBackend {
             .import_theme_from_path(path)
             .map_err(|error| error.to_string())?;
         Ok(self.snapshot())
-    }
-}
-
-pub struct DesktopAppState(Mutex<DesktopBackend>);
-
-impl DesktopAppState {
-    fn new(session_store: Option<PathBuf>, startup_mode: EditorMode) -> Self {
-        Self(Mutex::new(DesktopBackend::new_with_mode(
-            session_store,
-            startup_mode,
-        )))
     }
 }
 
@@ -1464,7 +1455,7 @@ fn handle_cli_wait_connection(app_handle: AppHandle, stream: UnixStream) {
 
     // Open the file as a normal tab in the running app and pull it forward.
     let state = app_handle.state::<DesktopAppState>();
-    if let Ok(mut backend) = state.0.lock() {
+    if let Ok(mut backend) = state.main.lock() {
         let _ = backend.open_document(&path);
         if let Some(window) = app_handle.get_webview_window("main") {
             focus_main_window(&app_handle);
@@ -1494,47 +1485,46 @@ fn complete_cli_wait(path: String, pending: State<'_, PendingCliWaits>) {
 
 fn with_backend<T>(
     state: State<'_, DesktopAppState>,
+    window: WebviewWindow,
     operation: impl FnOnce(&mut DesktopBackend) -> Result<T, String>,
 ) -> Result<T, String> {
-    let mut backend = state
-        .0
-        .lock()
-        .map_err(|_| "Could not lock desktop backend state".to_string())?;
-    operation(&mut backend)
+    state.with_backend(window.label(), operation)
 }
 
 fn with_backend_and_menu<T>(
     state: State<'_, DesktopAppState>,
+    window: WebviewWindow,
     app_handle: AppHandle,
     operation: impl FnOnce(&mut DesktopBackend) -> Result<T, String>,
 ) -> Result<T, String> {
-    let mut backend = state
-        .0
-        .lock()
-        .map_err(|_| "Could not lock desktop backend state".to_string())?;
-    let result = operation(&mut backend)?;
-    sync_app_menu(&app_handle, &backend);
-    Ok(result)
+    state.with_backend(window.label(), |backend| {
+        let result = operation(backend)?;
+        sync_app_menu(&app_handle, backend);
+        Ok(result)
+    })
 }
 
 #[tauri::command]
-fn bootstrap(state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
-    with_backend(state, |backend| Ok(backend.snapshot()))
+fn bootstrap(window: WebviewWindow, state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
+    with_backend(state, window, |backend| Ok(backend.snapshot()))
 }
 
 #[tauri::command]
 fn new_document(
+    window: WebviewWindow,
     state: State<'_, DesktopAppState>,
     app_handle: AppHandle,
 ) -> Result<AppSnapshot, String> {
-    with_backend_and_menu(state, app_handle, DesktopBackend::new_document)
+    with_backend_and_menu(state, window, app_handle, DesktopBackend::new_document)
 }
 
-fn next_window_label<R: Runtime>(app_handle: &AppHandle<R>) -> String {
+fn next_window_label(app_handle: &AppHandle) -> String {
     loop {
         let id = NEXT_WINDOW_ID.fetch_add(1, Ordering::Relaxed);
         let label = format!("{NEW_WINDOW_LABEL_PREFIX}{id}");
-        if app_handle.get_webview_window(&label).is_none() {
+        if app_handle.get_webview_window(&label).is_none()
+            && !app_handle.state::<DesktopAppState>().contains(&label)
+        {
             return label;
         }
     }
@@ -1542,6 +1532,16 @@ fn next_window_label<R: Runtime>(app_handle: &AppHandle<R>) -> String {
 
 #[tauri::command]
 async fn new_window(app_handle: AppHandle) -> Result<(), String> {
+    let label = next_window_label(&app_handle);
+    app_handle.state::<DesktopAppState>().create_window(&label)?;
+    if let Err(error) = build_document_window(&app_handle, &label, true) {
+        let _ = app_handle.state::<DesktopAppState>().mark_closed(&label);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn build_document_window(app_handle: &AppHandle, label: &str, fresh: bool) -> Result<(), String> {
     let mut window_config = app_handle
         .config()
         .app
@@ -1551,10 +1551,10 @@ async fn new_window(app_handle: AppHandle) -> Result<(), String> {
         .cloned()
         .ok_or_else(|| "Could not find the main window configuration".to_string())?;
 
-    window_config.label = next_window_label(&app_handle);
-    window_config.url = WebviewUrl::App(NEW_WINDOW_URL.into());
+    window_config.label = label.to_string();
+    window_config.url = WebviewUrl::App(if fresh { NEW_WINDOW_URL } else { "index.html" }.into());
 
-    let window = WebviewWindowBuilder::from_config(&app_handle, &window_config)
+    let window = WebviewWindowBuilder::from_config(app_handle, &window_config)
         .map_err(|error| error.to_string())?
         .build()
         .map_err(|error| error.to_string())?;
@@ -1565,18 +1565,25 @@ async fn new_window(app_handle: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn close_window_session(window: WebviewWindow, state: State<'_, DesktopAppState>) -> Result<(), String> {
+    state.mark_closed(window.label())
+}
+
+#[tauri::command]
 fn open_document(
+    window: WebviewWindow,
     path: String,
     state: State<'_, DesktopAppState>,
     app_handle: AppHandle,
 ) -> Result<AppSnapshot, String> {
-    with_backend_and_menu(state, app_handle, |backend| {
+    with_backend_and_menu(state, window, app_handle, |backend| {
         backend.open_document(Path::new(&path))
     })
 }
 
 #[tauri::command]
 fn open_workspace(
+    window: WebviewWindow,
     path: String,
     state: State<'_, DesktopAppState>,
     app_handle: AppHandle,
@@ -1584,7 +1591,7 @@ fn open_workspace(
     let ignore_list = load_desktop_settings(&app_handle)
         .unwrap_or_default()
         .ignore_list;
-    with_backend(state, |backend| {
+    with_backend(state, window, |backend| {
         backend.set_ignore_list(ignore_list);
         backend.open_workspace(Path::new(&path))
     })
@@ -1592,37 +1599,40 @@ fn open_workspace(
 
 #[tauri::command]
 fn open_workspace_document(
+    window: WebviewWindow,
     path: String,
     state: State<'_, DesktopAppState>,
     app_handle: AppHandle,
 ) -> Result<AppSnapshot, String> {
-    with_backend_and_menu(state, app_handle, |backend| {
+    with_backend_and_menu(state, window, app_handle, |backend| {
         backend.open_workspace_document(Path::new(&path))
     })
 }
 
 #[tauri::command]
 fn replace_active_document_source(
+    window: WebviewWindow,
     source: String,
     state: State<'_, DesktopAppState>,
 ) -> Result<AppSnapshot, String> {
-    with_backend(state, |backend| {
+    with_backend(state, window, |backend| {
         backend.replace_active_document_source(source)
     })
 }
 
 #[tauri::command]
-fn save_active_document(state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
-    with_backend(state, DesktopBackend::save_active_document)
+fn save_active_document(window: WebviewWindow, state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
+    with_backend(state, window, DesktopBackend::save_active_document)
 }
 
 #[tauri::command]
 fn save_active_document_as(
+    window: WebviewWindow,
     path: String,
     state: State<'_, DesktopAppState>,
     app_handle: AppHandle,
 ) -> Result<AppSnapshot, String> {
-    with_backend_and_menu(state, app_handle, |backend| {
+    with_backend_and_menu(state, window, app_handle, |backend| {
         backend.save_active_document_as(Path::new(&path))
     })
 }
@@ -1804,18 +1814,19 @@ fn infer_image_mime(bytes: &[u8], source: &str) -> &'static str {
 }
 
 #[tauri::command]
-fn has_active_document_external_changes(state: State<'_, DesktopAppState>) -> Result<bool, String> {
-    with_backend(state, DesktopBackend::has_active_document_external_changes)
+fn has_active_document_external_changes(window: WebviewWindow, state: State<'_, DesktopAppState>) -> Result<bool, String> {
+    with_backend(state, window, DesktopBackend::has_active_document_external_changes)
 }
 
 #[tauri::command]
 fn reload_active_document_from_disk(
+    window: WebviewWindow,
     path: String,
     expected_source: String,
     expected_dirty: bool,
     state: State<'_, DesktopAppState>,
 ) -> Result<AppSnapshot, String> {
-    with_backend(state, |backend| {
+    with_backend(state, window, |backend| {
         backend.reload_active_document_from_disk(
             Path::new(&path),
             &expected_source,
@@ -1825,59 +1836,63 @@ fn reload_active_document_from_disk(
 }
 
 #[tauri::command]
-fn active_document_disk_source(state: State<'_, DesktopAppState>) -> Result<String, String> {
-    with_backend(state, DesktopBackend::active_document_disk_source)
+fn active_document_disk_source(window: WebviewWindow, state: State<'_, DesktopAppState>) -> Result<String, String> {
+    with_backend(state, window, DesktopBackend::active_document_disk_source)
 }
 
 #[tauri::command]
-fn set_mode(mode: EditorMode, state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
-    with_backend(state, |backend| Ok(backend.set_mode(mode)))
+fn set_mode(window: WebviewWindow, mode: EditorMode, state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
+    with_backend(state, window, |backend| Ok(backend.set_mode(mode)))
 }
 
 #[tauri::command]
 fn save_open_tabs(
+    window: WebviewWindow,
     open_tabs: Vec<String>,
     active_tab_path: Option<String>,
     cursor_positions: Option<HashMap<String, CursorPosition>>,
     state: State<'_, DesktopAppState>,
 ) -> Result<(), String> {
     let cursors = cursor_positions.unwrap_or_default();
-    with_backend(state, |backend| {
+    with_backend(state, window, |backend| {
         backend.save_open_tabs(&open_tabs, active_tab_path.clone(), &cursors)
     })
 }
 
 #[tauri::command]
-fn load_open_tabs(state: State<'_, DesktopAppState>) -> Result<OpenTabsPayload, String> {
-    with_backend(state, |backend| backend.load_open_tabs())
+fn load_open_tabs(window: WebviewWindow, state: State<'_, DesktopAppState>) -> Result<OpenTabsPayload, String> {
+    with_backend(state, window, |backend| backend.load_open_tabs())
 }
 
 #[tauri::command]
 fn save_draft_backups(
+    window: WebviewWindow,
     entries: Vec<DraftBackupEntry>,
     state: State<'_, DesktopAppState>,
 ) -> Result<(), String> {
-    with_backend(state, |backend| backend.save_draft_backups(&entries))
+    with_backend(state, window, |backend| backend.save_draft_backups(&entries))
 }
 
 #[tauri::command]
 fn load_draft_backups(
+    window: WebviewWindow,
     state: State<'_, DesktopAppState>,
 ) -> Result<Vec<DraftBackupEntry>, String> {
-    with_backend(state, |backend| backend.load_draft_backups())
+    with_backend(state, window, |backend| backend.load_draft_backups())
 }
 
 #[tauri::command]
 fn set_theme(
+    window: WebviewWindow,
     theme_kind: ThemeKind,
     state: State<'_, DesktopAppState>,
 ) -> Result<AppSnapshot, String> {
-    with_backend(state, |backend| Ok(backend.set_theme_kind(theme_kind)))
+    with_backend(state, window, |backend| Ok(backend.set_theme_kind(theme_kind)))
 }
 
 #[tauri::command]
-fn import_theme(path: String, state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
-    with_backend(state, |backend| backend.import_theme(Path::new(&path)))
+fn import_theme(window: WebviewWindow, path: String, state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
+    with_backend(state, window, |backend| backend.import_theme(Path::new(&path)))
 }
 
 #[tauri::command]
@@ -1972,6 +1987,7 @@ fn record_diagnostics_event(
 
 #[tauri::command]
 fn open_dropped_path(
+    window: WebviewWindow,
     path: String,
     state: State<'_, DesktopAppState>,
     app_handle: AppHandle,
@@ -1979,7 +1995,7 @@ fn open_dropped_path(
     let ignore_list = load_desktop_settings(&app_handle)
         .unwrap_or_default()
         .ignore_list;
-    with_backend_and_menu(state, app_handle, |backend| {
+    with_backend_and_menu(state, window, app_handle, |backend| {
         let path_obj = Path::new(&path);
         if path_obj.is_file() {
             backend.open_document(path_obj)
@@ -1998,11 +2014,12 @@ fn open_dropped_path(
 /// to; the frontend falls back to embedding the absolute path.
 #[tauri::command]
 fn import_image_asset(
+    window: WebviewWindow,
     source_path: String,
     state: State<'_, DesktopAppState>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
-    let document_path = with_backend(state, |backend| {
+    let document_path = with_backend(state, window, |backend| {
         Ok(backend.snapshot().active_document_path)
     })?
     .ok_or_else(|| "Save the document before importing images".to_string())?;
@@ -2177,7 +2194,7 @@ pub fn run() {
                 if !paths.is_empty() {
                     let ignore_list = load_desktop_settings(app).unwrap_or_default().ignore_list;
                     let state = app.state::<DesktopAppState>();
-                    if let Ok(mut backend) = state.0.lock() {
+                    if let Ok(mut backend) = state.main.lock() {
                         backend.set_ignore_list(ignore_list);
                         let snapshots = open_startup_paths_with_snapshots(&mut backend, &paths)
                             .unwrap_or_else(|_| vec![backend.snapshot()]);
@@ -2201,7 +2218,7 @@ pub fn run() {
             let startup_mode = startup_settings.default_mode;
             let mut state = DesktopAppState::new(session_store.clone(), startup_mode);
 
-            if let Ok(backend) = state.0.get_mut() {
+            if let Ok(backend) = state.main.get_mut() {
                 backend.set_ignore_list(startup_settings.ignore_list.clone());
                 let has_persisted_session =
                     session_store.as_ref().is_some_and(|path| path.exists());
@@ -2222,7 +2239,7 @@ pub fn run() {
             }
 
             let initial_recent_documents = state
-                .0
+                .main
                 .lock()
                 .map(|backend| backend.snapshot().recent_documents)
                 .unwrap_or_default();
@@ -2236,6 +2253,12 @@ pub fn run() {
             let ai_state = ai::AiState::new(app.path().app_data_dir()?)
                 .map_err(|error| std::io::Error::other(error.message))?;
             app.manage(ai_state);
+            let restored_windows = app.state::<DesktopAppState>()
+                .restore_windows(&startup_settings.ignore_list)
+                .map_err(std::io::Error::other)?;
+            for label in restored_windows {
+                build_document_window(app.handle(), &label, false).map_err(std::io::Error::other)?;
+            }
             spawn_cli_wait_listener(app.handle().clone());
             Ok(())
         })
@@ -2243,6 +2266,7 @@ pub fn run() {
             bootstrap,
             new_document,
             new_window,
+            close_window_session,
             open_document,
             open_workspace,
             open_workspace_document,
@@ -2382,7 +2406,7 @@ pub fn run() {
                     && let Some(window) = app_handle.get_webview_window("main")
                 {
                     let state = app_handle.state::<DesktopAppState>();
-                    if let Ok(mut backend) = state.0.lock() {
+                    if let Ok(mut backend) = state.main.lock() {
                         let snapshots = open_startup_paths_with_snapshots(&mut backend, &paths)
                             .unwrap_or_else(|_| vec![backend.snapshot()]);
                         for snapshot in snapshots {

@@ -6803,6 +6803,9 @@ export default function App() {
         // session one last time alongside the backups.
         persistOpenTabsAndCursorsNow(),
       ]);
+      if (_target === 'window') {
+        await invoke('close_window_session');
+      }
     },
   );
 
