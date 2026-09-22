@@ -23,6 +23,10 @@ import {
   localAgentRun,
   localAgentStatuses,
   reloadActiveDocumentFromDisk,
+  replaceActiveDocumentSource,
+  saveActiveDocument,
+  saveActiveDocumentAs,
+  type AppSnapshot,
 } from './desktop';
 import type {
   LocalAgentRunRequest,
@@ -64,6 +68,34 @@ describe('desktop document reload', () => {
       expectedSource: '# Previous',
       expectedDirty: false,
     });
+  });
+});
+
+describe('desktop document mutation targets', () => {
+  it('sends the captured document identity and strictly increasing revisions for edit and save', async () => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(undefined);
+    const snapshot = { activeDocumentVersion: { id: 7, revision: 40 } } as AppSnapshot;
+    await replaceActiveDocumentSource('draft', snapshot);
+    await saveActiveDocument(snapshot);
+    await saveActiveDocumentAs('/tmp/copy.md', snapshot);
+    const calls = invokeMock.mock.calls;
+    expect(calls.map(([command]) => command)).toEqual([
+      'replace_active_document_source', 'save_active_document', 'save_active_document_as',
+    ]);
+    const targets = calls.map(([, args]) => args.target);
+    expect(targets.every((target) => target.id === 7)).toBe(true);
+    expect(targets[0].revision).toBeGreaterThan(40);
+    expect(targets[1].revision).toBeGreaterThan(targets[0].revision);
+    expect(targets[2].revision).toBeGreaterThan(targets[1].revision);
+    expect(calls[0][1].source).toBe('draft');
+    expect(calls[2][1].path).toBe('/tmp/copy.md');
+  });
+
+  it('rejects mutations without an active document identity before invoking native code', async () => {
+    invokeMock.mockReset();
+    await expect(saveActiveDocument({ activeDocumentVersion: null } as AppSnapshot)).rejects.toThrow('No current document');
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 });
 

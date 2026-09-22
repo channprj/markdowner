@@ -460,6 +460,7 @@ import {
 } from './lib/sidebarState';
 
 const EMPTY_SNAPSHOT: AppSnapshot = {
+  activeDocumentVersion: null,
   rootDir: null,
   workspaceDocuments: [],
   recentDocuments: [],
@@ -3481,7 +3482,11 @@ export default function App() {
     }
 
     const timeout = window.setTimeout(() => {
-      replaceActiveDocumentSource(plan.draft)
+      if (
+        localDraftRef.current !== plan.draft ||
+        snapshotRef.current.activeDocumentVersion?.id !== snapshot.activeDocumentVersion?.id
+      ) return;
+      replaceActiveDocumentSource(plan.draft, snapshot)
         .then((next) => {
           startTransition(() => {
             setSnapshot((current) => {
@@ -3507,7 +3512,7 @@ export default function App() {
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [localDraft, snapshot.activeDocumentPath, snapshot.activeDocumentSource, snapshot.mode]);
+  }, [localDraft, snapshot.activeDocumentPath, snapshot.activeDocumentSource, snapshot.activeDocumentVersion?.id, snapshot.mode]);
 
   useEffect(() => {
     if (!editor) {
@@ -4327,13 +4332,14 @@ export default function App() {
     preserveMode: EditorMode = snapshot.mode,
     options: { forFinalSave?: boolean; shouldAbort?: () => boolean } = {},
   ) => {
+    const target = snapshotRef.current;
     // In WYSIWYG mode, force the debounced flush so the persisted draft
     // includes any keystrokes that haven't crossed the debounce boundary yet.
     // The returned markdown lets us compare without waiting for React state.
     const plan = resolveActiveDraftSyncPlan({
       activeDocumentOpen,
-      activeDocumentSource: snapshot.activeDocumentSource,
-      localDraft,
+      activeDocumentSource: target.activeDocumentSource,
+      localDraft: localDraftRef.current,
       flushedDraft: flushWysiwygDraftNow(),
       forFinalSave: options.forFinalSave,
     });
@@ -4369,7 +4375,7 @@ export default function App() {
       return;
     }
 
-    const synced = await replaceActiveDocumentSource(plan.outgoingDraft);
+    const synced = await replaceActiveDocumentSource(plan.outgoingDraft, target);
     if (options.shouldAbort?.()) {
       return;
     }
@@ -4742,6 +4748,7 @@ export default function App() {
   };
 
   const handleSave = async () => {
+    const target = snapshotRef.current;
     if (!activeDocumentOpen) {
       return;
     }
@@ -4761,7 +4768,7 @@ export default function App() {
         return;
       }
       if (isEditorOpStale(token)) return;
-      const next = await saveActiveDocument();
+      const next = await saveActiveDocument(target);
       if (isEditorOpStale(token)) return;
       applySnapshot(next, true);
       refreshActiveTabFromSnapshot(next);
@@ -4769,6 +4776,7 @@ export default function App() {
   };
 
   const saveActiveDocumentForClose = async () => {
+    const target = snapshotRef.current;
     if (!activeDocumentOpen) {
       return true;
     }
@@ -4787,7 +4795,7 @@ export default function App() {
       }
 
       await syncActiveDraft(undefined, { forFinalSave: true });
-      const next = await saveActiveDocumentAs(selected);
+      const next = await saveActiveDocumentAs(selected, target);
       applySnapshot(next, true);
       return true;
     }
@@ -4796,7 +4804,7 @@ export default function App() {
     if (await hasExternalChanges()) {
       return false;
     }
-    const next = await saveActiveDocument();
+    const next = await saveActiveDocument(target);
     applySnapshot(next, true);
     return true;
   };
@@ -5111,6 +5119,7 @@ export default function App() {
   };
 
   const handleSaveAs = async () => {
+    const target = snapshotRef.current;
     if (!activeDocumentOpen) {
       return;
     }
@@ -5134,7 +5143,7 @@ export default function App() {
         ...editorOpAbortOptions(token),
       });
       if (isEditorOpStale(token)) return;
-      const next = await saveActiveDocumentAs(selected);
+      const next = await saveActiveDocumentAs(selected, target);
       if (isEditorOpStale(token)) return;
       applySnapshot(next, true);
       refreshActiveTabFromSnapshot(next);
@@ -6062,7 +6071,7 @@ export default function App() {
       }
 
       await withBusy(async () => {
-        const next = await replaceActiveDocumentSource(markdown);
+        const next = await replaceActiveDocumentSource(markdown, snapshotRef.current);
         applySnapshot(next);
         const nextTabs = tabsRef.current.map((tab) =>
           tab.id === sourceTab.id && tab.kind === 'document'
@@ -6088,7 +6097,7 @@ export default function App() {
         const documentTabId = activeTabIdRef.current;
         if (!documentTabId) return;
 
-        const next = await replaceActiveDocumentSource(markdown);
+        const next = await replaceActiveDocumentSource(markdown, snapshotRef.current);
         if (isEditorOpStale(token)) return;
         applySnapshot(next);
         const nextTabs = tabsRef.current.map((tab) =>

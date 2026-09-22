@@ -9,6 +9,7 @@ import {
 import type { AppSnapshot } from './desktop';
 
 const snapshot = (overrides: Partial<AppSnapshot> = {}): AppSnapshot => ({
+  activeDocumentVersion: { id: 1, revision: 1 },
   activeDocumentName: 'notes.md',
   activeDocumentPath: '/tmp/notes.md',
   activeDocumentSource: '# Notes',
@@ -29,6 +30,7 @@ const snapshot = (overrides: Partial<AppSnapshot> = {}): AppSnapshot => ({
 describe('clearActiveDocumentSnapshot', () => {
   it('clears active document fields and preserves shell context', () => {
     expect(clearActiveDocumentSnapshot(snapshot())).toEqual({
+      activeDocumentVersion: null,
       activeDocumentName: null,
       activeDocumentPath: null,
       activeDocumentSource: null,
@@ -66,6 +68,13 @@ describe('setSnapshotLastError', () => {
 });
 
 describe('resolveSyncedDraftSnapshot', () => {
+  it('ignores stale responses for another untitled document or an older revision', () => {
+    const current = snapshot({ activeDocumentPath: null, activeDocumentVersion: { id: 3, revision: 8 } });
+    for (const version of [{ id: 2, revision: 9 }, { id: 3, revision: 7 }]) {
+      const stale = snapshot({ activeDocumentPath: null, activeDocumentVersion: version, activeDocumentSource: 'stale' });
+      expect(resolveSyncedDraftSnapshot(current, stale, null)).toBe(current);
+    }
+  });
   it('applies a fresh synced snapshot while preserving the current mode', () => {
     const current = snapshot({
       activeDocumentPath: '/tmp/notes.md',

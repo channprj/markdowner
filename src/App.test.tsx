@@ -402,6 +402,7 @@ vi.mock('@uiw/react-codemirror', () => ({
 }));
 
 const baseSnapshot = (overrides: Partial<AppSnapshot> = {}): AppSnapshot => ({
+  activeDocumentVersion: { id: 1, revision: 0 },
   rootDir: null,
   workspaceDocuments: [],
   recentDocuments: [],
@@ -1325,7 +1326,7 @@ describe('App recent documents', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Apply all' }));
 
     await waitFor(() =>
-      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith(proposed),
+      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith(proposed, expect.objectContaining({ activeDocumentVersion: expect.any(Object) })),
     );
   });
 
@@ -1524,7 +1525,7 @@ describe('App recent documents', () => {
 
     await waitFor(() => expect(newDocumentMock).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith(proposed),
+      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith(proposed, expect.objectContaining({ activeDocumentVersion: expect.any(Object) })),
     );
     expect(newDocumentMock.mock.invocationCallOrder[0]).toBeLessThan(
       replaceActiveDocumentSourceMock.mock.invocationCallOrder[0],
@@ -4598,9 +4599,7 @@ describe('App recent documents', () => {
         defaultPath: '/tmp/project/meeting-notes.md',
         filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd'] }],
       });
-      expect(saveActiveDocumentAsMock).toHaveBeenCalledWith(
-        '/tmp/project/archive/meeting-notes-copy.md',
-      );
+      expect(saveActiveDocumentAsMock).toHaveBeenCalledWith('/tmp/project/archive/meeting-notes-copy.md', expect.objectContaining({ activeDocumentVersion: expect.any(Object) }));
     });
   });
 
@@ -5261,7 +5260,7 @@ describe('App recent documents', () => {
     fireEvent.click(within(menu).getByRole('menuitem', { name: /^save as…$/i }));
 
     await waitFor(() => {
-      expect(saveActiveDocumentAsMock).toHaveBeenCalledWith('/tmp/project/alpha-copy.md');
+      expect(saveActiveDocumentAsMock).toHaveBeenCalledWith('/tmp/project/alpha-copy.md', expect.objectContaining({ activeDocumentVersion: expect.any(Object) }));
       expect(resolveSaveAs).toBeTypeOf('function');
     });
 
@@ -5583,9 +5582,7 @@ describe('App recent documents', () => {
         filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd'] }],
       });
       expect(saveActiveDocumentMock).not.toHaveBeenCalled();
-      expect(saveActiveDocumentAsMock).toHaveBeenCalledWith(
-        '/tmp/project/notes/untitled.md',
-      );
+      expect(saveActiveDocumentAsMock).toHaveBeenCalledWith('/tmp/project/notes/untitled.md', expect.objectContaining({ activeDocumentVersion: expect.any(Object) }));
     });
   });
 
@@ -6198,7 +6195,7 @@ describe('App recent documents', () => {
 
     fireEvent.change(sourceEditor, { target: { value: '# Beta local edits' } });
     await waitFor(() => {
-      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith('# Beta local edits');
+      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith('# Beta local edits', expect.objectContaining({ activeDocumentVersion: expect.any(Object) }));
     });
 
     fireEvent.click(screen.getByRole('tab', { name: /alpha\.md/i }));
@@ -6413,7 +6410,7 @@ describe('App recent documents', () => {
     await waitFor(() => {
       expect(sourceEditor).toHaveValue('# Local edits');
       expect(screen.getByRole('button', { name: /reload from disk/i })).toBeInTheDocument();
-      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith('# Local edits');
+      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith('# Local edits', expect.objectContaining({ activeDocumentVersion: expect.any(Object) }));
     });
   });
 
@@ -6861,9 +6858,7 @@ describe('App recent documents', () => {
     fireEvent.keyDown(window, { key: 'n', metaKey: true });
 
     await waitFor(() => {
-      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith(
-        '# Meeting notes\n\nUnsaved edit',
-      );
+      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith('# Meeting notes\n\nUnsaved edit', expect.objectContaining({ activeDocumentVersion: expect.any(Object) }));
       expect(newDocumentMock).toHaveBeenCalled();
     });
 
@@ -6907,9 +6902,7 @@ describe('App recent documents', () => {
     fireEvent.keyDown(window, { key: 'o', metaKey: true, shiftKey: true });
 
     await waitFor(() => {
-      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith(
-        '# Meeting notes\n\nUnsaved edit',
-      );
+      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith('# Meeting notes\n\nUnsaved edit', expect.objectContaining({ activeDocumentVersion: expect.any(Object) }));
       expect(openWorkspaceMock).toHaveBeenCalledWith('/tmp/project');
       expect(screen.getByRole('textbox', { name: /source editor/i })).toHaveValue(
         '# Meeting notes\n\nUnsaved edit',
@@ -7632,7 +7625,7 @@ describe('App recent documents', () => {
     fireEvent.change(sourceEditor, { target: { value: '# Edited notes' } });
 
     await waitFor(() => {
-      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith('# Edited notes');
+      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith('# Edited notes', expect.objectContaining({ activeDocumentVersion: expect.any(Object) }));
     });
 
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
@@ -8030,9 +8023,9 @@ describe('App recent documents', () => {
     });
 
     await waitFor(() => {
-      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith('# 안녕하세요');
+      expect(replaceActiveDocumentSourceMock).toHaveBeenCalledWith('# 안녕하세요', expect.objectContaining({ activeDocumentVersion: expect.any(Object) }));
     });
-    expect(replaceActiveDocumentSourceMock).not.toHaveBeenCalledWith('# ㅇ');
+    expect(replaceActiveDocumentSourceMock).not.toHaveBeenCalledWith('# ㅇ', expect.objectContaining({ activeDocumentVersion: expect.any(Object) }));
   });
 
   it('does not setContent when a fresh composition kicks off right after compositionend', async () => {

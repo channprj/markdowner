@@ -296,6 +296,7 @@ pub struct OpenTabsPayload {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSnapshot {
+    pub active_document_version: Option<DocumentVersion>,
     pub root_dir: Option<String>,
     pub workspace_documents: Vec<String>,
     pub recent_documents: Vec<String>,
@@ -312,6 +313,15 @@ pub struct AppSnapshot {
 #[derive(Debug)]
 pub struct DesktopBackend {
     runtime: EditorRuntime,
+    document_version: DocumentVersion,
+}
+
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+pub struct DocumentVersion {
+    /// Activation generation, including untitled documents and reopen/reload.
+    id: u64,
+    /// Highest accepted client mutation sequence for this activation.
+    revision: u64,
 }
 
 impl DesktopBackend {
@@ -327,7 +337,10 @@ impl DesktopBackend {
             None => EditorRuntime::new(workspace),
         };
 
-        Self { runtime }
+        Self {
+            runtime,
+            document_version: DocumentVersion::default(),
+        }
     }
 
     pub fn restore_session(&mut self) -> Result<(), String> {
@@ -344,6 +357,7 @@ impl DesktopBackend {
         let active_document = workspace.active_document();
 
         AppSnapshot {
+            active_document_version: active_document.map(|_| self.document_version),
             root_dir: workspace
                 .root_dir()
                 .map(|path| path.to_string_lossy().into_owned()),
@@ -377,6 +391,7 @@ impl DesktopBackend {
         self.runtime
             .new_document()
             .map_err(|error| error.to_string())?;
+        self.activate_document();
         Ok(self.snapshot())
     }
 
@@ -384,6 +399,7 @@ impl DesktopBackend {
         self.runtime
             .open_document(path)
             .map_err(|error| error.to_string())?;
+        self.activate_document();
         Ok(self.snapshot())
     }
 
@@ -403,7 +419,28 @@ impl DesktopBackend {
         self.runtime
             .open_workspace_document(path)
             .map_err(|error| error.to_string())?;
+        self.activate_document();
         Ok(self.snapshot())
+    }
+
+    fn activate_document(&mut self) {
+        self.document_version.id += 1;
+        self.document_version.revision = 0;
+    }
+
+    fn mutate_document(
+        &mut self,
+        target: DocumentVersion,
+        operation: impl FnOnce(&mut Self) -> Result<AppSnapshot, String>,
+    ) -> Result<AppSnapshot, String> {
+        if self.runtime.workspace().active_document().is_none()
+            || target.id != self.document_version.id
+            || target.revision <= self.document_version.revision
+        {
+            return Err("The document changed before this operation completed. Please retry.".into());
+        }
+        self.document_version.revision = target.revision;
+        operation(self)
     }
 
     pub fn replace_active_document_source(
@@ -449,6 +486,7 @@ impl DesktopBackend {
                 expected_dirty,
             )
             .map_err(|error| error.to_string())?;
+        self.activate_document();
         Ok(self.snapshot())
     }
 
@@ -1611,29 +1649,37 @@ fn open_workspace_document(
 
 #[tauri::command]
 fn replace_active_document_source(
+    target: DocumentVersion,
     window: WebviewWindow,
     source: String,
     state: State<'_, DesktopAppState>,
 ) -> Result<AppSnapshot, String> {
     with_backend(state, window, |backend| {
-        backend.replace_active_document_source(source)
+        backend.mutate_document(target, |backend| backend.replace_active_document_source(source))
     })
 }
 
 #[tauri::command]
-fn save_active_document(window: WebviewWindow, state: State<'_, DesktopAppState>) -> Result<AppSnapshot, String> {
-    with_backend(state, window, DesktopBackend::save_active_document)
+fn save_active_document(
+    target: DocumentVersion,
+    window: WebviewWindow,
+    state: State<'_, DesktopAppState>,
+) -> Result<AppSnapshot, String> {
+    with_backend(state, window, |backend| {
+        backend.mutate_document(target, DesktopBackend::save_active_document)
+    })
 }
 
 #[tauri::command]
 fn save_active_document_as(
+    target: DocumentVersion,
     window: WebviewWindow,
     path: String,
     state: State<'_, DesktopAppState>,
     app_handle: AppHandle,
 ) -> Result<AppSnapshot, String> {
     with_backend_and_menu(state, window, app_handle, |backend| {
-        backend.save_active_document_as(Path::new(&path))
+        backend.mutate_document(target, |backend| backend.save_active_document_as(Path::new(&path)))
     })
 }
 

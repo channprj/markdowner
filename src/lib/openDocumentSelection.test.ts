@@ -10,6 +10,7 @@ import {
 
 function snapshotFor(path: string, source = `# ${path}`): AppSnapshot {
   return {
+    activeDocumentVersion: { id: 1, revision: 0 },
     rootDir: null,
     workspaceDocuments: [],
     recentDocuments: [path],

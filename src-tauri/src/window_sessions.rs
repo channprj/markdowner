@@ -160,6 +160,112 @@ mod tests {
     }
 
     #[test]
+    fn stale_edits_and_saves_cannot_mutate_a_new_or_reopened_document() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("notes.md");
+        let copy = dir.path().join("copy.md");
+        fs::write(&file, "original").unwrap();
+        let mut backend = DesktopBackend::new(None);
+        let first = backend
+            .open_document(&file)
+            .unwrap()
+            .active_document_version
+            .unwrap();
+        backend.new_document().unwrap();
+        let target = crate::DocumentVersion {
+            id: first.id,
+            revision: 1,
+        };
+        assert!(
+            backend
+                .mutate_document(target, |b| b.replace_active_document_source("stale"))
+                .is_err()
+        );
+        assert!(
+            backend
+                .mutate_document(target, |b| b.save_active_document_as(&copy))
+                .is_err()
+        );
+        assert!(!copy.exists());
+        backend.open_document(&file).unwrap();
+        assert!(
+            backend
+                .mutate_document(target, DesktopBackend::save_active_document)
+                .is_err()
+        );
+        assert_eq!(fs::read_to_string(file).unwrap(), "original");
+    }
+
+    #[test]
+    fn out_of_order_edits_cannot_overwrite_a_newer_revision_or_saved_source() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("notes.md");
+        fs::write(&file, "original").unwrap();
+        let mut backend = DesktopBackend::new(None);
+        let id = backend
+            .open_document(&file)
+            .unwrap()
+            .active_document_version
+            .unwrap()
+            .id;
+        backend
+            .mutate_document(crate::DocumentVersion { id, revision: 2 }, |b| {
+                b.replace_active_document_source("latest")
+            })
+            .unwrap();
+        assert!(
+            backend
+                .mutate_document(crate::DocumentVersion { id, revision: 1 }, |b| b
+                    .replace_active_document_source("stale"))
+                .is_err()
+        );
+        backend
+            .mutate_document(
+                crate::DocumentVersion { id, revision: 3 },
+                DesktopBackend::save_active_document,
+            )
+            .unwrap();
+        assert!(
+            backend
+                .mutate_document(crate::DocumentVersion { id, revision: 2 }, |b| b
+                    .replace_active_document_source("stale"))
+                .is_err()
+        );
+        assert_eq!(
+            backend.snapshot().active_document_source.as_deref(),
+            Some("latest")
+        );
+        assert_eq!(fs::read_to_string(file).unwrap(), "latest");
+    }
+
+    #[test]
+    fn untitled_documents_have_distinct_mutation_targets() {
+        let mut backend = DesktopBackend::new(None);
+        let first = backend
+            .new_document()
+            .unwrap()
+            .active_document_version
+            .unwrap();
+        let second = backend
+            .new_document()
+            .unwrap()
+            .active_document_version
+            .unwrap();
+        assert_ne!(first.id, second.id);
+        assert!(
+            backend
+                .mutate_document(
+                    crate::DocumentVersion {
+                        id: first.id,
+                        revision: 100
+                    },
+                    |b| b.replace_active_document_source("wrong draft")
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
     fn editing_or_clearing_backups_in_one_window_cannot_change_another() {
         let dir = tempdir().unwrap();
         let first = dir.path().join("first.md");

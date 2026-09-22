@@ -220,6 +220,7 @@ vi.mock('@uiw/react-codemirror', () => ({
 }));
 
 const baseSnapshot = (overrides: Partial<AppSnapshot> = {}): AppSnapshot => ({
+  activeDocumentVersion: { id: 1, revision: 0 },
   rootDir: null,
   workspaceDocuments: [],
   recentDocuments: [],

@@ -42,6 +42,7 @@ export interface ThemeSelection {
 }
 
 export interface AppSnapshot {
+  activeDocumentVersion: { id: number; revision: number } | null;
   rootDir: string | null;
   workspaceDocuments: string[];
   recentDocuments: string[];
@@ -107,16 +108,29 @@ export async function openWorkspaceDocument(path: string) {
   return invoke<AppSnapshot>('open_workspace_document', { path });
 }
 
-export async function replaceActiveDocumentSource(source: string) {
-  return invoke<AppSnapshot>('replace_active_document_source', { source });
+let documentMutationSequence = 0;
+
+function nextDocumentMutation(snapshot: AppSnapshot) {
+  const version = snapshot.activeDocumentVersion;
+  if (!version) throw new Error('No current document is available. Please reopen the document.');
+  documentMutationSequence = Math.max(documentMutationSequence, version.revision) + 1;
+  return { id: version.id, revision: documentMutationSequence };
 }
 
-export async function saveActiveDocument() {
-  return invoke<AppSnapshot>('save_active_document');
+export async function replaceActiveDocumentSource(source: string, snapshot: AppSnapshot) {
+  return invoke<AppSnapshot>('replace_active_document_source', {
+    source, target: nextDocumentMutation(snapshot),
+  });
 }
 
-export async function saveActiveDocumentAs(path: string) {
-  return invoke<AppSnapshot>('save_active_document_as', { path });
+export async function saveActiveDocument(snapshot: AppSnapshot) {
+  return invoke<AppSnapshot>('save_active_document', { target: nextDocumentMutation(snapshot) });
+}
+
+export async function saveActiveDocumentAs(path: string, snapshot: AppSnapshot) {
+  return invoke<AppSnapshot>('save_active_document_as', {
+    path, target: nextDocumentMutation(snapshot),
+  });
 }
 
 export async function hasActiveDocumentExternalChanges() {
