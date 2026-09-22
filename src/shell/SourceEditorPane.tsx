@@ -8,6 +8,7 @@ import { sourceEditorThemeExtension } from '@/lib/sourceEditorTheme';
 
 interface SourceEditorPaneProps {
   value: string;
+  readOnly?: boolean;
   extensions: unknown[];
   themeKind: ThemeKind;
   /** Resolved code-block theme the syntax colours should match. */
@@ -22,6 +23,7 @@ interface SourceEditorPaneProps {
 
 export function SourceEditorPane({
   value,
+  readOnly,
   extensions,
   themeKind,
   codeBlockTheme,
@@ -39,6 +41,7 @@ export function SourceEditorPane({
   return (
     <SourceEditorView
       value={value}
+      readOnly={readOnly}
       extensions={extensions}
       theme={theme}
       onChange={onChange}

@@ -33,6 +33,7 @@ mod link_actions;
 pub mod local_agents;
 mod pdf_export;
 mod shell_managed_block;
+mod session_flush;
 mod skill_registry;
 mod terminal;
 mod updater;
@@ -131,6 +132,10 @@ impl ExitCoordinator {
 
     fn allow_exit(&self) {
         self.phase.store(2, Ordering::Release);
+    }
+
+    fn cancel(&self) {
+        self.phase.store(0, Ordering::Release);
     }
 }
 
@@ -1493,7 +1498,8 @@ fn handle_cli_wait_connection(app_handle: AppHandle, stream: UnixStream) {
 
     // Open the file as a normal tab in the running app and pull it forward.
     let state = app_handle.state::<DesktopAppState>();
-    if let Ok(mut backend) = state.main.lock() {
+    if !app_handle.state::<session_flush::SessionFlush>().is_pending()
+        && let Ok(mut backend) = state.main.lock() {
         let _ = backend.open_document(&path);
         if let Some(window) = app_handle.get_webview_window("main") {
             focus_main_window(&app_handle);
@@ -1535,11 +1541,28 @@ fn with_backend_and_menu<T>(
     app_handle: AppHandle,
     operation: impl FnOnce(&mut DesktopBackend) -> Result<T, String>,
 ) -> Result<T, String> {
+    ensure_session_editable(&window)?;
     state.with_backend(window.label(), |backend| {
         let result = operation(backend)?;
         sync_app_menu(&app_handle, backend);
         Ok(result)
     })
+}
+
+fn ensure_session_editable(window: &WebviewWindow) -> Result<(), String> {
+    if window.app_handle().state::<session_flush::SessionFlush>().is_pending() {
+        return Err("Markdowner is saving sessions before closing. Please retry.".into());
+    }
+    Ok(())
+}
+
+fn with_editable_backend<T>(
+    state: State<'_, DesktopAppState>,
+    window: WebviewWindow,
+    operation: impl FnOnce(&mut DesktopBackend) -> Result<T, String>,
+) -> Result<T, String> {
+    ensure_session_editable(&window)?;
+    with_backend(state, window, operation)
 }
 
 #[tauri::command]
@@ -1570,6 +1593,9 @@ fn next_window_label(app_handle: &AppHandle) -> String {
 
 #[tauri::command]
 async fn new_window(app_handle: AppHandle) -> Result<(), String> {
+    if app_handle.state::<session_flush::SessionFlush>().is_pending() {
+        return Err("Markdowner is saving sessions before closing. Please retry.".into());
+    }
     let label = next_window_label(&app_handle);
     app_handle.state::<DesktopAppState>().create_window(&label)?;
     if let Err(error) = build_document_window(&app_handle, &label, true) {
@@ -1629,7 +1655,7 @@ fn open_workspace(
     let ignore_list = load_desktop_settings(&app_handle)
         .unwrap_or_default()
         .ignore_list;
-    with_backend(state, window, |backend| {
+    with_editable_backend(state, window, |backend| {
         backend.set_ignore_list(ignore_list);
         backend.open_workspace(Path::new(&path))
     })
@@ -1654,7 +1680,7 @@ fn replace_active_document_source(
     source: String,
     state: State<'_, DesktopAppState>,
 ) -> Result<AppSnapshot, String> {
-    with_backend(state, window, |backend| {
+    with_editable_backend(state, window, |backend| {
         backend.mutate_document(target, |backend| backend.replace_active_document_source(source))
     })
 }
@@ -1665,7 +1691,7 @@ fn save_active_document(
     window: WebviewWindow,
     state: State<'_, DesktopAppState>,
 ) -> Result<AppSnapshot, String> {
-    with_backend(state, window, |backend| {
+    with_editable_backend(state, window, |backend| {
         backend.mutate_document(target, DesktopBackend::save_active_document)
     })
 }
@@ -1872,7 +1898,7 @@ fn reload_active_document_from_disk(
     expected_dirty: bool,
     state: State<'_, DesktopAppState>,
 ) -> Result<AppSnapshot, String> {
-    with_backend(state, window, |backend| {
+    with_editable_backend(state, window, |backend| {
         backend.reload_active_document_from_disk(
             Path::new(&path),
             &expected_source,
@@ -2065,7 +2091,7 @@ fn import_image_asset(
     state: State<'_, DesktopAppState>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
-    let document_path = with_backend(state, window, |backend| {
+    let document_path = with_editable_backend(state, window, |backend| {
         Ok(backend.snapshot().active_document_path)
     })?
     .ok_or_else(|| "Save the document before importing images".to_string())?;
@@ -2154,19 +2180,25 @@ async fn complete_local_agent_shutdown(app_handle: AppHandle, exit_code: i32) {
 }
 
 #[tauri::command]
-async fn quit_app(app_handle: AppHandle) {
+async fn quit_app(app_handle: AppHandle) -> Result<(), String> {
     match app_handle.state::<ExitCoordinator>().request() {
         ExitRequestDisposition::StartShutdown => {
-            let local_agent_state = app_handle
-                .state::<local_agents::LocalAgentState>()
-                .inner()
-                .clone();
-            local_agent_state.begin_shutdown();
-            complete_local_agent_shutdown(app_handle, 0).await;
+            prepare_and_complete_shutdown(app_handle, 0).await?;
         }
         ExitRequestDisposition::WaitForShutdown => {}
         ExitRequestDisposition::AllowExit => app_handle.exit(0),
     }
+    Ok(())
+}
+
+async fn prepare_and_complete_shutdown(app: AppHandle, exit_code: i32) -> Result<(), String> {
+    if let Err(error) = session_flush::prepare_all(&app).await {
+        app.state::<ExitCoordinator>().cancel();
+        return Err(error);
+    }
+    app.state::<local_agents::LocalAgentState>().begin_shutdown();
+    complete_local_agent_shutdown(app, exit_code).await;
+    Ok(())
 }
 
 /// Hide the app the way ⌘H does. With no tabs open, ⌘W should hide the whole
@@ -2240,7 +2272,8 @@ pub fn run() {
                 if !paths.is_empty() {
                     let ignore_list = load_desktop_settings(app).unwrap_or_default().ignore_list;
                     let state = app.state::<DesktopAppState>();
-                    if let Ok(mut backend) = state.main.lock() {
+                    if !app.state::<session_flush::SessionFlush>().is_pending()
+                        && let Ok(mut backend) = state.main.lock() {
                         backend.set_ignore_list(ignore_list);
                         let snapshots = open_startup_paths_with_snapshots(&mut backend, &paths)
                             .unwrap_or_else(|_| vec![backend.snapshot()]);
@@ -2296,6 +2329,7 @@ pub fn run() {
             app.manage(terminal::TerminalState::new());
             app.manage(local_agents::LocalAgentState::default());
             app.manage(ExitCoordinator::default());
+            app.manage(session_flush::SessionFlush::default());
             let ai_state = ai::AiState::new(app.path().app_data_dir()?)
                 .map_err(|error| std::io::Error::other(error.message))?;
             app.manage(ai_state);
@@ -2356,6 +2390,7 @@ pub fn run() {
             import_image_asset,
             complete_cli_wait,
             quit_app,
+            session_flush::complete_session_flush,
             hide_app_or_window,
             terminal::terminal_start,
             terminal::terminal_write,
@@ -2417,11 +2452,12 @@ pub fn run() {
                     match app_handle.state::<ExitCoordinator>().request() {
                         ExitRequestDisposition::StartShutdown => {
                             api.prevent_exit();
-                            local_agent_state.begin_shutdown();
                             let exit_code = (*code).unwrap_or_default();
                             let shutdown_app = app_handle.clone();
                             tauri::async_runtime::spawn(async move {
-                                complete_local_agent_shutdown(shutdown_app, exit_code).await;
+                                if let Err(error) = prepare_and_complete_shutdown(shutdown_app.clone(), exit_code).await {
+                                    let _ = shutdown_app.emit(session_flush::ERROR_EVENT, error);
+                                }
                             });
                         }
                         ExitRequestDisposition::WaitForShutdown => api.prevent_exit(),
@@ -2452,7 +2488,8 @@ pub fn run() {
                     && let Some(window) = app_handle.get_webview_window("main")
                 {
                     let state = app_handle.state::<DesktopAppState>();
-                    if let Ok(mut backend) = state.main.lock() {
+                    if !app_handle.state::<session_flush::SessionFlush>().is_pending()
+                        && let Ok(mut backend) = state.main.lock() {
                         let snapshots = open_startup_paths_with_snapshots(&mut backend, &paths)
                             .unwrap_or_else(|_| vec![backend.snapshot()]);
                         for snapshot in snapshots {

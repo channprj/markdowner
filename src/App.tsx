@@ -1,4 +1,5 @@
 import { useDocumentPersistence } from './lib/useDocumentPersistence';
+import { useSessionExit } from './lib/useSessionExit';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -1265,6 +1266,15 @@ export default function App() {
     cursorByPathRef,
   });
 
+  const sessionExit = useSessionExit({
+    flush: async () => {
+      if (busy) throw new Error('A document operation is still running. Please retry when it finishes.');
+      await flushSession(flushWysiwygDraftNow() ?? localDraftRef.current);
+    },
+    onLockChange: (locked) => editorInstanceRef.current?.setEditable(!locked, false),
+    onError: (error) => reportOperationError(error, 'Could not save all windows before closing. Your documents are still open; please retry.'),
+  });
+
   const isFocusInsideExplorer = () => {
     const active = document.activeElement as HTMLElement | null;
     return Boolean(active?.closest('[data-explorer-root]'));
@@ -1574,6 +1584,7 @@ export default function App() {
   // memoised source editor host and forcing CodeMirror to
   // reconcile on every cursor tick (the visible "text style flicker").
   const handleSourceEditorChange = useEffectEvent((value: string) => {
+    if (sessionExit.lockedRef.current) return;
     localDraftRef.current = value;
     setLocalDraft(value);
   });
@@ -2870,6 +2881,7 @@ export default function App() {
   };
 
   const handleExternalSnapshot = useEffectEvent(async (next: AppSnapshot) => {
+    if (sessionExit.deferWhileLocked(() => { void handleExternalSnapshot(next); })) return;
     const token = nextEditorOpRequest();
     stashActiveTabDraft();
 
@@ -3831,6 +3843,7 @@ export default function App() {
       captured: LocalAgentTargetSnapshot,
       request: LocalAgentRunRequest,
     ) => {
+      if (sessionExit.deferWhileLocked(() => handleLocalAgentResult(result, captured, request))) return;
       const activeDocumentTab = tabsRef.current.find(
         (tab) =>
           tab.id === activeTabIdRef.current && tab.kind === 'document',
@@ -4074,6 +4087,7 @@ export default function App() {
       selection: AiSelectionSnapshot,
       request: AiRunRequest,
     ) => {
+      if (sessionExit.deferWhileLocked(() => handleAiSelectionResult(result, selection, request))) return;
       const liveSource =
         selection.surface === 'wysiwyg'
           ? flushWysiwygDraftNow() ?? localDraftRef.current
@@ -6303,7 +6317,7 @@ export default function App() {
   });
 
   const handleNativeMenuCommand = useEffectEvent(async (command: string) => {
-    if (busy) {
+    if (busy || sessionExit.lockedRef.current) {
       return;
     }
 
@@ -6346,6 +6360,10 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyboardShortcut = (event: KeyboardEvent) => {
+      if (sessionExit.lockedRef.current) {
+        event.preventDefault();
+        return;
+      }
       if (busy) {
         return;
       }
@@ -6721,7 +6739,7 @@ export default function App() {
       // included — are flushed to the draft backup cache and come back as
       // dirty tabs on the next launch. Only the explicit per-tab close
       // prompt (Cmd+W on the last tab) can still discard content.
-      if (busy) {
+      if (busy || sessionExit.lockedRef.current) {
         // An open/save operation is mid-flight; exiting now could tear it.
         event.preventDefault();
         return;
@@ -6732,10 +6750,11 @@ export default function App() {
       // already-stashed `tab.draft` set on tab switch (which also flushes).
       while (true) {
         try {
-          await flushSession(flushWysiwygDraftNow() ?? localDraftRef.current);
+          await sessionExit.prepare();
           if (_target === 'window') await invoke('close_window_session');
           return;
         } catch (error) {
+          sessionExit.unlock();
           const reason = error instanceof Error ? error.message : String(error);
           reportOperationError(error, 'Could not save recovery data. Your documents are still open.');
           const decision = await message(
@@ -6799,7 +6818,12 @@ export default function App() {
     );
 
     if (!prevented) {
-      await quitApp();
+      try {
+        await quitApp();
+      } catch (error) {
+        sessionExit.unlock();
+        reportOperationError(error, 'Could not save all windows before quitting. Please retry.');
+      }
     }
   };
 
@@ -7086,8 +7110,11 @@ export default function App() {
   });
 
   return (
+    <>
     <div
       className="relative flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground"
+      inert={sessionExit.locked}
+      aria-busy={sessionExit.locked}
       data-diagnostics-enabled={String(settings.diagnosticsEnabled)}
     >
       <div
@@ -7398,6 +7425,7 @@ export default function App() {
         sourceEditor={
           <SourceEditorPane
             value={localDraft}
+            readOnly={sessionExit.locked}
             extensions={sourceEditorExtensions}
             themeKind={snapshot.theme.kind}
             codeBlockTheme={effectiveCodeBlockTheme}
@@ -7532,5 +7560,13 @@ export default function App() {
       />
       <ImeDebugOverlay />
     </div>
+    {sessionExit.locked && (
+      <div role="status" className="fixed inset-0 z-[200] flex items-center justify-center bg-background/70">
+        <p className="rounded-md border bg-background px-5 py-3 text-sm text-foreground shadow-sm">
+          Saving recovery data before closing…
+        </p>
+      </div>
+    )}
+    </>
   );
 }

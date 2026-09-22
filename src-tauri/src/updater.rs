@@ -2,7 +2,10 @@
 //! and (Phase 2) installs the new bundle. Network I/O shells out to `curl`,
 //! mirroring `install.sh`, so the webview needs no GitHub CSP allowlist.
 
-use std::cmp::Ordering;
+use std::{
+    cmp::Ordering,
+    sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -96,8 +99,8 @@ fn universal_dmg_url(release: &GithubRelease) -> Option<String> {
 
 /// Pure: turn the GitHub release JSON + the running version into `UpdateInfo`.
 fn build_update_info(current_version: &str, release_json: &str) -> Result<UpdateInfo, String> {
-    let release: GithubRelease =
-        serde_json::from_str(release_json).map_err(|e| format!("Failed to parse release JSON: {e}"))?;
+    let release: GithubRelease = serde_json::from_str(release_json)
+        .map_err(|e| format!("Failed to parse release JSON: {e}"))?;
     let latest = release.tag_name.trim_start_matches('v').to_string();
     Ok(UpdateInfo {
         available: is_newer(&latest, current_version),
@@ -171,58 +174,76 @@ fn is_dir_writable(dir: &Path) -> bool {
 /// as positional arguments so paths are never interpolated into shell source.
 const INSTALL_SCRIPT: &str = include_str!("../scripts/self-update.sh");
 
+static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+struct UpdateGuard;
+impl Drop for UpdateGuard {
+    fn drop(&mut self) {
+        UPDATE_IN_PROGRESS.store(false, AtomicOrdering::Release);
+    }
+}
+
 #[tauri::command]
-pub fn download_and_install_update(
+pub async fn download_and_install_update(
     dmg_url: String,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let bundle = app_bundle_path()?;
-    let bundle_str = bundle.to_string_lossy().to_string();
-
-    let tmp_dir = std::env::temp_dir();
-    let dmg_path = tmp_dir.join("markdowner-update.dmg");
-    let dmg_str = dmg_path.to_string_lossy().to_string();
-
-    // Download the DMG (curl follows redirects to the release asset).
-    let status = std::process::Command::new("curl")
-        .args(["-fL", "--silent", "--show-error", "-o", &dmg_str, &dmg_url])
-        .status()
-        .map_err(|e| format!("Failed to run curl: {e}"))?;
-    if !status.success() {
-        return Err(format!("Download failed (curl status {status})"));
+    if UPDATE_IN_PROGRESS.swap(true, AtomicOrdering::AcqRel) {
+        return Err("An update is already in progress".into());
     }
-
-    // If we cannot write the install location, fall back to manual install:
-    // open the downloaded DMG in Finder and leave the app running.
-    let parent = bundle.parent().ok_or("Bundle has no parent directory")?;
-    if !is_dir_writable(parent) {
-        std::process::Command::new("open")
-            .arg(&dmg_str)
-            .spawn()
-            .map_err(|e| format!("Failed to open DMG: {e}"))?;
+    let _guard = UpdateGuard;
+    let staged = tauri::async_runtime::spawn_blocking(move || download_and_stage_update(&dmg_url))
+        .await
+        .map_err(|error| error.to_string())??;
+    let Some((bundle, dmg, script)) = staged else {
         return Ok(());
-    }
+    };
 
-    // Stage and launch the detached installer, then quit so it can swap the
-    // bundle we are running from. Paths go in as positional arguments, never
-    // interpolated into the script source.
-    let script_path = tmp_dir.join("markdowner-update.sh");
-    std::fs::write(&script_path, INSTALL_SCRIPT)
-        .map_err(|e| format!("Failed to write installer: {e}"))?;
-
-    std::process::Command::new("/bin/bash")
-        .arg(&script_path)
+    // Every webview must durably flush and stop editing before the installer
+    // is launched. A failed or unresponsive window keeps the application open.
+    crate::session_flush::prepare_all(&app_handle).await?;
+    let launched = std::process::Command::new("/bin/bash")
+        .arg(script)
         .arg(std::process::id().to_string())
-        .arg(&dmg_str)
-        .arg(&bundle_str)
+        .arg(dmg)
+        .arg(bundle)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("Failed to launch installer: {e}"))?;
-
+        .spawn();
+    if let Err(error) = launched {
+        crate::session_flush::release_all(&app_handle);
+        return Err(format!("Failed to launch installer: {error}"));
+    }
     app_handle.exit(0);
     Ok(())
+}
+
+fn download_and_stage_update(dmg_url: &str) -> Result<Option<(PathBuf, PathBuf, PathBuf)>, String> {
+    let bundle = app_bundle_path()?;
+    let tmp_dir = std::env::temp_dir();
+    let dmg_path = tmp_dir.join("markdowner-update.dmg");
+    let status = std::process::Command::new("curl")
+        .args(["-fL", "--silent", "--show-error", "-o"])
+        .arg(&dmg_path)
+        .arg(dmg_url)
+        .status()
+        .map_err(|error| format!("Failed to run curl: {error}"))?;
+    if !status.success() {
+        return Err(format!("Download failed (curl status {status})"));
+    }
+    let parent = bundle.parent().ok_or("Bundle has no parent directory")?;
+    if !is_dir_writable(parent) {
+        std::process::Command::new("open")
+            .arg(&dmg_path)
+            .spawn()
+            .map_err(|error| format!("Failed to open DMG: {error}"))?;
+        return Ok(None);
+    }
+    let script_path = tmp_dir.join("markdowner-update.sh");
+    std::fs::write(&script_path, INSTALL_SCRIPT)
+        .map_err(|error| format!("Failed to write installer: {error}"))?;
+    Ok(Some((bundle, dmg_path, script_path)))
 }
 
 #[cfg(test)]

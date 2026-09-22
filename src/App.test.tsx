@@ -521,6 +521,7 @@ function createMockTiptapEditor(markdown: string, segments: MockTiptapTextSegmen
   const eventHandlers = new Map<string, Set<() => void>>();
   const editor: any = {
     markdown,
+    setEditable: vi.fn(),
     lastSelection: null,
     insertContentAtMock: vi.fn(),
     insertContentMock: vi.fn(),
@@ -12624,6 +12625,30 @@ describe('App recent documents', () => {
     await waitFor(() => {
       expect(setModeMock).toHaveBeenCalledWith('SplitView');
     });
+  });
+
+  it('flushes the current window for native app-wide exit and blocks edits until cancellation', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot({
+      activeDocumentName: 'notes.md', activeDocumentPath: '/notes.md',
+      activeDocumentSource: 'disk', mode: 'Editor',
+    }));
+    const { default: App } = await import('./App');
+    render(<App />);
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    await waitFor(() => expect(saveOpenTabsMock).toHaveBeenCalled());
+    fireEvent.change(editor, { target: { value: 'last edit' } });
+    const prepare = listenMock.mock.calls.find(([name]) => name === 'markdowner://prepare-session-exit')![1];
+    const release = listenMock.mock.calls.find(([name]) => name === 'markdowner://release-session-exit')![1];
+    await act(async () => { await prepare({ payload: { requestId: 12 } }); });
+    expect(invokeMock).toHaveBeenCalledWith('complete_session_flush', { requestId: 12, error: null });
+    expect(saveDraftBackupsMock).toHaveBeenLastCalledWith([
+      { path: '/notes.md', untitledId: null, name: 'notes.md', draft: 'last edit' },
+    ]);
+    fireEvent.change(editor, { target: { value: 'too late' } });
+    expect(editor).toHaveValue('last edit');
+    act(() => { release({}); });
+    fireEvent.change(editor, { target: { value: 'after cancellation' } });
+    expect(editor).toHaveValue('after cancellation');
   });
 
   it.each(['drafts', 'tabs'])('hot exit: a failed %s write blocks close and quit until retry succeeds', async (store) => {

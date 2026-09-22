@@ -3,6 +3,7 @@ import CodeMirror, { type EditorView, type Extension } from '@uiw/react-codemirr
 
 export interface SourceEditorViewProps {
   value: string;
+  readOnly?: boolean;
   extensions: unknown[];
   /** A CodeMirror theme extension (code-block palette) or a built-in fallback. */
   theme: Extension | 'light' | 'dark';
@@ -21,6 +22,7 @@ export interface SourceEditorViewProps {
  */
 function SourceEditorViewImpl({
   value,
+  readOnly,
   extensions,
   theme,
   onChange,
@@ -32,6 +34,7 @@ function SourceEditorViewImpl({
     <div ref={containerRef} className="h-full min-h-0">
       <CodeMirror
         value={value}
+        readOnly={readOnly}
         height="100%"
         extensions={extensions as Parameters<typeof CodeMirror>[0]['extensions']}
         onChange={onChange}
