@@ -31,6 +31,8 @@ use self::{
 pub mod adapters;
 mod discovery;
 mod process;
+#[cfg(test)]
+mod test_support;
 
 pub fn discover_all() -> Vec<LocalAgentStatus> {
     discovery::discover_all()

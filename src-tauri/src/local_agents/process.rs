@@ -682,35 +682,38 @@ pub(super) struct OwnedProcessInvocation {
 }
 
 #[cfg(test)]
+use super::test_support::TestBarrier;
+
+#[cfg(test)]
 #[derive(Clone)]
 struct TestSpawnInterlock {
-    before_spawn: std::sync::Arc<std::sync::Barrier>,
-    replacement_ready: std::sync::Arc<std::sync::Barrier>,
-    spawn_returned: std::sync::Arc<std::sync::Barrier>,
-    original_restored: std::sync::Arc<std::sync::Barrier>,
+    before_spawn: std::sync::Arc<TestBarrier>,
+    replacement_ready: std::sync::Arc<TestBarrier>,
+    spawn_returned: std::sync::Arc<TestBarrier>,
+    original_restored: std::sync::Arc<TestBarrier>,
 }
 
 #[cfg(test)]
 #[derive(Clone)]
 struct TestWorkspaceSpawnInterlock {
-    before_spawn: std::sync::Arc<std::sync::Barrier>,
-    replacement_ready: std::sync::Arc<std::sync::Barrier>,
-    spawn_returned: std::sync::Arc<std::sync::Barrier>,
-    child_ready: std::sync::Arc<std::sync::Barrier>,
+    before_spawn: std::sync::Arc<TestBarrier>,
+    replacement_ready: std::sync::Arc<TestBarrier>,
+    spawn_returned: std::sync::Arc<TestBarrier>,
+    child_ready: std::sync::Arc<TestBarrier>,
 }
 
 #[cfg(test)]
 #[derive(Clone)]
 struct TestSetupInterlock {
-    before_create: std::sync::Arc<std::sync::Barrier>,
-    replacement_ready: std::sync::Arc<std::sync::Barrier>,
+    before_create: std::sync::Arc<TestBarrier>,
+    replacement_ready: std::sync::Arc<TestBarrier>,
 }
 
 #[cfg(test)]
 #[derive(Clone)]
 struct TestCleanupInterlock {
-    before_removal: std::sync::Arc<std::sync::Barrier>,
-    replacement_ready: std::sync::Arc<std::sync::Barrier>,
+    before_removal: std::sync::Arc<TestBarrier>,
+    replacement_ready: std::sync::Arc<TestBarrier>,
 }
 
 impl fmt::Debug for OwnedProcessInvocation {
@@ -2586,6 +2589,15 @@ async fn run_process_inner(
             "The local agent could not be started.",
         )
     })?;
+    let process_group_id = child_process_group_id(&child)?;
+    let mut process_group = match RegisteredProcessGroup::register(process_group_id) {
+        Ok(process_group) => process_group,
+        Err(mut rejected) => {
+            kill_unregistered_group_and_reap(&mut child, &mut rejected).await?;
+            drop(rejected);
+            return Err(cancelled_error());
+        }
+    };
     #[cfg(test)]
     if let Some(interlock) = &owned.spawn_interlock {
         interlock.spawn_returned.wait();
@@ -2596,15 +2608,6 @@ async fn run_process_inner(
         interlock.spawn_returned.wait();
         interlock.child_ready.wait();
     }
-    let process_group_id = child_process_group_id(&child)?;
-    let mut process_group = match RegisteredProcessGroup::register(process_group_id) {
-        Ok(process_group) => process_group,
-        Err(mut rejected) => {
-            kill_unregistered_group_and_reap(&mut child, &mut rejected).await?;
-            drop(rejected);
-            return Err(cancelled_error());
-        }
-    };
     if let Err(error) = owned.verify_before_stdin(&cancellation, absolute_deadline) {
         let cleanup = terminate_and_reap(&mut child, &mut process_group).await;
         cleanup?;
@@ -3614,6 +3617,7 @@ mod tests {
         process::CommandExt,
     };
 
+    use super::super::test_support::{TestBarrier, TestPeer};
     use tempfile::{TempDir, tempdir};
     #[cfg(unix)]
     use tokio::process::Command;
@@ -3877,6 +3881,67 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn failed_workspace_interlock_cleans_up_the_spawned_process_group() {
+        let markers = tempdir().unwrap();
+        let pid_path = markers.path().join("pid");
+        let (_executable_dir, executable) = fake_executable(
+            "#!/bin/sh\nprintf '%s' \"$$\" > \"$PID_FILE\"\n/bin/cat >/dev/null",
+        );
+        let capability = create_owned_temp_dir().unwrap();
+        let mut owned = prepare_owned(
+            invocation(
+                executable,
+                capability.path(),
+                vec![(OsString::from("PID_FILE"), pid_path.as_os_str().to_owned())],
+                None,
+            ),
+            capability,
+        )
+        .unwrap();
+        let interlock = super::TestWorkspaceSpawnInterlock {
+            before_spawn: Arc::new(TestBarrier::new(2)),
+            replacement_ready: Arc::new(TestBarrier::new(2)),
+            spawn_returned: Arc::new(TestBarrier::new(2)),
+            child_ready: Arc::new(TestBarrier::new(2)),
+        };
+        owned.workspace_spawn_interlock = Some(interlock.clone());
+        let helper = std::thread::spawn(move || {
+            let _peer = TestPeer::new(&[
+                &interlock.before_spawn,
+                &interlock.replacement_ready,
+                &interlock.spawn_returned,
+                &interlock.child_ready,
+            ]);
+            interlock.before_spawn.wait();
+            interlock.replacement_ready.wait();
+            interlock.spawn_returned.wait();
+            let deadline = StdInstant::now() + Duration::from_secs(2);
+            loop {
+                if let Some(pid) = read_positive_pid(&pid_path) {
+                    return pid;
+                }
+                assert!(StdInstant::now() < deadline, "fixture never started");
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            // Dropping the peer without signalling child_ready models helper failure.
+        });
+        let result = tokio::spawn(run_process(
+            owned,
+            CancellationToken::new(),
+            Duration::from_secs(3),
+        ))
+        .await;
+        assert!(result.unwrap_err().is_panic());
+        let pid = helper.join().unwrap();
+        let deadline = StdInstant::now() + super::PROCESS_CLEANUP_TIMEOUT;
+        while process_exists(pid) || process_group_is_registered(pid) {
+            assert!(StdInstant::now() < deadline, "failed fixture left a child process");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn successful_process_keeps_its_owned_temp_dir_until_result_validation_finishes() {
         let (executable_dir, owned_path, prepared) = prepared("#!/bin/sh\nprintf 'valid result'");
         let sibling = executable_dir.path().join("keep-me");
@@ -3996,8 +4061,8 @@ mod tests {
         ));
         let replacement_sentinel = owned_path.join("replacement-sentinel");
         let interlock = super::TestCleanupInterlock {
-            before_removal: std::sync::Arc::new(std::sync::Barrier::new(2)),
-            replacement_ready: std::sync::Arc::new(std::sync::Barrier::new(2)),
+            before_removal: std::sync::Arc::new(TestBarrier::new(2)),
+            replacement_ready: std::sync::Arc::new(TestBarrier::new(2)),
         };
 
         let mut output = run_process(prepared, CancellationToken::new(), Duration::from_secs(1))
@@ -4010,6 +4075,7 @@ mod tests {
             let replacement_sentinel = replacement_sentinel.clone();
             let outside = outside.path().to_path_buf();
             move || {
+                let _peer = TestPeer::new(&[&interlock.before_removal, &interlock.replacement_ready]);
                 interlock.before_removal.wait();
                 fs::rename(&owned_path, &moved_original).unwrap();
                 fs::create_dir(&owned_path).unwrap();
@@ -4044,13 +4110,14 @@ mod tests {
             .await
             .unwrap();
         let interlock = super::TestCleanupInterlock {
-            before_removal: std::sync::Arc::new(std::sync::Barrier::new(2)),
-            replacement_ready: std::sync::Arc::new(std::sync::Barrier::new(2)),
+            before_removal: std::sync::Arc::new(TestBarrier::new(2)),
+            replacement_ready: std::sync::Arc::new(TestBarrier::new(2)),
         };
         output.cleanup_interlock = Some(interlock.clone());
         let cancel_thread = std::thread::spawn({
             let cancellation = cancellation.clone();
             move || {
+                let _peer = TestPeer::new(&[&interlock.before_removal, &interlock.replacement_ready]);
                 interlock.before_removal.wait();
                 cancellation.cancel();
                 interlock.replacement_ready.wait();
@@ -4083,8 +4150,8 @@ mod tests {
             .unwrap();
         assert_eq!(registry.lock().unwrap().active_cleanup_operations, 1);
         let interlock = super::TestCleanupInterlock {
-            before_removal: Arc::new(std::sync::Barrier::new(2)),
-            replacement_ready: Arc::new(std::sync::Barrier::new(2)),
+            before_removal: Arc::new(TestBarrier::new(2)),
+            replacement_ready: Arc::new(TestBarrier::new(2)),
         };
         output.cleanup_interlock = Some(interlock.clone());
 
@@ -4164,12 +4231,13 @@ mod tests {
             .await
             .unwrap();
         let interlock = super::TestCleanupInterlock {
-            before_removal: std::sync::Arc::new(std::sync::Barrier::new(2)),
-            replacement_ready: std::sync::Arc::new(std::sync::Barrier::new(2)),
+            before_removal: std::sync::Arc::new(TestBarrier::new(2)),
+            replacement_ready: std::sync::Arc::new(TestBarrier::new(2)),
         };
         output.cleanup_interlock = Some(interlock.clone());
         output.cleanup_deadline = StdInstant::now() + Duration::from_millis(20);
         let release_thread = std::thread::spawn(move || {
+            let _peer = TestPeer::new(&[&interlock.before_removal, &interlock.replacement_ready]);
             interlock.before_removal.wait();
             std::thread::sleep(Duration::from_millis(150));
             interlock.replacement_ready.wait();
@@ -5306,8 +5374,8 @@ mod tests {
             let owned_path = capability.path().to_path_buf();
             let detached_path = owned_path.with_extension(format!("{first_file}.detached"));
             let interlock = super::TestSetupInterlock {
-                before_create: Arc::new(std::sync::Barrier::new(2)),
-                replacement_ready: Arc::new(std::sync::Barrier::new(2)),
+                before_create: Arc::new(TestBarrier::new(2)),
+                replacement_ready: Arc::new(TestBarrier::new(2)),
             };
             capability.setup_interlock = Some(interlock.clone());
             let attacker_contents = format!("attacker-{first_file}").into_bytes();
@@ -5317,6 +5385,7 @@ mod tests {
                 let detached_path = detached_path.clone();
                 let first_file = first_file.to_string();
                 move || {
+                    let _peer = TestPeer::new(&[&interlock.before_create, &interlock.replacement_ready]);
                     interlock.before_create.wait();
                     fs::rename(&owned_path, &detached_path).unwrap();
                     fs::create_dir(&owned_path).unwrap();
@@ -6126,10 +6195,10 @@ mod tests {
                 .unwrap();
             }
             let interlock = super::TestWorkspaceSpawnInterlock {
-                before_spawn: Arc::new(std::sync::Barrier::new(2)),
-                replacement_ready: Arc::new(std::sync::Barrier::new(2)),
-                spawn_returned: Arc::new(std::sync::Barrier::new(2)),
-                child_ready: Arc::new(std::sync::Barrier::new(2)),
+                before_spawn: Arc::new(TestBarrier::new(2)),
+                replacement_ready: Arc::new(TestBarrier::new(2)),
+                spawn_returned: Arc::new(TestBarrier::new(2)),
+                child_ready: Arc::new(TestBarrier::new(2)),
             };
             prepared.workspace_spawn_interlock = Some(interlock.clone());
             let swap_thread = std::thread::spawn({
@@ -6138,6 +6207,10 @@ mod tests {
                 let child_ready = child_ready.clone();
                 let original_directories = original_directories.to_vec();
                 move || {
+                    let _peer = TestPeer::new(&[
+                        &interlock.before_spawn, &interlock.replacement_ready,
+                        &interlock.spawn_returned, &interlock.child_ready,
+                    ]);
                     interlock.before_spawn.wait();
                     fs::rename(&owned_path, &detached_path).unwrap();
                     fs::create_dir(&owned_path).unwrap();
@@ -6302,10 +6375,10 @@ mod tests {
         )
         .unwrap();
         let interlock = super::TestSpawnInterlock {
-            before_spawn: std::sync::Arc::new(std::sync::Barrier::new(2)),
-            replacement_ready: std::sync::Arc::new(std::sync::Barrier::new(2)),
-            spawn_returned: std::sync::Arc::new(std::sync::Barrier::new(2)),
-            original_restored: std::sync::Arc::new(std::sync::Barrier::new(2)),
+            before_spawn: std::sync::Arc::new(TestBarrier::new(2)),
+            replacement_ready: std::sync::Arc::new(TestBarrier::new(2)),
+            spawn_returned: std::sync::Arc::new(TestBarrier::new(2)),
+            original_restored: std::sync::Arc::new(TestBarrier::new(2)),
         };
         prepared.spawn_interlock = Some(interlock.clone());
         let replacement_observed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -6316,6 +6389,10 @@ mod tests {
             let replacement_started = replacement_started.clone();
             let replacement_observed = replacement_observed.clone();
             move || {
+                let _peer = TestPeer::new(&[
+                    &interlock.before_spawn, &interlock.replacement_ready,
+                    &interlock.spawn_returned, &interlock.original_restored,
+                ]);
                 interlock.before_spawn.wait();
                 fs::rename(&executable, &original_backup).unwrap();
                 fs::rename(&replacement, &executable).unwrap();
