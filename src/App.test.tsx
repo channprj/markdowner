@@ -1663,6 +1663,11 @@ describe('App recent documents', () => {
     render(<App />);
 
     await screen.findByTestId('mock-tiptap-editor');
+    // Let Tiptap's scheduled startup focus finish before simulating a new
+    // user selection; otherwise it can restore its earlier caret mid-test.
+    await act(async () => {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    });
     act(() => {
       let from = -1;
       editor.state.doc.descendants((node, pos) => {
@@ -12236,6 +12241,33 @@ describe('App recent documents', () => {
     }
   });
 
+  it('keeps CLI-opened files active while recovering every previous dirty buffer', async () => {
+    const launchedPath = '/tmp/launched.md';
+    bootstrapMock.mockResolvedValue(baseSnapshot({
+      activeDocumentName: 'launched.md', activeDocumentPath: launchedPath,
+      activeDocumentSource: 'launched disk', mode: 'Editor',
+    }));
+    loadDraftBackupsMock.mockResolvedValue([
+      { path: launchedPath, untitledId: null, name: 'launched.md', draft: 'launched draft' },
+      { path: '/tmp/previous.md', untitledId: null, name: 'previous.md', draft: 'previous draft' },
+      { path: null, untitledId: 'old-untitled', name: 'Scratch', draft: 'scratch draft' },
+    ]);
+    readTextFilesMock.mockResolvedValue([{ path: '/tmp/previous.md', contents: 'previous disk' }]);
+    const { default: App } = await import('./App');
+    render(<App />);
+    const editor = await screen.findByLabelText('Source editor');
+    await waitFor(() => expect(editor).toHaveValue('launched draft'));
+    expect(screen.getByRole('tab', { name: /launched\.md/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /previous\.md/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Scratch/i })).toBeInTheDocument();
+    await waitFor(() => expect(saveDraftBackupsMock).toHaveBeenLastCalledWith([
+      expect.objectContaining({ path: launchedPath, draft: 'launched draft' }),
+      expect.objectContaining({ path: '/tmp/previous.md', draft: 'previous draft' }),
+      expect.objectContaining({ path: null, draft: 'scratch draft' }),
+    ]));
+    expect(openDocumentMock).not.toHaveBeenCalled();
+  });
+
   it('closes the only clean tab from the native close menu command without closing the window', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
@@ -13013,6 +13045,48 @@ describe('App recent documents', () => {
         ),
       ).toBeInTheDocument();
     });
+  });
+
+  it.each(['available', 'deleted', 'removed during activation', 'session unreadable'])(
+    'recovers a file backup absent from its tab session: %s', async (scenario) => {
+    const deleted = scenario === 'deleted' || scenario === 'removed during activation';
+    const path = '/tmp/orphan.md';
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+    loadOpenTabsMock.mockResolvedValue({ openTabs: [], activeTabPath: null, cursorPositions: {} });
+    if (scenario === 'session unreadable') loadOpenTabsMock.mockRejectedValue(new Error('invalid session'));
+    loadDraftBackupsMock.mockResolvedValue([
+      { path, untitledId: null, name: 'orphan.md', draft: 'valuable edits' },
+    ]);
+    if (scenario === 'deleted') readTextFilesMock.mockRejectedValue(new Error('not found'));
+    else readTextFilesMock.mockResolvedValue([{ path, contents: 'disk' }]);
+    openDocumentMock.mockResolvedValue(baseSnapshot({
+      activeDocumentPath: path, activeDocumentName: 'orphan.md', activeDocumentSource: 'disk', mode: 'Editor',
+    }));
+    if (scenario === 'removed during activation') openDocumentMock.mockRejectedValue(new Error('not found'));
+    newDocumentMock.mockResolvedValue(baseSnapshot({
+      activeDocumentPath: null, activeDocumentName: 'Untitled', activeDocumentSource: '', mode: 'Editor',
+    }));
+    const { default: App } = await import('./App');
+    render(<App />);
+    const editor = await screen.findByLabelText('Source editor');
+    await waitFor(() => expect(editor).toHaveValue('valuable edits'));
+    await waitFor(() => expect(saveDraftBackupsMock).toHaveBeenLastCalledWith([
+      expect.objectContaining({ path: deleted ? null : path, draft: 'valuable edits' }),
+    ]));
+    if (deleted) {
+      expect(newDocumentMock).toHaveBeenCalled();
+      expect(screen.getByRole('tab', { name: /orphan.md \(Recovered\)/ })).toBeInTheDocument();
+    }
+  });
+
+  it('does not replace recovery data when reading backups fails', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+    loadDraftBackupsMock.mockRejectedValue(new Error('damaged recovery file'));
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByText('damaged recovery file');
+    expect(saveDraftBackupsMock).not.toHaveBeenCalled();
+    expect(saveOpenTabsMock).not.toHaveBeenCalled();
   });
 
   it('restores an untitled backup as a dirty untitled tab on startup', async () => {

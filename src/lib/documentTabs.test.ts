@@ -478,6 +478,17 @@ describe('resolveDocumentTabViewState', () => {
 });
 
 describe('mergeRestoredDocumentTabs', () => {
+  it('retains recovered untitled buffers alongside an existing untitled document', () => {
+    const existing = documentTab({ id: 'existing', path: null, draft: 'current' });
+    const recovered = documentTab({ id: 'recovered', path: null, draft: 'recovered' });
+    const result = mergeRestoredDocumentTabs({
+      currentTabs: [existing], restoredTabs: [recovered],
+      currentActiveId: existing.id, activePath: null,
+    });
+    expect(result.mergedTabs).toEqual([existing, recovered]);
+    expect(result.nextActiveId).toBe(existing.id);
+  });
+
   it('keeps current document tabs, appends new restored documents, and keeps UI tabs last', () => {
     const existing = documentTab({
       id: 'existing',

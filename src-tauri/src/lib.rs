@@ -584,6 +584,10 @@ impl DesktopBackend {
         let Some(backups_path) = self.draft_backups_path() else {
             return Ok(());
         };
+        // A failed restore must not become permission to erase the only copy
+        // of an unsaved draft. Missing files are allowed by the loader.
+        markdowner_core::storage::load_draft_backups(&backups_path)
+            .map_err(|error| error.to_string())?;
         markdowner_core::storage::persist_draft_backups(&backups_path, entries)
             .map_err(|error| error.to_string())
     }
@@ -1306,11 +1310,10 @@ fn sync_app_menu<R: Runtime>(app: &AppHandle<R>, backend: &DesktopBackend) {
     }
 }
 
-fn session_store_path(app_handle: &AppHandle) -> Option<PathBuf> {
+fn session_store_path(app_handle: &AppHandle) -> Result<PathBuf, tauri::Error> {
     app_handle
         .path()
         .app_config_dir()
-        .ok()
         .map(|path| path.join("workspace-session.json"))
 }
 
@@ -2292,7 +2295,7 @@ pub fn run() {
             }
         })
         .setup(move |app| {
-            let session_store = session_store_path(app.handle());
+            let session_store = Some(session_store_path(app.handle())?);
             let startup_settings = load_desktop_settings(app.handle()).unwrap_or_default();
             let startup_mode = startup_settings.default_mode;
             let mut state = DesktopAppState::new(session_store.clone(), startup_mode);
@@ -3593,6 +3596,18 @@ mod tests {
         backend.save_draft_backups(&[]).expect("second save ok");
 
         assert!(backend.load_draft_backups().expect("load ok").is_empty());
+    }
+
+    #[test]
+    fn save_draft_backups_preserves_an_unreadable_recovery_file() {
+        let temp = tempdir().unwrap();
+        let backend = DesktopBackend::new(Some(temp.path().join("workspace-session.json")));
+        let backup_path = temp.path().join("draft-backups.json");
+        let damaged = b"{\"drafts\":[{\"draft\":\"recoverable text";
+        std::fs::write(&backup_path, damaged).unwrap();
+
+        assert!(backend.save_draft_backups(&[]).is_err());
+        assert_eq!(std::fs::read(backup_path).unwrap(), damaged);
     }
 
     #[test]

@@ -428,8 +428,11 @@ export function mergeRestoredDocumentTabs(
   const currentDocumentTabs = input.currentTabs.filter((tab) => tab.kind === 'document');
   const currentUiTabs = input.currentTabs.filter((tab) => tab.kind !== 'document');
   const currentDocumentPaths = new Set(currentDocumentTabs.map((tab) => tab.path));
+  const currentDocumentIds = new Set(currentDocumentTabs.map((tab) => tab.id));
   const restoredAdditions = input.restoredTabs.filter(
-    (tab) => !currentDocumentPaths.has(tab.path),
+    (tab) => tab.path === null
+      ? !currentDocumentIds.has(tab.id)
+      : !currentDocumentPaths.has(tab.path),
   );
   const mergedTabs = [...currentDocumentTabs, ...restoredAdditions, ...currentUiTabs];
   const target = input.activePath

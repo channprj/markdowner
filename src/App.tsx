@@ -186,6 +186,7 @@ import { resolvePdfPaper } from '@/lib/pdfPaper';
 import {
   applyDraftBackupsToRestoredTabs,
 } from './lib/draftBackups';
+import { recoverBackupDocuments } from './lib/recoverBackupDocuments';
 import {
   buildEditorDocumentMetrics,
   resolveEditorPreviewSource,
@@ -2847,16 +2848,44 @@ export default function App() {
           if (!startupRestoreRef.current && next.activeDocumentPath) {
             startupRestoreRef.current = { path: next.activeDocumentPath, location: null };
           }
+          const draftBackups = await loadDraftBackups();
+          const recovered = await recoverBackupDocuments([], draftBackups.filter(
+            (entry) => entry.path !== next.activeDocumentPath,
+          ));
+          if (cancelled) return;
           applySnapshot(next);
           upsertActiveTabFromSnapshot(next, {
-            markStartupTabsReady: true,
+            markStartupTabsReady: false,
             preserveSettingsActive: true,
+          });
+          const { mergedTabs } = mergeRestoredDocumentTabs({
+            currentTabs: tabsRef.current,
+            restoredTabs: recovered,
+            currentActiveId: activeTabIdRef.current,
+            activePath: next.activeDocumentPath,
+          });
+          const restored = applyDraftBackupsToRestoredTabs({
+            tabs: mergedTabs,
+            entries: draftBackups,
+            createTabId: generateDocumentTabId,
+          }).tabs;
+          const activeDocument = restored.find(
+            (tab) => tab.kind === 'document' && tab.path === next.activeDocumentPath,
+          );
+          // Commit restored tabs and their document together so shortcuts
+          // cannot observe a tab before the editor snapshot is available.
+          startTransition(() => {
+            setTabs(restored);
+            if (activeDocument) setLocalDraft(activeDocument.draft);
+            setStartupTabsReady(true);
           });
           return;
         }
         applySnapshot(next);
 
         try {
+          const draftBackups = await loadDraftBackups();
+          if (cancelled) return;
           const persistedTabsResult = await loadOpenTabsWithEmptyRetry({
             load: loadOpenTabs,
             waitForRetry: () =>
@@ -2864,6 +2893,12 @@ export default function App() {
                 window.setTimeout(resolve, STARTUP_OPEN_TABS_RETRY_MS);
               }),
             shouldAbort: () => cancelled,
+          }).catch((error) => {
+            reportOperationError(error, 'Could not restore previous tabs');
+            return {
+              kind: 'ready' as const,
+              payload: { openTabs: [], activeTabPath: null, cursorPositions: {} },
+            };
           });
           if (persistedTabsResult.kind === 'aborted' || cancelled) return;
           const persistedTabs = persistedTabsResult.payload;
@@ -2871,38 +2906,6 @@ export default function App() {
           // useful when the user reopens a single CLI-opened file and the
           // map still carries its remembered position.
           cursorByPathRef.current = cursorPositionsMapFromOpenTabsPayload(persistedTabs);
-          // Hot-exit drafts ride alongside the session. A failed read only
-          // skips restoring unsaved buffers, never the tabs themselves.
-          const draftBackups = await loadDraftBackups().catch(() => []);
-          if (cancelled) return;
-          if (persistedTabs.openTabs.length === 0) {
-            const untitledOnly = applyDraftBackupsToRestoredTabs({
-              tabs: [],
-              entries: draftBackups,
-              createTabId: generateDocumentTabId,
-            }).tabs;
-            if (untitledOnly.length === 0) {
-              setStartupTabsReady(true);
-              return;
-            }
-            // Give the restored untitled buffer a Rust-side document to host
-            // it (same as switching to an untitled tab), then seed the live
-            // draft from the backup so it comes back dirty.
-            const next = await newDocument();
-            if (cancelled) return;
-            const activeUntitled = untitledOnly[0];
-            tabsRef.current = untitledOnly;
-            activeTabIdRef.current = activeUntitled.id;
-            startTransition(() => {
-              setSnapshot(next);
-              clearExternalChangeState();
-              setLocalDraft(activeUntitled.draft);
-              setTabs(untitledOnly);
-              setActiveTabId(activeUntitled.id);
-              setStartupTabsReady(true);
-            });
-            return;
-          }
           const restoreResult = await restorePersistedDocumentTabs({
             paths: persistedTabs.openTabs,
             openPath: openDocument,
@@ -2911,7 +2914,13 @@ export default function App() {
             shouldAbort: () => cancelled,
           });
           if (restoreResult.kind === 'aborted' || cancelled) return;
-          const restored = restoreResult.tabs;
+          const recovered = await recoverBackupDocuments(restoreResult.tabs, draftBackups);
+          if (cancelled) return;
+          const restored = applyDraftBackupsToRestoredTabs({
+            tabs: recovered,
+            entries: draftBackups,
+            createTabId: generateDocumentTabId,
+          }).tabs;
           const activePath = persistedTabs.activeTabPath;
           const restoredMerge = mergeRestoredDocumentTabs({
             currentTabs: tabsRef.current,
@@ -2929,25 +2938,29 @@ export default function App() {
           });
           if (activeHydration.kind === 'aborted' || cancelled) return;
           mergedTabs = activeHydration.tabs;
-          const hydratedActiveTab = activeHydration.activeTab;
-          const nextSnapshot = activeHydration.snapshot;
+          let hydratedActiveTab = activeHydration.activeTab;
+          let nextSnapshot = activeHydration.snapshot;
           let nextLocalDraft = activeHydration.localDraft;
 
-          // Re-attach hot-exit drafts (and recreate untitled buffers) before
-          // the first paint so restored tabs come back dirty instead of
-          // silently reverting to the disk content.
-          mergedTabs = applyDraftBackupsToRestoredTabs({
-            tabs: mergedTabs,
-            entries: draftBackups,
-            createTabId: generateDocumentTabId,
-          }).tabs;
-          if (hydratedActiveTab) {
-            const activeWithBackup = mergedTabs.find(
-              (tab) => tab.id === hydratedActiveTab.id,
-            );
-            if (activeWithBackup && activeWithBackup.draft !== activeWithBackup.source) {
-              nextLocalDraft = activeWithBackup.draft;
-            }
+          // A file can disappear between the recovery read and activation.
+          // Preserve its backup as an editable untitled document in that case.
+          const missingBackup = hydratedActiveTab?.missing
+            ? draftBackups.find((entry) => entry.path === hydratedActiveTab?.path)
+            : undefined;
+          if (hydratedActiveTab && missingBackup) {
+            const recoveredTab = createDocumentTab({
+              id: hydratedActiveTab.id, path: null,
+              name: `${hydratedActiveTab.name} (Recovered)`, source: '', draft: missingBackup.draft,
+            });
+            hydratedActiveTab = recoveredTab;
+            mergedTabs = mergedTabs.map((tab) => tab.id === recoveredTab.id ? recoveredTab : tab);
+          }
+          if (hydratedActiveTab?.kind === 'document' && !hydratedActiveTab.path) {
+            nextSnapshot = await newDocument();
+            if (cancelled) return;
+            nextLocalDraft = hydratedActiveTab.draft;
+          } else if (hydratedActiveTab && hydratedActiveTab.draft !== hydratedActiveTab.source) {
+            nextLocalDraft = hydratedActiveTab.draft;
           }
 
           tabsRef.current = mergedTabs;
@@ -2977,7 +2990,6 @@ export default function App() {
         } catch (error) {
           if (!cancelled) {
             reportOperationError(error, 'Could not restore previous tabs');
-            setStartupTabsReady(true);
           }
         }
       })
