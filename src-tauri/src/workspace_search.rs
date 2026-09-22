@@ -45,22 +45,6 @@ fn is_word_char(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
-fn line_column_for_offset(source: &str, offset: usize) -> (u32, u32) {
-    let mut line: u32 = 1;
-    let mut last_newline: usize = 0;
-    for (idx, ch) in source.char_indices() {
-        if idx >= offset {
-            break;
-        }
-        if ch == '\n' {
-            line += 1;
-            last_newline = idx + 1;
-        }
-    }
-    let column_chars = source[last_newline..offset].chars().count();
-    (line, (column_chars as u32) + 1)
-}
-
 fn preview_window(
     line_text: &str,
     match_start_in_line: usize,
@@ -87,8 +71,12 @@ fn preview_window(
         char_indices[preview_char_end].0
     };
     let preview = line_text[preview_byte_start..preview_byte_end].to_string();
-    let highlight_start = match_start_in_line.saturating_sub(preview_byte_start);
-    let highlight_end = (match_end_in_line.saturating_sub(preview_byte_start)).min(preview.len());
+    let highlight_start = line_text[preview_byte_start..match_start_in_line]
+        .encode_utf16()
+        .count();
+    let highlight_end = line_text[preview_byte_start..match_end_in_line.min(preview_byte_end)]
+        .encode_utf16()
+        .count();
     (preview, highlight_start, highlight_end)
 }
 
@@ -105,6 +93,8 @@ fn search_file_contents(
     }
 
     let bytes = source.as_bytes();
+    let mut previous_start = 0;
+    let (mut absolute_offset, mut line, mut column) = (0u32, 1u32, 1u32);
     for capture in pattern.find_iter(source) {
         let start = capture.start();
         let end = capture.end();
@@ -130,14 +120,25 @@ fn search_file_contents(
         let match_end_in_line = end - line_start;
         let (preview, highlight_start, highlight_end) =
             preview_window(line_text, match_start_in_line, match_end_in_line);
-        let (line, column) = line_column_for_offset(source, start);
+        // Regex boundaries are UTF-8 bytes; JavaScript and both editors use
+        // UTF-16 code units. Walk each prefix only once across ordered matches.
+        for character in source[previous_start..start].chars() {
+            absolute_offset += character.len_utf16() as u32;
+            if character == '\n' {
+                line += 1;
+                column = 1;
+            } else {
+                column += character.len_utf16() as u32;
+            }
+        }
+        previous_start = start;
         matches.push(WorkspaceSearchMatch {
             line,
             column,
             preview,
             match_start: highlight_start as u32,
             match_end: highlight_end as u32,
-            absolute_offset: start as u32,
+            absolute_offset,
         });
 
         if matches.len() >= limit {
@@ -205,7 +206,7 @@ pub(crate) fn search_workspace(
 #[cfg(test)]
 mod tests {
     use super::{
-        compile_search_pattern, preview_window, search_file_contents, WorkspaceSearchOptions,
+        WorkspaceSearchOptions, compile_search_pattern, preview_window, search_file_contents,
     };
 
     #[test]
@@ -230,5 +231,64 @@ mod tests {
 
         assert_eq!(preview, "prefix needle suffix");
         assert_eq!((start, end), (7, 13));
+    }
+
+    #[test]
+    fn search_coordinates_use_utf16_for_korean_emoji_and_multiline_matches() {
+        for (source, query, line, column, offset) in [
+            ("한글 target 뒤", "target", 1, 4, 3),
+            ("😀 target end", "target", 1, 4, 3),
+            ("앞😀\r\n한 target", "target", 2, 3, 7),
+            ("앞😀\n한글\n뒤", "😀\n한글", 1, 2, 1),
+        ] {
+            let pattern = regex::Regex::new(&regex::escape(query)).unwrap();
+            let found = search_file_contents(source, &pattern, false, 10);
+            let found = &found[0];
+            assert_eq!(
+                (found.line, found.column, found.absolute_offset),
+                (line, column, offset)
+            );
+            let preview: Vec<u16> = found.preview.encode_utf16().collect();
+            assert_eq!(
+                String::from_utf16(&preview[found.match_start as usize..found.match_end as usize])
+                    .unwrap(),
+                query
+            );
+            let document: Vec<u16> = source.encode_utf16().collect();
+            assert_eq!(
+                String::from_utf16(
+                    &document[found.absolute_offset as usize
+                        ..found.absolute_offset as usize + query.encode_utf16().count()]
+                )
+                .unwrap(),
+                query
+            );
+        }
+    }
+
+    #[test]
+    fn truncated_preview_offsets_remain_relative_to_the_utf16_preview() {
+        let source = format!("{}target{}", "😀".repeat(100), "한".repeat(100));
+        let found = search_file_contents(&source, &regex::Regex::new("target").unwrap(), false, 1);
+        assert_eq!(found[0].absolute_offset, 200);
+        assert_eq!(found[0].match_start, 160);
+        assert_eq!(found[0].match_end, 166);
+        assert_eq!(
+            found[0].preview,
+            format!("{}target{}", "😀".repeat(80), "한".repeat(80))
+        );
+    }
+
+    #[test]
+    fn multiple_matches_keep_absolute_offsets_across_lines() {
+        let found =
+            search_file_contents("😀x\n한x\nx", &regex::Regex::new("x").unwrap(), false, 10);
+        assert_eq!(
+            found
+                .iter()
+                .map(|m| (m.line, m.column, m.absolute_offset))
+                .collect::<Vec<_>>(),
+            [(1, 3, 2), (2, 2, 5), (3, 1, 7)]
+        );
     }
 }

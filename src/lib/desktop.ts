@@ -335,6 +335,7 @@ export interface WorkspaceSearchOptions {
 }
 
 export interface WorkspaceSearchMatch {
+  /** One-based line and UTF-16 column; all offsets below are UTF-16 code units. */
   line: number;
   column: number;
   preview: string;

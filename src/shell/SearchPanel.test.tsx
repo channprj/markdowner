@@ -61,6 +61,19 @@ function renderSearchPanel(
 }
 
 describe('SearchPanel', () => {
+  it('highlights and forwards native UTF-16 offsets after Korean and emoji text', () => {
+    const match = {
+      line: 2, column: 5, preview: '한😀 target 뒤',
+      matchStart: 4, matchEnd: 10, absoluteOffset: 12,
+    };
+    const file = { path: '/tmp/project/notes.md', matches: [match] };
+    const props = renderSearchPanel({ query: 'target', hasRun: true, results: [file] });
+    const row = screen.getByTestId('sidebar-search-match');
+    expect(row.querySelector('mark')).toHaveTextContent('target');
+    expect(row).toHaveTextContent('한😀 target 뒤');
+    fireEvent.click(row);
+    expect(props.onSelectMatch).toHaveBeenCalledWith(file, match);
+  });
   afterEach(() => {
     cleanup();
   });
