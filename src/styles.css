@@ -3,6 +3,79 @@
 
 @custom-variant dark (&:where([data-theme="BuiltInDark"], [data-theme="BuiltInDark"] *));
 
+.markdowner-content [data-footnote-reference] {
+  font-size: 0.75em;
+  line-height: 0;
+  vertical-align: super;
+}
+
+.markdowner-content .footnote-label {
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.4;
+  border-radius: 3px;
+}
+
+.markdowner-content [data-footnote-reference] > .footnote-label {
+  min-width: 0.8em;
+  padding-inline: 0.1em;
+}
+
+.markdowner-content .footnote-label:hover,
+.markdowner-content .footnote-label:focus-visible {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+
+.markdowner-content .footnote-label:disabled {
+  cursor: text;
+  text-decoration: none;
+}
+
+.markdowner-content [data-footnote-definition] {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75em;
+  margin: 0.75em 0;
+  padding-top: 0.5em;
+  border-top: 1px solid var(--border);
+  font-size: 0.9em;
+}
+
+.markdowner-content [data-footnote-definition] > .footnote-label {
+  flex-shrink: 0;
+  max-width: 30%;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.markdowner-content [data-footnote-content] {
+  flex: 1;
+  min-width: 0;
+}
+
+.markdowner-content [data-footnote-content] > :first-child {
+  margin-top: 0;
+}
+
+.markdowner-content .footnotes {
+  margin-top: 2em;
+  padding-top: 1em;
+  border-top: 1px solid var(--border);
+  font-size: 0.9em;
+}
+
+.markdowner-content .footnotes .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;

@@ -37,6 +37,15 @@ describe('exportBaseName', () => {
 });
 
 describe('renderMarkdownToHtml', () => {
+  it('exports named and numeric footnotes with repeat-reference backlinks', () => {
+    const html = renderMarkdownToHtml('Text[^report] again[^report] and numeric[^1].\n\n[^report]: **Source**.\n[^1]: Note.', null);
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect([...container.querySelectorAll('a[data-footnote-ref]')].map(el => el.textContent)).toEqual(['1', '1', '2']);
+    expect(container.querySelectorAll('a[data-footnote-backref]')).toHaveLength(3);
+    expect(container.querySelector('.footnotes strong')).toHaveTextContent('Source');
+  });
+
   it('renders the complete always-on GFM contract to safe static HTML', () => {
     const html = renderMarkdownToHtml(gfmContractFixture, null);
 

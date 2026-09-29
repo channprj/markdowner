@@ -21,6 +21,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 
+import { FootnoteExtensions } from '@/components/wysiwyg/footnoteExtension';
 import { createCodeBlockExtension } from '@/components/wysiwyg/codeBlockExtension';
 import { MarkdownerHeading } from '@/components/wysiwyg/headingExtension';
 import { ImeDebugOverlay } from '@/components/wysiwyg/ImeDebugOverlay';
@@ -33,10 +34,9 @@ import {
   shouldSuppressSyntheticImeEnter,
 } from '@/lib/wysiwygKeyboard';
 import { GFM_MARKED_OPTIONS } from '@/lib/gfm';
+import { MARKDOWN_CONTENT_SCOPE_CLASS } from '@/lib/themeScope';
 import { WYSIWYG_LINK_OPTIONS } from '@/lib/wysiwygLinkOptions';
 import './styles.css';
-
-const MARKDOWN_CONTENT_SCOPE_CLASS = 'markdown-content-scope';
 
 function Playground() {
   const isComposingRef = useRef(false);
@@ -46,6 +46,7 @@ function Playground() {
 
   const editor = useEditor({
     extensions: [
+      ...FootnoteExtensions,
       StarterKit.configure({
         heading: false,
         link: WYSIWYG_LINK_OPTIONS,

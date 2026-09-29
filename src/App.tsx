@@ -57,6 +57,7 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import type { UpdateInfo } from '@/lib/updateCheck';
 import { AiReviewTab } from '@/features/ai/AiReviewTab';
+import { FootnoteExtensions } from '@/components/wysiwyg/footnoteExtension';
 import { FrontMatterExtension } from '@/components/wysiwyg/frontMatterExtension';
 import { AiSelectionPopover } from '@/features/ai/AiSelectionPopover';
 import { AiFeaturePanel } from '@/features/ai/AiFeaturePanel';
@@ -1756,6 +1757,7 @@ export default function App() {
 
   const wysiwygExtensions = useMemo(
     () => [
+      ...FootnoteExtensions,
       FrontMatterExtension,
       StarterKit.configure({
         heading: false,

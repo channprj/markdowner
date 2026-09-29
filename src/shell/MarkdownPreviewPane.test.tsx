@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import gfmContractFixture from '../../tests/fixtures/gfm-contract.md?raw';
@@ -33,6 +33,23 @@ describe('MarkdownPreviewPane', () => {
     expect(heading).toHaveAttribute('data-source-line', '1');
     expect(container.querySelector('table')).toBeInTheDocument();
     expect(screen.getByText('Alpha')).toBeInTheDocument();
+  });
+
+  it('follows footnote references and backlinks inside this preview', () => {
+    const parentClick = vi.fn();
+    const { container } = render(<div onClick={parentClick}><MarkdownPreviewPane source={'Text[^report] again[^report].\n\n[^report]: **출처**.'} /></div>);
+    const reference = container.querySelector<HTMLAnchorElement>('a[data-footnote-ref]')!;
+    const definition = container.querySelector<HTMLElement>('li[id="user-content-fn-report"]')!;
+    const scroll = vi.fn();
+    definition.scrollIntoView = scroll;
+    fireEvent.click(reference);
+    expect(scroll).toHaveBeenCalled();
+    expect(document.activeElement).toBe(definition);
+    expect(parentClick).not.toHaveBeenCalled();
+    const backref = definition.querySelector<HTMLAnchorElement>('a[data-footnote-backref]')!;
+    reference.scrollIntoView = vi.fn();
+    fireEvent.click(backref);
+    expect(document.activeElement).toBe(reference);
   });
 
   it('renders the complete authoring heading hierarchy as semantic h1 through h4', () => {
