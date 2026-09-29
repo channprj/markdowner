@@ -7458,7 +7458,14 @@ describe('App recent documents', () => {
     await act(async () => {
       sourceEditorMockState.lastProps.onCreateEditor(sourceView);
     });
-    await waitFor(() => expect(sourceView.dispatch).toHaveBeenCalled());
+    await waitFor(() => expect(sourceView.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ selection: { anchor: 0, head: 0 } }),
+    ));
+    // Startup also schedules cursor restoration in an animation frame. Let
+    // that finish before placing the user's caret and switching editor modes.
+    await act(async () => {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    });
     sourceView.state.selection.main = { anchor: 7, head: 7 };
 
     fireEvent.keyDown(window, { key: '¡', code: 'Digit1', altKey: true });
