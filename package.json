@@ -93,6 +93,9 @@
       "postcss@<8.5.18": "8.5.18",
       "qs@>=6.11.1 <6.15.2": "6.15.2",
       "undici@>=7.0.0 <7.28.0": "7.28.0"
+    },
+    "patchedDependencies": {
+      "@radix-ui/react-switch@1.2.6": "patches/@radix-ui__react-switch@1.2.6.patch"
     }
   }
 }
