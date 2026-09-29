@@ -1,8 +1,11 @@
-import { ArrowUpCircle, CheckCircle, X } from 'lucide-react';
+import { ArrowUpCircle, CheckCircle, ExternalLink, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 
-type UpdateBannerProps =
+type UpdateBannerProps = {
+  releaseUrl: string;
+  onViewRelease: () => void;
+} & (
   | {
       latestVersion: string;
       actionLabel: string;
@@ -15,7 +18,8 @@ type UpdateBannerProps =
       latestVersion: string;
       onDismiss: () => void;
       variant: 'current';
-    };
+    }
+);
 
 export function UpdateBanner(props: UpdateBannerProps) {
   const variant = props.variant ?? 'available';
@@ -50,6 +54,20 @@ export function UpdateBanner(props: UpdateBannerProps) {
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        <Button asChild size="sm" variant="link">
+          <a
+            href={props.releaseUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Release notes (opens in a new window)"
+            onClick={(event) => {
+              event.preventDefault();
+              props.onViewRelease();
+            }}
+          >
+            Release notes <ExternalLink aria-hidden="true" />
+          </a>
+        </Button>
         {action}
         <Button
           type="button"

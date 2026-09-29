@@ -6886,6 +6886,8 @@ export default function App() {
       {updateCheck.bannerVisible && updateCheck.info ? (
         <UpdateBanner
           latestVersion={updateCheck.info.latestVersion}
+          releaseUrl={updateCheck.info.releaseUrl}
+          onViewRelease={updateCheck.viewRelease}
           actionLabel="Download & Install"
           busy={updateCheck.installing}
           onAction={updateCheck.install}
@@ -6895,6 +6897,8 @@ export default function App() {
         <UpdateBanner
           variant="current"
           latestVersion={manualUpdateCheckInfo.latestVersion}
+          releaseUrl={manualUpdateCheckInfo.releaseUrl}
+          onViewRelease={updateCheck.viewRelease}
           onDismiss={() => setManualUpdateCheckInfo(null)}
         />
       ) : null}

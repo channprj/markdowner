@@ -11729,6 +11729,10 @@ describe('App recent documents', () => {
 
     const banner = await screen.findByTestId('update-banner');
     expect(within(banner).getByText(/already on the latest version/i)).toBeInTheDocument();
+    fireEvent.click(within(banner).getByRole('link', { name: /release notes/i }));
+    await waitFor(() => expect(openExternalUrlInNewWindowMock).toHaveBeenCalledWith(
+      'https://example.com/release',
+    ));
   });
 
   it('runs a manual update check from the Command Palette', async () => {
@@ -11813,7 +11817,12 @@ describe('App recent documents', () => {
     fireEvent.change(checkInput, { target: { value: 'check updates' } });
     fireEvent.click(within(checkDialog).getByRole('option', { name: /check for updates/i }));
 
-    await screen.findByTestId('update-banner');
+    const banner = await screen.findByTestId('update-banner');
+    fireEvent.click(within(banner).getByRole('link', { name: /release notes/i }));
+    await waitFor(() => expect(openExternalUrlInNewWindowMock).toHaveBeenCalledWith(
+      'https://example.com/release',
+    ));
+    expect(invokeMock).not.toHaveBeenCalledWith('download_and_install_update', expect.anything());
 
     fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { openExternalUrl } from './desktop';
+import { openExternalUrl, openExternalUrlInNewWindow } from './desktop';
 import type { Settings } from './settings';
 import {
   UPDATE_RECHECK_TICK_MS,
@@ -136,7 +136,9 @@ export function useUpdateCheck(
 
   const viewRelease = useCallback(() => {
     if (info) {
-      void openExternalUrl(info.releaseUrl);
+      void openExternalUrlInNewWindow(info.releaseUrl).catch((error) => {
+        console.error('Could not open release notes:', error);
+      });
     }
   }, [info]);
 
