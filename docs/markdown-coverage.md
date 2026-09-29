@@ -19,6 +19,26 @@ fixture catalog lives in `crates/markdowner-core/tests/fixtures/catalog.json`.
 
 ## Supported Syntax Today
 
+### Desktop editor footnotes
+
+The desktop Tiptap editor supports named and numeric footnotes (`[^report]`,
+`[^1]`) as inline references and editable definition blocks. Labels survive
+editing and serialization; display numbers follow first-reference order.
+Repeated references, case-insensitive matching, Unicode labels, indented
+multi-paragraph definitions, and formatted note bodies are supported. Code and
+escaped syntax remain literal. Definitions without references are retained.
+
+Reference buttons navigate to definitions; definition labels return to the first
+reference. In WYSIWYG, a reference followed by a space converts to a footnote;
+`[^label]: ` at paragraph start creates a definition. Split View and the shared
+HTML/PDF export renderer use remark-gfm footnotes.
+
+Regression coverage lives in `footnoteExtension.test.ts`,
+`MarkdownPreviewPane.test.tsx`, and `exportDocument.test.ts`. The Rust model and
+its older fixture catalog below remain separate: the desktop editor uses the
+document's Markdown source directly, so Rust raw fallback does not prevent
+structured editing in Tiptap.
+
 ### Block structures
 
 - Headings (`#` through `######`)
@@ -106,9 +126,9 @@ The fixture catalog currently contains 30 v0.2 cases, matching the PRD allocatio
 | `unsupported` | 4 | strikethrough, footnotes, HTML blocks, ordered lists |
 | `workspace-and-session` | 2 | recent-document restore plus mode/theme restore |
 
-The unsupported category currently documents the product's honest limits: these inputs are
-not yet first-class editable syntax, but they are covered by source-preservation tests so a
-no-op open/save flow does not damage them.
+The unsupported category documents the Rust model's limits. These inputs are
+covered by source-preservation tests so a no-op open/save flow does not damage
+them; the desktop editor can support additional syntax independently.
 
 The broader catalog also now includes an early v1.0 `canonical-equivalent` seed fixture for
 underscore-delimited inline emphasis, which proves the harness can validate parser/serializer

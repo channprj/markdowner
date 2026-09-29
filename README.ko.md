@@ -83,6 +83,21 @@ curl -fsSL https://raw.githubusercontent.com/channprj/markdowner/main/install.sh
 | Typewriter Mode 토글 | `Cmd+Shift+Y` |
 | 줄 바꿈 토글 | `Option+Z` |
 
+## 각주
+
+이름형·숫자형 Markdown 각주를 WYSIWYG, Split View, 내보내기에서 사용할 수 있습니다.
+
+```markdown
+설명에 붙인 각주[^report]와 숫자 각주[^1].
+
+[^report]: **서식**과 [링크](https://example.com)를 포함한 출처입니다.
+[^1]: 숫자로 이름을 붙인 각주입니다.
+```
+
+WYSIWYG에서는 처음 참조한 순서대로 번호를 표시하며, 저장할 때는 원래 각주 이름을 유지합니다. 본문의 번호를 클릭하면 각주 내용을 편집할 수 있고, 각주의 이름을 클릭하면 첫 참조 위치로 돌아갑니다. Split View에서도 각주와 본문 사이를 이동할 수 있습니다.
+
+WYSIWYG에서 `[^label]` 뒤에 공백을 입력하면 참조로 변환됩니다. 문단 시작에 `[^label]: `를 입력하면 각주 정의가 만들어집니다. 각주 이름은 소스 모드에서 수정할 수 있습니다. Markdown에서 이어지는 문단은 공백 네 칸으로 들여씁니다. 같은 각주를 여러 번 참조하면 같은 번호로 표시하고, 정의가 없는 참조는 `[^label]`로 남겨 둡니다.
+
 ## AI 기능
 
 **Settings → AI Feature**에서 OpenRouter 키를 연결한 뒤 PRD 개선, 요약, 번역, 사용자 프롬프트에 사용할 모델을 선택합니다. 소스 에디터나 WYSIWYG에서 텍스트를 선택하고 `Cmd+Shift+K`를 누르면 인라인 프롬프트를 실행할 수 있습니다.

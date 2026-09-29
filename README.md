@@ -76,6 +76,21 @@ Useful shortcuts:
 | Toggle Typewriter Mode | `Cmd+Shift+Y` |
 | Toggle Word Wrap       | `Option+Z`    |
 
+## Footnotes
+
+Named and numeric Markdown footnotes work in WYSIWYG, Split View, and exports:
+
+```markdown
+An explanation[^report] and another note[^1].
+
+[^report]: A source with **formatting** and [links](https://example.com).
+[^1]: A numeric footnote.
+```
+
+WYSIWYG shows reference numbers in order of first use while preserving the original labels on save. Click a number to edit its definition; click the definition's label to return to the first reference. Split View supports reference and return links too.
+
+To author a reference in WYSIWYG, type `[^label]` followed by a space. Start a paragraph with `[^label]: ` to create a definition. Edit labels in source mode. Indent continuation paragraphs by four spaces in Markdown. Repeated references share a number, and undefined references remain visible as `[^label]`.
+
 ## AI tools
 
 Connect your OpenRouter key in **Settings → AI Feature**. Select a task and model for PRD improvement, summaries, translation, or custom instructions. Select text and use `Cmd+Shift+K` for an inline prompt in the source or WYSIWYG editor.
