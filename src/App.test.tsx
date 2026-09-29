@@ -7428,7 +7428,29 @@ describe('App recent documents', () => {
     });
   });
 
-  it('keeps the keyboard cursor at the source caret when switching to WYSIWYG with Option+1', async () => {
+  it('keeps the keyboard cursor at the source caret when switching to WYSIWYG with Option+1', async ({ onTestFinished }) => {
+    // Drive startup and mode-switch frames explicitly: jsdom's live animation
+    // frame scheduling can stall under the full release test runner.
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    });
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+      frames.delete(id);
+    });
+    onTestFinished(() => {
+      requestFrame.mockRestore();
+      cancelFrame.mockRestore();
+      frames.clear();
+    });
+    const flushFrame = () => {
+      const pending = [...frames.values()];
+      frames.clear();
+      pending.forEach((callback) => callback(0));
+    };
+
     const editor = createMockTiptapEditor('# Alpha', [{ text: '# Alpha', from: 1 }]);
     tiptapMockState.editor = editor;
     bootstrapMock.mockResolvedValue(
@@ -7461,19 +7483,16 @@ describe('App recent documents', () => {
     await waitFor(() => expect(sourceView.dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ selection: { anchor: 0, head: 0 } }),
     ));
-    // Startup also schedules cursor restoration in an animation frame. Let
-    // that finish before placing the user's caret and switching editor modes.
-    await act(async () => {
-      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-    });
+    act(flushFrame);
     sourceView.state.selection.main = { anchor: 7, head: 7 };
 
     fireEvent.keyDown(window, { key: '¡', code: 'Digit1', altKey: true });
 
     await waitFor(() => {
       expect(setModeMock).toHaveBeenCalledWith('Wysiwyg');
-      expect(editor.commands.setTextSelection).toHaveBeenCalledWith(8);
     });
+    act(flushFrame);
+    expect(editor.commands.setTextSelection).toHaveBeenCalledWith(8);
   });
 
   it('flips the optimistic mode before awaiting set_mode and skips replaceActiveDocumentSource on a clean draft', async () => {
