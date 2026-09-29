@@ -20,6 +20,7 @@ export interface UseUpdateCheck {
   info: UpdateInfo | null;
   bannerVisible: boolean;
   checking: boolean;
+  checkFailed: boolean;
   installing: boolean;
   checkNow: () => Promise<void>;
   dismissBanner: () => void;
@@ -51,6 +52,7 @@ export function useUpdateCheck(
 ): UseUpdateCheck {
   const [info, setInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
+  const [checkFailed, setCheckFailed] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [sessionDismissed, setSessionDismissed] = useState(false);
   const launchedRef = useRef(false);
@@ -72,6 +74,7 @@ export function useUpdateCheck(
 
   const runCheck = useCallback(async (manual = false) => {
     setChecking(true);
+    setCheckFailed(false);
     try {
       const result = await checkForUpdate();
       setInfo(result);
@@ -80,6 +83,7 @@ export function useUpdateCheck(
         onManualCheckCompleteRef.current?.(result);
       }
     } catch (error) {
+      setCheckFailed(true);
       console.error('Update check failed:', error);
     } finally {
       setChecking(false);
@@ -168,6 +172,7 @@ export function useUpdateCheck(
     info,
     bannerVisible,
     checking,
+    checkFailed,
     installing,
     checkNow,
     dismissBanner,

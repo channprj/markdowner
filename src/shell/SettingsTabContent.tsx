@@ -17,6 +17,7 @@ interface SettingsTabContentProps {
   updateActionLabel?: string;
   updateBusy?: boolean;
   updateChecking?: boolean;
+  updateCheckFailed?: boolean;
   onUpdateAction?: () => void;
   onCheckForUpdate?: () => void;
   defaultMdHandler?: DefaultMdHandlerStatus | null;
@@ -34,6 +35,7 @@ export function SettingsTabContent({
   updateActionLabel,
   updateBusy,
   updateChecking,
+  updateCheckFailed,
   onUpdateAction,
   onCheckForUpdate,
   defaultMdHandler,
@@ -62,6 +64,7 @@ export function SettingsTabContent({
       updateActionLabel={updateActionLabel}
       updateBusy={updateBusy}
       updateChecking={updateChecking}
+      updateCheckFailed={updateCheckFailed}
       onUpdateAction={onUpdateAction}
       onCheckForUpdate={onCheckForUpdate}
       defaultMdHandler={defaultMdHandler}

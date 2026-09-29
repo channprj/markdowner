@@ -11729,10 +11729,28 @@ describe('App recent documents', () => {
 
     const banner = await screen.findByTestId('update-banner');
     expect(within(banner).getByText(/already on the latest version/i)).toBeInTheDocument();
+    expect(within(panel).getByRole('status', { name: 'Version status' })).toHaveTextContent('Latest');
     fireEvent.click(within(banner).getByRole('link', { name: /release notes/i }));
     await waitFor(() => expect(openExternalUrlInNewWindowMock).toHaveBeenCalledWith(
       'https://example.com/release',
     ));
+  });
+
+  it('shows a failed manual update check in Settings and offers a retry', async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === 'check_for_update') throw new Error('Offline');
+      return undefined;
+    });
+    const { default: App } = await import('./App');
+    render(<App />);
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+    const panel = await screen.findByTestId('settings-panel');
+    fireEvent.click(within(panel).getByTestId('settings-update-check'));
+
+    await waitFor(() => {
+      expect(within(panel).getByRole('status', { name: 'Version status' })).toHaveTextContent('Check failed');
+    });
+    expect(within(panel).getByRole('button', { name: 'Check now' })).toBeEnabled();
   });
 
   it('runs a manual update check from the Command Palette', async () => {
@@ -11823,6 +11841,11 @@ describe('App recent documents', () => {
       'https://example.com/release',
     ));
     expect(invokeMock).not.toHaveBeenCalledWith('download_and_install_update', expect.anything());
+
+    fireEvent.keyDown(window, { key: ',', metaKey: true });
+    const panel = await screen.findByTestId('settings-panel');
+    expect(within(panel).getByRole('status', { name: 'Version status' })).toHaveTextContent('Outdated');
+    expect(within(panel).getByText('Latest version: v0.260709.0')).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
 

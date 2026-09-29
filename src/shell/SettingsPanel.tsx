@@ -18,6 +18,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import {
   defaultMdHandlerStatus,
@@ -80,6 +81,7 @@ export interface SettingsPanelProps {
   updateActionLabel?: string;
   updateBusy?: boolean;
   updateChecking?: boolean;
+  updateCheckFailed?: boolean;
   onUpdateAction?: () => void;
   onCheckForUpdate?: () => void;
   defaultMdHandler?: DefaultMdHandlerStatus | null;
@@ -110,12 +112,21 @@ export function SettingsPanel({
   updateActionLabel = 'View release',
   updateBusy = false,
   updateChecking = false,
+  updateCheckFailed = false,
   onUpdateAction,
   onCheckForUpdate,
   defaultMdHandler = null,
   defaultMdHandlerBusy = false,
   onDefaultMdHandlerChange,
 }: SettingsPanelProps) {
+  const versionStatus = updateChecking
+    ? 'Checking…'
+    : updateCheckFailed
+      ? 'Check failed'
+      : updateInfo
+        ? updateInfo.available ? 'Outdated' : 'Latest'
+        : 'Not checked';
+
   const [cliBinary, setCliBinary] = useState<CliBinaryStatus>({
     installPath: CLI_BINARY_INSTALL_PATH,
     targetExecutable: '',
@@ -457,24 +468,38 @@ export function SettingsPanel({
         <div className={`mx-auto w-full max-w-2xl px-6 py-6 ${sectionBodyClass}`}>
         <div
           data-testid="settings-app-version"
-          className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-4 py-3"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-4 py-3"
         >
           <div className="flex flex-col">
             <span className="text-sm font-medium leading-tight">Markdowner</span>
-            <span className="font-mono text-xs text-muted-foreground">
-              v{__APP_VERSION__}
-            </span>
-            {updateInfo?.available ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs text-muted-foreground">
+                v{updateInfo?.currentVersion ?? __APP_VERSION__}
+              </span>
+              <Badge
+                role="status"
+                aria-label="Version status"
+                variant="secondary"
+                className={versionStatus === 'Latest'
+                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                  : versionStatus === 'Outdated'
+                    ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                    : 'text-muted-foreground'}
+              >
+                {versionStatus}
+              </Badge>
+            </div>
+            {versionStatus === 'Outdated' && updateInfo ? (
               <span
                 data-testid="settings-update-available"
-                className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-300"
+                className="mt-1 text-xs text-muted-foreground"
               >
-                Update available → v{updateInfo.latestVersion}
+                Latest version: v{updateInfo.latestVersion}
               </span>
             ) : null}
           </div>
           <div className="flex items-center gap-2">
-            {updateInfo?.available ? (
+            {updateInfo?.available && !updateCheckFailed ? (
               <Button
                 type="button"
                 size="sm"

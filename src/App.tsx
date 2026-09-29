@@ -7018,6 +7018,7 @@ export default function App() {
           updateActionLabel="Download & Install"
           updateBusy={updateCheck.installing}
           updateChecking={updateCheck.checking}
+          updateCheckFailed={updateCheck.checkFailed}
           onUpdateAction={updateCheck.install}
           onCheckForUpdate={updateCheck.checkNow}
           defaultMdHandler={defaultMdHandler}

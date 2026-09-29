@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_SETTINGS, type Settings } from './settings';
 import { useUpdateCheck } from './useUpdateCheck';
+import type { UpdateInfo } from './updateCheck';
 
 const checkForUpdateMock = vi.fn();
 const downloadAndInstallUpdateMock = vi.fn();
@@ -169,5 +170,45 @@ describe('useUpdateCheck install', () => {
     onBeforeInstall.mockResolvedValueOnce(undefined);
     await act(async () => { await result.current.install(); });
     expect(downloadAndInstallUpdateMock).toHaveBeenCalledOnce();
+  });
+
+  it('exposes a failed refresh and clears the failure when a retry starts', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { result } = renderHook(() =>
+        useUpdateCheck(settingsWith({ updateCheckEnabled: false }), vi.fn(), true),
+      );
+      await act(async () => { await result.current.checkNow(); });
+      expect(result.current.info?.latestVersion).toBe('9.9.9');
+      expect(result.current.checkFailed).toBe(false);
+
+      checkForUpdateMock.mockRejectedValueOnce(new Error('Offline'));
+      await act(async () => { await result.current.checkNow(); });
+      expect(result.current.checkFailed).toBe(true);
+      expect(result.current.checking).toBe(false);
+
+      let finishCheck!: (info: UpdateInfo) => void;
+      checkForUpdateMock.mockReturnValueOnce(new Promise((resolve) => { finishCheck = resolve; }));
+      let retry!: Promise<void>;
+      act(() => { retry = result.current.checkNow(); });
+      expect(result.current.checking).toBe(true);
+      expect(result.current.checkFailed).toBe(false);
+      await act(async () => {
+        finishCheck({
+          available: false,
+          currentVersion: '9.9.9',
+          latestVersion: '9.9.9',
+          dmgUrl: null,
+          releaseUrl: 'https://example.invalid',
+          notes: '',
+        });
+        await retry;
+      });
+      expect(result.current.checking).toBe(false);
+      expect(result.current.checkFailed).toBe(false);
+      expect(result.current.info?.available).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });

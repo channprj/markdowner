@@ -116,7 +116,9 @@ describe('SettingsPanel update section', () => {
   it('shows the update action and fires onUpdateAction when available', () => {
     const onUpdateAction = vi.fn();
     renderPanel({ updateInfo: availableUpdate, onUpdateAction });
-    expect(screen.getByTestId('settings-update-available')).toHaveTextContent('0.260601.0');
+    expect(screen.getByRole('status', { name: 'Version status' })).toHaveTextContent('Outdated');
+    expect(screen.getByText('v0.260528.2')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-update-available')).toHaveTextContent('Latest version: v0.260601.0');
     fireEvent.click(screen.getByTestId('settings-update-action'));
     expect(onUpdateAction).toHaveBeenCalledTimes(1);
   });
@@ -124,9 +126,37 @@ describe('SettingsPanel update section', () => {
   it('shows "Check now" and fires onCheckForUpdate when no update is available', () => {
     const onCheckForUpdate = vi.fn();
     renderPanel({ updateInfo: null, onCheckForUpdate });
+    expect(screen.getByRole('status', { name: 'Version status' })).toHaveTextContent('Not checked');
     expect(screen.queryByTestId('settings-update-action')).toBeNull();
     fireEvent.click(screen.getByTestId('settings-update-check'));
     expect(onCheckForUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks a successfully checked current version as Latest', () => {
+    renderPanel({ updateInfo: { ...availableUpdate, available: false, latestVersion: '0.260528.2' } });
+
+    expect(screen.getByRole('status', { name: 'Version status' })).toHaveTextContent('Latest');
+    expect(screen.queryByTestId('settings-update-available')).toBeNull();
+  });
+
+  it.each([null, availableUpdate])('shows Checking instead of a stale result while checking (%s)', (updateInfo) => {
+    renderPanel({ updateInfo, updateChecking: true });
+
+    expect(screen.getByRole('status', { name: 'Version status' })).toHaveTextContent('Checking…');
+  });
+
+  it.each([false, true])('allows retry after a failed check with a previous available=%s result', (available) => {
+    const onCheckForUpdate = vi.fn();
+    renderPanel({
+      updateInfo: { ...availableUpdate, available },
+      updateCheckFailed: true,
+      onCheckForUpdate,
+    });
+
+    expect(screen.getByRole('status', { name: 'Version status' })).toHaveTextContent('Check failed');
+    expect(screen.queryByTestId('settings-update-available')).toBeNull();
+    fireEvent.click(screen.getByTestId('settings-update-check'));
+    expect(onCheckForUpdate).toHaveBeenCalledOnce();
   });
 
   it('toggles the launch update-check setting', () => {
