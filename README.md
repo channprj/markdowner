@@ -207,6 +207,12 @@ pnpm exec tsc --noEmit
 
 ## Release
 
+Agent-driven pushes to `main` include a version bump and a verified GitHub
+Release by default, including documentation changes. For realtime checkpoint
+pushes, the agent publishes once from the completed task's final commit. See
+[AGENTS.md](./AGENTS.md) for the required workflow and authentication details.
+Explicitly request a push without a release to opt out for a task.
+
 Markdowner uses the repo-root `VERSION` file and date-based versions in the form:
 
 ```text

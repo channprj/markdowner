@@ -6,8 +6,9 @@ node_modules/
 dist/
 .vite/
 
-# Local coding-agent artifacts
+# Local coding-agent artifacts; root instructions are shared with the repository
 AGENTS.md
+!/AGENTS.md
 PLAN.md
 PRD.md
 tasks/
