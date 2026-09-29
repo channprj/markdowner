@@ -11,7 +11,10 @@ const silentLogger = { log() {} };
 function fixture(version = '0.260906.0') {
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'markdowner-release-'));
   fs.writeFileSync(path.join(projectRoot, 'VERSION'), `${version}\n`);
-  return { projectRoot, version };
+  const notesPath = path.join(projectRoot, 'docs', 'releases', `v${version}.md`);
+  fs.mkdirSync(path.dirname(notesPath), { recursive: true });
+  fs.writeFileSync(notesPath, '## 추가\n\n- 업데이트 안내에서 릴리스 노트를 새 창으로 열 수 있습니다.\n');
+  return { projectRoot, version, notesPath };
 }
 
 function writeArtifact(projectRoot, version) {
@@ -139,7 +142,7 @@ test('publish reuses the current verified build after local and remote preflight
     assert.ok(commands.includes(`git ls-remote --exit-code --tags origin refs/tags/v${version}`));
     assert.ok(
       commands.includes(
-        `gh release create v${version} --repo channprj/markdowner --target 0123456789abcdef --title v${version} --generate-notes ${artifact}`,
+        `gh release create v${version} --repo channprj/markdowner --target 0123456789abcdef --title v${version} --notes-file ${path.join(projectRoot, 'docs', 'releases', `v${version}.md`)} --generate-notes ${artifact}`,
       ),
     );
     assert.equal(commands.at(-1), `gh release view v${version} --repo channprj/markdowner --json url --jq .url`);
@@ -147,6 +150,28 @@ test('publish reuses the current verified build after local and remote preflight
     fs.rmSync(projectRoot, { force: true, recursive: true });
   }
 });
+
+for (const reason of ['missing', 'empty']) {
+  test(`publish refuses ${reason} version-specific release notes before building or uploading`, () => {
+    const { projectRoot, version, notesPath } = fixture();
+    try {
+      buildFixture(projectRoot, version);
+      if (reason === 'missing') fs.unlinkSync(notesPath);
+      else fs.writeFileSync(notesPath, ' \n\t\n');
+      const { calls, runner } = publishingRunner();
+
+      assert.throws(
+        () => publishRelease({ logger: silentLogger, platform: 'darwin', projectRoot, runner }),
+        /release notes.*missing or empty/i,
+      );
+      assert.ok(!commandList(calls).includes('pnpm test'));
+      assert.ok(!commandList(calls).includes('pnpm build universal dmg'));
+      assert.ok(!commandList(calls).some((command) => command.startsWith('gh release create ')));
+    } finally {
+      fs.rmSync(projectRoot, { force: true, recursive: true });
+    }
+  });
+}
 
 const rebuildCases = {
   'missing DMG': (artifact) => fs.unlinkSync(artifact),

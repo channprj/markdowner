@@ -16,7 +16,8 @@ function usage() {
   pnpm release:publish    Reuse a current DMG or build it, then publish with GitHub CLI
 
 The publish command never commits or pushes source changes. It requires a clean main branch
-that exactly matches origin/main, an unused VERSION tag, and gh authentication.`);
+that exactly matches origin/main, an unused VERSION tag, nonempty docs/releases/v<VERSION>.md
+release notes, and gh authentication.`);
 }
 
 function fail(message) {
@@ -81,6 +82,14 @@ export function releaseDmgPath(projectRoot, version) {
     'dmg',
     `Markdowner_${version}_universal.dmg`,
   );
+}
+
+function requireReleaseNotes(projectRoot, version) {
+  const notesPath = path.join(projectRoot, 'docs', 'releases', `v${version}.md`);
+  if (!fs.existsSync(notesPath) || !fs.readFileSync(notesPath, 'utf8').trim()) {
+    fail(`release notes missing or empty: ${path.relative(projectRoot, notesPath)}\nwrite a summary of additions, changes, and fixes before publishing`);
+  }
+  return notesPath;
 }
 
 function sha256(file) {
@@ -246,6 +255,7 @@ export function publishRelease({
   requireMacOs(platform);
   const version = readVersion(projectRoot);
   const tag = `v${version}`;
+  const notesPath = requireReleaseNotes(projectRoot, version);
 
   run(runner, projectRoot, 'pnpm', ['sync-version', '--check']);
   const head = requireCleanMain(runner, projectRoot);
@@ -279,6 +289,8 @@ export function publishRelease({
     head,
     '--title',
     tag,
+    '--notes-file',
+    notesPath,
     '--generate-notes',
     artifact,
   ]);

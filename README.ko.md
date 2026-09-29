@@ -238,25 +238,27 @@ pnpm bump refresh --push
 
 이 명령은 `VERSION` 값을 `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `Cargo.lock`에 동기화하고, 해당 버전 파일을 커밋한 뒤 `main`으로 푸시합니다.
 
-같은 `main` 체크아웃이 깨끗하고 원격과 동기화된 상태에서 빌드와 배포를
-차례로 실행합니다.
+게시 전 `docs/releases/v<VERSION>.md`에 이전 릴리스 이후의 추가·변경·수정사항을
+사용자 관점에서 요약하고 커밋합니다. 해당 사항이 없는 항목은 생략합니다.
+이 요약은 GitHub 자동 변경 기록 위에 게시됩니다. 앱 상단 업데이트 안내의
+**Release notes** 링크를 누르면 설치와 별도로 해당 릴리스가 브라우저 새 창에 열립니다.
+
+같은 `main` 체크아웃이 깨끗하고 원격과 동기화된 상태에서 실행합니다.
 
 ```bash
-pnpm release:build
 pnpm release:publish
 ```
 
 로컬 릴리스 흐름은 다음 순서로 동작합니다.
 
-1. 버전 메타데이터를 확인하고 JavaScript와 Rust 테스트 실행
-2. ad-hoc signing이 적용된 universal macOS DMG 빌드 및 `hdiutil` 검증
-3. 깨끗한 `main`과 `origin/main`의 완전한 동기화 확인
-4. 같은 버전의 태그나 GitHub Release가 이미 있으면 중단
-5. 자동 생성 릴리스 노트와 함께 태그·GitHub Release를 만들고 DMG 업로드
+1. 버전별 요약 파일과 버전 메타데이터, 깨끗한 `main`과 `origin/main`의 동기화, GitHub 인증 확인
+2. 같은 버전의 태그나 GitHub Release가 이미 있으면 중단
+3. 같은 커밋·버전의 검증된 DMG가 있으면 재사용하고, 없으면 JavaScript·Rust 테스트와 universal macOS DMG 빌드 실행
+4. `hdiutil`로 DMG를 검증하고 업로드 직전 작업 트리와 원격 상태 재확인
+5. 준비한 요약과 GitHub 자동 변경 기록을 함께 게시하고 DMG 업로드
 
-`release:publish`는 빌드하거나 소스 변경을 커밋·푸시하지 않습니다.
-`release:build`가 성공한 뒤에만 실행합니다. 릴리스 노트는 GitHub가 이전
-태그와 새 태그를 비교해 자동으로 생성합니다.
+`release:build`로 DMG를 미리 준비할 수도 있습니다. 빌드 기록의 커밋·버전·SHA-256이
+모두 일치할 때만 재사용합니다. `release:publish`는 소스 변경을 커밋·푸시하지 않습니다.
 
 ## 저장소 구조
 

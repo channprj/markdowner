@@ -241,6 +241,12 @@ pnpm bump refresh --push
 
 That command syncs `VERSION` into `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `Cargo.lock`, commits those version files, and pushes to `main`.
 
+Before publishing, write and commit `docs/releases/v<VERSION>.md` with a concise
+summary of additions, changes, and fixes since the previous release. Empty
+categories can be omitted. The summary appears above GitHub's generated change
+record. The update banner's **Release notes** link opens that release in a new
+browser window, independently of downloading and installing the update.
+
 Build and publish from the same clean, up-to-date `main` checkout:
 
 ```bash
@@ -249,13 +255,15 @@ pnpm release:publish
 
 The local flow:
 
-1. verifies version metadata, requires a clean `main` exactly matching `origin/main`,
+1. requires nonempty version-specific release notes, verifies version metadata,
+   requires a clean `main` exactly matching `origin/main`,
    and checks GitHub CLI authentication
 2. refuses an existing version tag or GitHub Release before building
 3. reuses a verified DMG for the current commit and version; otherwise runs the
    JavaScript and Rust test suites and builds an ad-hoc-signed universal macOS DMG
 4. verifies the DMG with `hdiutil` and rechecks the checkout and remote before uploading
-5. creates the tag and GitHub Release with generated notes and uploads the DMG
+5. creates the tag and GitHub Release with the prepared summary followed by
+   generated notes and uploads the DMG
 
 `release:build` can still prepare the DMG separately. A successful build from a
 clean, unchanged checkout saves the commit, version, and DMG SHA-256 in a
@@ -264,7 +272,7 @@ three match; missing or invalid records and missing or changed DMGs trigger a
 fresh build. Existing DMGs without a build record are rebuilt once.
 
 `release:publish` never commits or pushes source changes. GitHub generates the
-release notes by comparing the new release with the previous tag.
+additional change record by comparing the new release with the previous tag.
 
 ## Repository Layout
 
