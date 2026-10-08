@@ -142,10 +142,39 @@ test('publish reuses the current verified build after local and remote preflight
     assert.ok(commands.includes(`git ls-remote --exit-code --tags origin refs/tags/v${version}`));
     assert.ok(
       commands.includes(
-        `gh release create v${version} --repo channprj/markdowner --target 0123456789abcdef --title v${version} --notes-file ${path.join(projectRoot, 'docs', 'releases', `v${version}.md`)} --generate-notes ${artifact}`,
+        `gh release create v${version} --repo channprj/markdowner --target 0123456789abcdef --title v${version} --notes-file ${path.join(projectRoot, 'docs', 'releases', `v${version}.md`)} --generate-notes ${artifact} ${path.join(path.dirname(artifact), 'latest.json')}`,
       ),
     );
     assert.equal(commands.at(-1), `gh release view v${version} --repo channprj/markdowner --json url --jq .url`);
+  } finally {
+    fs.rmSync(projectRoot, { force: true, recursive: true });
+  }
+});
+
+test('publish uploads public update metadata matching the verified DMG and release notes', () => {
+  const { projectRoot, version, notesPath } = fixture();
+  try {
+    buildFixture(projectRoot, version);
+    let manifest;
+    const { runner } = publishingRunner({}, (command, args) => {
+      if (command === 'gh' && args[0] === 'release' && args[1] === 'create') {
+        const manifestPath = args.find((arg) => path.basename(arg) === 'latest.json');
+        assert.ok(manifestPath, 'latest.json must be uploaded alongside the DMG');
+        manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      }
+    });
+
+    publishRelease({ logger: silentLogger, platform: 'darwin', projectRoot, runner });
+
+    assert.deepEqual(manifest, {
+      tag_name: 'v0.260906.0',
+      html_url: 'https://github.com/channprj/markdowner/releases/tag/v0.260906.0',
+      body: fs.readFileSync(notesPath, 'utf8'),
+      assets: [{
+        name: 'Markdowner_0.260906.0_universal.dmg',
+        browser_download_url: 'https://github.com/channprj/markdowner/releases/download/v0.260906.0/Markdowner_0.260906.0_universal.dmg',
+      }],
+    });
   } finally {
     fs.rmSync(projectRoot, { force: true, recursive: true });
   }

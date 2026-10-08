@@ -276,6 +276,20 @@ export function publishRelease({
     fail('source or release DMG changed during preparation; run: pnpm release:publish');
   }
 
+  // A public release asset avoids the shared unauthenticated REST API quota.
+  // Use the same payload shape as that API so older release checks remain compatible.
+  const manifestPath = path.join(path.dirname(artifact), 'latest.json');
+  const assetName = path.basename(artifact);
+  fs.writeFileSync(manifestPath, `${JSON.stringify({
+    tag_name: tag,
+    html_url: `https://github.com/${repository}/releases/tag/${tag}`,
+    body: fs.readFileSync(notesPath, 'utf8'),
+    assets: [{
+      name: assetName,
+      browser_download_url: `https://github.com/${repository}/releases/download/${tag}/${assetName}`,
+    }],
+  }, null, 2)}\n`);
+
   logger.log(`Publishing ${tag} from ${head}`);
   logger.log(`Asset: ${artifact}`);
   logger.log(`SHA-256: ${sha256(artifact)}`);
@@ -293,6 +307,7 @@ export function publishRelease({
     notesPath,
     '--generate-notes',
     artifact,
+    manifestPath,
   ]);
 
   const published = run(

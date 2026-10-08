@@ -1,5 +1,5 @@
-//! In-app update notifier: reads the latest GitHub release, compares versions,
-//! and (Phase 2) installs the new bundle. Network I/O shells out to `curl`,
+//! In-app update notifier: reads public release metadata, compares versions,
+//! and installs the new bundle. Network I/O shells out to `curl`,
 //! mirroring `install.sh`, so the webview needs no GitHub CSP allowlist.
 
 use std::{
@@ -114,32 +114,61 @@ fn build_update_info(current_version: &str, release_json: &str) -> Result<Update
 
 const RELEASES_LATEST_API: &str =
     "https://api.github.com/repos/channprj/markdowner/releases/latest";
+const RELEASES_LATEST_MANIFEST: &str =
+    "https://github.com/channprj/markdowner/releases/latest/download/latest.json";
 
-/// Fetch the latest-release JSON via `curl` (guaranteed present on macOS and
-/// already an `install.sh` dependency).
-fn fetch_latest_release_json() -> Result<String, String> {
+fn fetch_release_json(url: &str) -> Result<String, String> {
     let output = std::process::Command::new("curl")
         .args([
+            "-q",
             "-fsSL",
+            "--connect-timeout",
+            "10",
+            "--max-time",
+            "30",
             "-H",
             "Accept: application/vnd.github+json",
             "-H",
             "User-Agent: markdowner",
-            RELEASES_LATEST_API,
+            url,
         ])
         .output()
         .map_err(|e| format!("Failed to run curl: {e}"))?;
     if !output.status.success() {
-        return Err(format!("curl exited with status {}", output.status));
+        return Err(format!(
+            "curl exited with status {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
     }
     String::from_utf8(output.stdout).map_err(|e| format!("Invalid UTF-8 from curl: {e}"))
 }
 
+fn fetch_latest_release_json_from(manifest_url: &str, api_url: &str) -> Result<String, String> {
+    // Public release downloads do not consume the shared REST API quota.
+    // Fall back for releases published before latest.json was introduced.
+    fetch_release_json(manifest_url).or_else(|manifest_error| {
+        fetch_release_json(api_url).map_err(|api_error| {
+            format!(
+                "Public release metadata failed: {manifest_error}; legacy API failed: {api_error}"
+            )
+        })
+    })
+}
+
+fn fetch_latest_release_json() -> Result<String, String> {
+    fetch_latest_release_json_from(RELEASES_LATEST_MANIFEST, RELEASES_LATEST_API)
+}
+
 #[tauri::command]
-pub fn check_for_update(app_handle: tauri::AppHandle) -> Result<UpdateInfo, String> {
+pub async fn check_for_update(app_handle: tauri::AppHandle) -> Result<UpdateInfo, String> {
     let current = app_handle.package_info().version.to_string();
-    let json = fetch_latest_release_json()?;
-    build_update_info(&current, &json)
+    tauri::async_runtime::spawn_blocking(move || {
+        let json = fetch_latest_release_json()?;
+        build_update_info(&current, &json)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 use std::path::{Path, PathBuf};
@@ -249,6 +278,117 @@ fn download_and_stage_update(dmg_url: &str) -> Result<Option<(PathBuf, PathBuf, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Exercise real curl with bounded local HTTP fixtures, without modifying
+    // the process environment or consuming GitHub's unauthenticated quota.
+    fn release_server(
+        responses: Vec<(&'static str, u16, &'static str)>,
+    ) -> (String, std::thread::JoinHandle<()>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let thread = std::thread::spawn(move || {
+            for (path, status, body) in responses {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(
+                                std::time::Instant::now() < deadline,
+                                "missing request for {path}"
+                            );
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                        Err(error) => panic!("accept failed: {error}"),
+                    }
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    assert_eq!(stream.read(&mut byte).unwrap(), 1);
+                    request.push(byte[0]);
+                    assert!(request.len() < 8192);
+                }
+                assert!(
+                    String::from_utf8(request)
+                        .unwrap()
+                        .starts_with(&format!("GET {path} HTTP/"))
+                );
+                write!(stream, "HTTP/1.1 {status} Response\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+        });
+        (base, thread)
+    }
+
+    #[test]
+    fn public_manifest_checks_updates_without_calling_the_rate_limited_api() {
+        let (base, server) = release_server(vec![("/latest.json", 200, SAMPLE_RELEASE)]);
+        let json = fetch_latest_release_json_from(
+            &format!("{base}/latest.json"),
+            &format!("{base}/rate-limited-api"),
+        )
+        .unwrap();
+        server.join().unwrap();
+        let info = build_update_info("0.260528.2", &json).unwrap();
+        assert!(info.available);
+        assert_eq!(info.latest_version, "0.260601.0");
+        assert_eq!(
+            info.dmg_url.as_deref(),
+            Some("https://example.com/Markdowner_0.260601.0_universal.dmg")
+        );
+    }
+
+    #[test]
+    fn legacy_release_without_manifest_uses_the_api() {
+        let (base, server) = release_server(vec![
+            ("/latest.json", 404, "missing"),
+            ("/api", 200, SAMPLE_RELEASE),
+        ]);
+        let json =
+            fetch_latest_release_json_from(&format!("{base}/latest.json"), &format!("{base}/api"))
+                .unwrap();
+        server.join().unwrap();
+        let info = build_update_info("0.260601.0", &json).unwrap();
+        assert!(!info.available);
+        assert_eq!(info.notes, "Release notes here");
+    }
+
+    #[test]
+    fn failed_sources_return_the_http_errors_instead_of_a_latest_result() {
+        let (base, server) = release_server(vec![
+            ("/latest.json", 404, "missing"),
+            ("/api", 403, "rate limit exceeded"),
+        ]);
+        let error =
+            fetch_latest_release_json_from(&format!("{base}/latest.json"), &format!("{base}/api"))
+                .unwrap_err();
+        server.join().unwrap();
+        assert!(error.contains("404"), "{error}");
+        assert!(error.contains("403"), "{error}");
+    }
+
+    #[test]
+    #[ignore = "requires network access to the published GitHub release"]
+    fn live_latest_release_can_be_checked_without_github_login() {
+        let json = fetch_latest_release_json().expect("public update check should succeed");
+        let info = build_update_info(env!("CARGO_PKG_VERSION"), &json).unwrap();
+        assert!(parse_version(&info.latest_version).is_some());
+        assert!(
+            info.release_url
+                .starts_with("https://github.com/channprj/markdowner/releases/tag/")
+        );
+        assert!(
+            info.dmg_url
+                .as_deref()
+                .is_some_and(|url| url.ends_with("_universal.dmg"))
+        );
+    }
 
     #[test]
     fn newer_patch_minor_and_major_are_detected() {
