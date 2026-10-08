@@ -11,7 +11,7 @@ import { StrictMode } from 'react';
 import { Editor as TiptapEditor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AppSnapshot, EditorMode } from './lib/desktop';
 import { subscribeEditorEvent } from './lib/editorEvents';
@@ -831,6 +831,12 @@ function createMockSourceEditorView(anchor: number, head: number) {
 }
 
 describe('App recent documents', () => {
+  beforeAll(async () => {
+    // Loading the large App module graph is suite setup; keep it outside
+    // the individual UI interaction deadlines and avoid late timed-out renders.
+    await import('./App');
+  }, 60_000);
+
   afterEach(() => {
     cleanup();
   });
