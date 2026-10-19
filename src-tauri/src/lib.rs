@@ -321,7 +321,7 @@ pub struct DesktopBackend {
     document_version: DocumentVersion,
 }
 
-#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DocumentVersion {
     /// Activation generation, including untitled documents and reopen/reload.
     id: u64,
@@ -406,6 +406,26 @@ impl DesktopBackend {
             .map_err(|error| error.to_string())?;
         self.activate_document();
         Ok(self.snapshot())
+    }
+
+    /// Restoring a session must not steal activation from a newer native or UI open.
+    pub fn activate_startup_document(
+        &mut self,
+        path: Option<&Path>,
+        expected_version: Option<DocumentVersion>,
+    ) -> Result<Option<AppSnapshot>, String> {
+        let current_version = self
+            .runtime
+            .workspace()
+            .active_document()
+            .map(|_| self.document_version);
+        if current_version != expected_version {
+            return Ok(None);
+        }
+        match path {
+            Some(path) => self.open_document(path).map(Some),
+            None => self.new_document().map(Some),
+        }
     }
 
     pub fn open_workspace(&mut self, path: &Path) -> Result<AppSnapshot, String> {
@@ -1649,6 +1669,19 @@ fn open_document(
 }
 
 #[tauri::command]
+fn activate_startup_document(
+    window: WebviewWindow,
+    path: Option<String>,
+    expected_version: Option<DocumentVersion>,
+    state: State<'_, DesktopAppState>,
+    app_handle: AppHandle,
+) -> Result<Option<AppSnapshot>, String> {
+    with_backend_and_menu(state, window, app_handle, |backend| {
+        backend.activate_startup_document(path.as_deref().map(Path::new), expected_version)
+    })
+}
+
+#[tauri::command]
 fn open_workspace(
     window: WebviewWindow,
     path: String,
@@ -2351,6 +2384,7 @@ pub fn run() {
             new_window,
             close_window_session,
             open_document,
+            activate_startup_document,
             open_workspace,
             open_workspace_document,
             replace_active_document_source,
@@ -3295,6 +3329,72 @@ mod tests {
 
         let disk_source = backend.active_document_disk_source().unwrap();
         assert_eq!(disk_source, "# External update\n");
+    }
+
+    #[test]
+    fn startup_activation_cannot_replace_a_newer_open_or_edit() {
+        let temp = tempdir().unwrap();
+        let previous = temp.path().join("previous.md");
+        let live = temp.path().join("live.md");
+        fs::write(&previous, "previous").unwrap();
+        fs::write(&live, "live").unwrap();
+        let mut backend = DesktopBackend::new(None);
+        let opened = backend.open_document(&live).unwrap();
+        assert!(
+            backend
+                .activate_startup_document(Some(&previous), None)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            backend
+                .activate_startup_document(None, None)
+                .unwrap()
+                .is_none()
+        );
+        let expected = opened.active_document_version;
+        backend
+            .mutate_document(
+                crate::DocumentVersion {
+                    id: expected.unwrap().id,
+                    revision: 1,
+                },
+                |backend| backend.replace_active_document_source("live typing"),
+            )
+            .unwrap();
+        assert!(
+            backend
+                .activate_startup_document(Some(&previous), expected)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            backend.snapshot().active_document_source.as_deref(),
+            Some("live typing")
+        );
+        assert_eq!(
+            backend.snapshot().active_document_path.as_deref(),
+            Some(live.to_str().unwrap())
+        );
+    }
+
+    #[test]
+    fn startup_activation_opens_a_document_only_from_its_captured_state() {
+        let temp = tempdir().unwrap();
+        let previous = temp.path().join("previous.md");
+        fs::write(&previous, "previous").unwrap();
+        let mut backend = DesktopBackend::new(None);
+        let opened = backend
+            .activate_startup_document(Some(&previous), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(opened.active_document_source.as_deref(), Some("previous"));
+        let untitled = backend
+            .activate_startup_document(None, opened.active_document_version)
+            .unwrap()
+            .unwrap();
+        assert!(untitled.active_document_path.is_none());
+        assert_eq!(untitled.active_document_source.as_deref(), Some(""));
     }
 
     #[test]

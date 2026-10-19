@@ -100,6 +100,14 @@ export async function openDocument(path: string) {
   return invoke<AppSnapshot>('open_document', { path });
 }
 
+/** Startup restoration may activate a document only while its original backend state is current. */
+export async function activateStartupDocument(path: string | null, expected: AppSnapshot) {
+  return invoke<AppSnapshot | null>('activate_startup_document', {
+    path,
+    expectedVersion: expected.activeDocumentSource === null ? null : expected.activeDocumentVersion,
+  });
+}
+
 export async function openWorkspace(path: string) {
   return invoke<AppSnapshot>('open_workspace', { path });
 }

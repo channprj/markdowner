@@ -85,7 +85,8 @@ export async function openSelectedDocumentTabs(
       findDocumentTabByPath(input.currentTabs, path) ??
       additions.find((tab) => tab.path === path);
     if (existing) {
-      lastActiveId = existing.id;
+      // Once a path is opened, keep its tab paired with the backend snapshot.
+      if (additions.length === 0) lastActiveId = existing.id;
       continue;
     }
 

@@ -87,6 +87,72 @@ describe('openSelectedDocumentTabs', () => {
     expect(result.additions).toHaveLength(1);
   });
 
+  it.each([
+    {
+      selection: 'an existing path after a new path',
+      paths: ['/tmp/a.md', '/tmp/open.md'],
+      activeTabId: 'tab-a',
+      activePath: '/tmp/a.md',
+      additionCount: 1,
+    },
+    {
+      selection: 'a duplicate of an earlier new path',
+      paths: ['/tmp/a.md', '/tmp/b.md', '/tmp/a.md'],
+      activeTabId: 'tab-b',
+      activePath: '/tmp/b.md',
+      additionCount: 2,
+    },
+  ])('keeps the active tab and source aligned for $selection', async ({
+    paths, activeTabId, activePath, additionCount,
+  }) => {
+    const currentTabs = [createDocumentTab({
+      id: 'existing',
+      path: '/tmp/open.md',
+      source: '# Existing source',
+      draft: '# Existing unsaved draft',
+    })];
+    const ids = ['tab-a', 'tab-b'];
+    const result = await openSelectedDocumentTabs({
+      paths,
+      currentTabs,
+      openPath: async (path) => snapshotFor(path),
+      createTabId: () => ids.shift() ?? 'extra-tab',
+    });
+
+    const transition = resolveOpenSelectedDocumentTabsTransition({ result, currentTabs });
+
+    expect(transition).toMatchObject({
+      kind: 'appendAdditions',
+      activeTabId,
+      snapshot: {
+        activeDocumentPath: activePath,
+        activeDocumentSource: `# ${activePath}`,
+      },
+    });
+    if (transition.kind !== 'appendAdditions') throw new Error('expected additions');
+    expect(transition.tabs).toHaveLength(1 + additionCount);
+    expect(transition.tabs[0]).toEqual(currentTabs[0]);
+    expect(transition.tabs.find((tab) => tab.id === activeTabId)?.path).toBe(activePath);
+  });
+
+  it('activates the last selected existing tab when no new paths are opened', async () => {
+    const currentTabs = [
+      createDocumentTab({ id: 'tab-a', path: '/tmp/a.md' }),
+      createDocumentTab({ id: 'tab-b', path: '/tmp/b.md' }),
+    ];
+    const result = await openSelectedDocumentTabs({
+      paths: ['/tmp/a.md', '/tmp/b.md', '/tmp/a.md'],
+      currentTabs,
+      openPath: async () => { throw new Error('existing tabs must not be reopened'); },
+      createTabId: () => { throw new Error('existing tabs must not be duplicated'); },
+    });
+
+    expect(resolveOpenSelectedDocumentTabsTransition({ result, currentTabs })).toEqual({
+      kind: 'switchExisting',
+      activeTabId: 'tab-a',
+    });
+  });
+
   it('falls back to the requested path when the snapshot has partial document metadata', async () => {
     const openPath = vi.fn(async () => ({
       ...snapshotFor('/tmp/requested.md'),

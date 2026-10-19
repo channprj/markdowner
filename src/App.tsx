@@ -135,6 +135,7 @@ import {
   newDocument,
   newWindow,
   openDocument,
+  activateStartupDocument,
   openWorkspace,
   openWorkspaceDocument,
   openExternalUrl,
@@ -691,7 +692,8 @@ export default function App() {
   const externalRefreshRequests = useLatestRequestTracker();
   const externalConflictPathsRef = useRef(new Set<string>());
   const dismissedAiRequestIdsRef = useRef(new Set<string>());
-  const externalRefreshInFlightRef = useRef(false);
+  const externalRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const draftMirrorInFlightRef = useRef<Promise<void> | null>(null);
   const busyDepthRef = useRef(0);
   const liveRegionTimerRef = useRef<number | null>(null);
   const lastAnnouncedModeRef = useRef<EditorMode | null>(null);
@@ -2760,6 +2762,43 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const startupToken = editorOpRequests.current();
+    const startupWasSuperseded = () => isEditorOpStale(startupToken);
+    let startupBackendSnapshot: AppSnapshot;
+    let activationWasSuperseded = false;
+    const activateRestoredDocument = async (path: string | null) => {
+      if (cancelled || startupWasSuperseded()) {
+        activationWasSuperseded = true;
+        throw new Error('Startup document activation was superseded');
+      }
+      const activated = await activateStartupDocument(path, startupBackendSnapshot);
+      if (!activated) {
+        activationWasSuperseded = true;
+        throw new Error('Startup document activation was superseded');
+      }
+      startupBackendSnapshot = activated;
+      return activated;
+    };
+    const finishBackgroundRestore = async (restoredTabs: DocumentTab[]) => {
+      if (cancelled) return;
+      // A native open can win the backend guard before its event reaches the webview.
+      if (activationWasSuperseded && !startupWasSuperseded()) {
+        const current = await bootstrap();
+        if (cancelled) return;
+        if (!startupWasSuperseded()) await handleExternalSnapshot(current);
+      }
+      if (cancelled) return;
+      const { mergedTabs } = mergeRestoredDocumentTabs({
+        currentTabs: tabsRef.current,
+        restoredTabs,
+        currentActiveId: activeTabIdRef.current,
+        activePath: null,
+      });
+      startTransition(() => {
+        setTabs(mergedTabs);
+        setStartupTabsReady(true);
+      });
+    };
 
     void loadSkillTokenNames().then((names) => {
       if (!cancelled) {
@@ -2779,6 +2818,7 @@ export default function App() {
         });
 
         let next = await bootstrap();
+        startupBackendSnapshot = next;
         if (cancelled) {
           return;
         }
@@ -2812,9 +2852,21 @@ export default function App() {
           }
         }
 
+        startupBackendSnapshot = next;
         if (shouldCreateInitialDocument) {
-          const freshDocument = await newDocument();
+          let freshDocument: AppSnapshot;
+          try {
+            freshDocument = await activateRestoredDocument(null);
+          } catch (error) {
+            if (!activationWasSuperseded) throw error;
+            await finishBackgroundRestore([]);
+            return;
+          }
           if (cancelled) {
+            return;
+          }
+          if (startupWasSuperseded()) {
+            await finishBackgroundRestore([]);
             return;
           }
           applySnapshot(freshDocument);
@@ -2855,6 +2907,18 @@ export default function App() {
             (entry) => entry.path !== next.activeDocumentPath,
           ));
           if (cancelled) return;
+          if (startupWasSuperseded()) {
+            const startupTabs = applyDraftBackupsToRestoredTabs({
+              tabs: [createDocumentTab({
+                id: generateDocumentTabId(), path: next.activeDocumentPath,
+                name: next.activeDocumentName, source: next.activeDocumentSource,
+              }), ...recovered],
+              entries: draftBackups,
+              createTabId: generateDocumentTabId,
+            }).tabs;
+            await finishBackgroundRestore(startupTabs);
+            return;
+          }
           applySnapshot(next);
           upsertActiveTabFromSnapshot(next, {
             markStartupTabsReady: false,
@@ -2883,7 +2947,7 @@ export default function App() {
           });
           return;
         }
-        applySnapshot(next);
+        if (!startupWasSuperseded()) applySnapshot(next);
 
         try {
           const draftBackups = await loadDraftBackups();
@@ -2910,7 +2974,17 @@ export default function App() {
           cursorByPathRef.current = cursorPositionsMapFromOpenTabsPayload(persistedTabs);
           const restoreResult = await restorePersistedDocumentTabs({
             paths: persistedTabs.openTabs,
-            openPath: openDocument,
+            // Restoring inactive tabs must not change the backend's active document.
+            openPath: async (path) => {
+              const files = await readTextFiles([path]);
+              const file = files.find((entry) => entry.path === path);
+              if (!file) throw new Error('The restored document is unavailable');
+              return {
+                activeDocumentPath: path,
+                activeDocumentName: displayFileName(path),
+                activeDocumentSource: file.contents.replace(/\r\n/g, '\n'),
+              };
+            },
             createTabId: generateDocumentTabId,
             displayNameForPath: displayFileName,
             shouldAbort: () => cancelled,
@@ -2923,6 +2997,10 @@ export default function App() {
             entries: draftBackups,
             createTabId: generateDocumentTabId,
           }).tabs;
+          if (startupWasSuperseded()) {
+            await finishBackgroundRestore(restored);
+            return;
+          }
           const activePath = persistedTabs.activeTabPath;
           const restoredMerge = mergeRestoredDocumentTabs({
             currentTabs: tabsRef.current,
@@ -2947,10 +3025,14 @@ export default function App() {
           const activeHydration = await hydrateRestoredActiveDocumentTab({
             tabs: mergedTabs,
             activeTab: nextActiveTab,
-            openPath: openDocument,
+            openPath: activateRestoredDocument,
             shouldAbort: () => cancelled,
           });
           if (activeHydration.kind === 'aborted' || cancelled) return;
+          if (activationWasSuperseded || startupWasSuperseded()) {
+            await finishBackgroundRestore(restored);
+            return;
+          }
           mergedTabs = activeHydration.tabs;
           let hydratedActiveTab = activeHydration.activeTab;
           let nextSnapshot = activeHydration.snapshot;
@@ -2970,8 +3052,16 @@ export default function App() {
             mergedTabs = mergedTabs.map((tab) => tab.id === recoveredTab.id ? recoveredTab : tab);
           }
           if (hydratedActiveTab?.kind === 'document' && !hydratedActiveTab.path) {
-            nextSnapshot = await newDocument();
+            try {
+              nextSnapshot = await activateRestoredDocument(null);
+            } catch (error) {
+              if (!activationWasSuperseded) throw error;
+            }
             if (cancelled) return;
+            if (activationWasSuperseded || startupWasSuperseded()) {
+              await finishBackgroundRestore(restored);
+              return;
+            }
             nextLocalDraft = hydratedActiveTab.draft;
           } else if (hydratedActiveTab && hydratedActiveTab.draft !== hydratedActiveTab.source) {
             nextLocalDraft = hydratedActiveTab.draft;
@@ -3259,6 +3349,9 @@ export default function App() {
   }, [snapshot.rootDir]);
 
   useEffect(() => {
+    // Explicit document operations own the buffer until their native response
+    // is reconciled. A mirror sent meanwhile can invalidate a reload's source.
+    if (busyDepthRef.current > 0) return;
     const plan = resolveDraftMirrorSyncPlan({
       activeDocumentSource: snapshot.activeDocumentSource,
       activeDocumentPath: snapshot.activeDocumentPath,
@@ -3273,7 +3366,8 @@ export default function App() {
         localDraftRef.current !== plan.draft ||
         snapshotRef.current.activeDocumentVersion?.id !== snapshot.activeDocumentVersion?.id
       ) return;
-      replaceActiveDocumentSource(plan.draft, snapshot)
+      if (busyDepthRef.current > 0) return;
+      const request = replaceActiveDocumentSource(plan.draft, snapshot)
         .then((next) => {
           startTransition(() => {
             setSnapshot((current) => {
@@ -3293,13 +3387,17 @@ export default function App() {
             }
           });
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          if (draftMirrorInFlightRef.current === request) draftMirrorInFlightRef.current = null;
+        });
+      draftMirrorInFlightRef.current = request;
     }, 180);
 
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [localDraft, snapshot.activeDocumentPath, snapshot.activeDocumentSource, snapshot.activeDocumentVersion?.id, snapshot.mode]);
+  }, [busy, localDraft, snapshot.activeDocumentPath, snapshot.activeDocumentSource, snapshot.activeDocumentVersion?.id, snapshot.mode]);
 
   useWysiwygContentSync({
     editor, localDraft, activeTabId, sync: wysiwygDraftSync,
@@ -4535,60 +4633,84 @@ export default function App() {
     }
   });
 
-  const handleReloadActiveDocument = async () => {
-    const currentSnapshot = snapshotRef.current;
-    const path = currentSnapshot.activeDocumentPath;
-    const activeTabId = activeTabIdRef.current;
-    if (currentSnapshot.activeDocumentSource === null || !path || !activeTabId) {
-      return;
-    }
+  const preserveDraftAfterCommittedReload = (
+    next: AppSnapshot,
+    previous: AppSnapshot,
+    tabId: string,
+  ) => {
+    const current = snapshotRef.current;
+    if (activeTabIdRef.current !== tabId ||
+        current.activeDocumentPath !== previous.activeDocumentPath ||
+        current.activeDocumentVersion?.id !== previous.activeDocumentVersion?.id) return false;
+    applySnapshot({ ...next, mode: current.mode }, true);
+    return true;
+  };
 
-    const expectedSource = currentSnapshot.activeDocumentSource;
+  const handleReloadActiveDocument = async () => {
+    flushWysiwygDraftNow();
+    const requestedSnapshot = snapshotRef.current;
+    const path = requestedSnapshot.activeDocumentPath;
+    const activeTabId = activeTabIdRef.current;
+    if (requestedSnapshot.activeDocumentSource === null || !path || !activeTabId) return;
+
+    const intent = editorOpRequests.current();
     const draftAtRequestStart = localDraftRef.current;
-    const token = nextEditorOpRequest();
     await withBusy(async () => {
+      // A refresh or an already-sent mirror may have changed the native buffer
+      // before its response reaches React. Settle both, then inspect live state.
+      // Do not invalidate the refresh token before it can reconcile its result.
+      await externalRefreshInFlightRef.current;
+      await draftMirrorInFlightRef.current;
+      if (isEditorOpStale(intent) || activeTabIdRef.current !== activeTabId ||
+          snapshotRef.current.activeDocumentPath !== path) return;
+      flushWysiwygDraftNow();
+      if (localDraftRef.current !== draftAtRequestStart) {
+        externalConflictPathsRef.current.add(path);
+        applyExternalChangeState(externalChangeDetectedState(requestedSnapshot.activeDocumentName));
+        return;
+      }
+
+      const currentSnapshot = snapshotRef.current;
+      const token = nextEditorOpRequest();
       let next: AppSnapshot;
       try {
         next = await reloadActiveDocumentFromDisk({
           path,
-          expectedSource,
+          expectedSource: currentSnapshot.activeDocumentSource ?? '',
           expectedDirty: currentSnapshot.activeDocumentDirty,
         });
       } catch (error) {
         if (isEditorOpStale(token)) return;
         if (isReloadDocumentPreconditionError(error)) {
           externalConflictPathsRef.current.add(path);
-          applyExternalChangeState(
-            externalChangeDetectedState(currentSnapshot.activeDocumentName),
-          );
+          applyExternalChangeState(externalChangeDetectedState(currentSnapshot.activeDocumentName));
           return;
         }
         throw error;
       }
-      if (
-        isEditorOpStale(token) ||
-        activeTabIdRef.current !== activeTabId ||
-        localDraftRef.current !== draftAtRequestStart
-      ) {
-        if (!isEditorOpStale(token) && activeTabIdRef.current === activeTabId) {
+      if (isEditorOpStale(token) || activeTabIdRef.current !== activeTabId) {
+        if (preserveDraftAfterCommittedReload(next, currentSnapshot, activeTabId)) {
           externalConflictPathsRef.current.add(path);
-          applyExternalChangeState(
-            externalChangeDetectedState(currentSnapshot.activeDocumentName),
-          );
+          applyExternalChangeState(externalChangeDetectedState(currentSnapshot.activeDocumentName));
         }
         return;
       }
-      if (next.activeDocumentPath) {
-        externalConflictPathsRef.current.delete(next.activeDocumentPath);
+      // A WYSIWYG update can still be inside its debounce window. Flush before
+      // comparing so a keystroke made during the read is never discarded.
+      flushWysiwygDraftNow();
+      next = { ...next, mode: snapshotRef.current.mode };
+      if (localDraftRef.current !== draftAtRequestStart) {
+        // Reload already committed in Rust. Adopt its version/source while
+        // retaining the live draft and tab baseline, so future operations target
+        // the actual native activation instead of failing permanently.
+        applySnapshot(next, true);
+        externalConflictPathsRef.current.add(path);
+        applyExternalChangeState(externalChangeDetectedState(currentSnapshot.activeDocumentName));
+        return;
       }
+      externalConflictPathsRef.current.delete(path);
       applySnapshot(next);
-      setTabs((prev) =>
-        refreshActiveDocumentTabFromSnapshot({
-          tabs: prev,
-          activeTabId,
-          snapshot: next,
-        }),
-      );
+      setTabs((prev) => refreshActiveDocumentTabFromSnapshot({ tabs: prev, activeTabId, snapshot: next }));
     });
   };
 
@@ -4607,7 +4729,7 @@ export default function App() {
         Boolean(editorInstanceRef.current?.view?.composing) ||
         wysiwygCompositionFlushTimerRef.current !== null);
     if (
-      busy ||
+      busyDepthRef.current > 0 ||
       externalRefreshInFlightRef.current ||
       wysiwygDraftPending() ||
       currentSnapshot.activeDocumentSource === null ||
@@ -4625,9 +4747,9 @@ export default function App() {
     }
 
     const editorOperationToken = editorOpRequests.current();
+    const expectedSource = currentSnapshot.activeDocumentSource;
     const draftAtRequestStart = localDraftRef.current;
     const requestId = externalRefreshRequests.begin();
-    externalRefreshInFlightRef.current = true;
     const isCurrentRefresh = () =>
       !externalRefreshRequests.isStale(requestId) &&
       !isEditorOpStale(editorOperationToken) &&
@@ -4638,77 +4760,90 @@ export default function App() {
       applyExternalChangeState(externalChangeDetectedState(currentSnapshot.activeDocumentName));
     };
 
+    const refresh = (async () => {
+      try {
+        const changed = await hasActiveDocumentExternalChanges();
+        if (!isCurrentRefresh() || !changed) {
+          return;
+        }
+
+        const currentTab = tabsRef.current.find((tab) => tab.id === activeTabId);
+        if (
+          !currentTab ||
+          currentTab.kind !== 'document' ||
+          currentSnapshot.activeDocumentDirty ||
+          wysiwygDraftPending() ||
+          localDraftRef.current !== draftAtRequestStart ||
+          isDocumentTabDirty(currentTab, {
+            activeTabId,
+            localDraft: localDraftRef.current,
+          })
+        ) {
+          showExternalConflict();
+          return;
+        }
+
+        const next = await reloadActiveDocumentFromDisk({
+          path: activePath,
+          expectedSource,
+          expectedDirty: currentSnapshot.activeDocumentDirty,
+        });
+        if (!isCurrentRefresh()) {
+          // Even a superseded response represents a committed native reload.
+          // If no new document activation reached the UI, keep its version so
+          // a following Save/Reload can still address the native buffer.
+          if (preserveDraftAfterCommittedReload(next, currentSnapshot, activeTabId)) {
+            showExternalConflict();
+          }
+          return;
+        }
+
+        const refreshedTab = tabsRef.current.find((tab) => tab.id === activeTabId);
+        if (
+          !refreshedTab ||
+          refreshedTab.kind !== 'document' ||
+          wysiwygDraftPending() ||
+          localDraftRef.current !== draftAtRequestStart ||
+          isDocumentTabDirty(refreshedTab, {
+            activeTabId,
+            localDraft: localDraftRef.current,
+          })
+        ) {
+          applySnapshot({ ...next, mode: snapshotRef.current.mode }, true);
+          showExternalConflict();
+          return;
+        }
+
+        externalConflictPathsRef.current.delete(activePath);
+        applySnapshot({ ...next, mode: snapshotRef.current.mode });
+        setTabs((prev) =>
+          refreshActiveDocumentTabFromSnapshot({
+            tabs: prev,
+            activeTabId,
+            snapshot: next,
+          }),
+        );
+      } catch (error) {
+        if (!isCurrentRefresh()) return;
+        if (isReloadDocumentPreconditionError(error)) {
+          // The backend's active document changed under us. In a single window
+          // this is a transient race; with several windows sharing the one
+          // backend it means another window currently owns it. Either way, an
+          // automatic refresh must re-verify on the next tick rather than flag a
+          // sticky (and possibly false) conflict that would suppress it forever.
+          return;
+        }
+        const reason = error instanceof Error ? error.message : String(error);
+        applyExternalChangeState(
+          externalChangeVerificationErrorState(currentSnapshot.activeDocumentName, reason),
+        );
+      }
+    })();
+    externalRefreshInFlightRef.current = refresh;
     try {
-      const changed = await hasActiveDocumentExternalChanges();
-      if (!isCurrentRefresh() || !changed) {
-        return;
-      }
-
-      const currentTab = tabsRef.current.find((tab) => tab.id === activeTabId);
-      if (
-        !currentTab ||
-        currentTab.kind !== 'document' ||
-        currentSnapshot.activeDocumentDirty ||
-        wysiwygDraftPending() ||
-        localDraftRef.current !== draftAtRequestStart ||
-        isDocumentTabDirty(currentTab, {
-          activeTabId,
-          localDraft: localDraftRef.current,
-        })
-      ) {
-        showExternalConflict();
-        return;
-      }
-
-      const next = await reloadActiveDocumentFromDisk({
-        path: activePath,
-        expectedSource: currentSnapshot.activeDocumentSource,
-        expectedDirty: currentSnapshot.activeDocumentDirty,
-      });
-      if (!isCurrentRefresh()) {
-        return;
-      }
-
-      const refreshedTab = tabsRef.current.find((tab) => tab.id === activeTabId);
-      if (
-        !refreshedTab ||
-        refreshedTab.kind !== 'document' ||
-        wysiwygDraftPending() ||
-        localDraftRef.current !== draftAtRequestStart ||
-        isDocumentTabDirty(refreshedTab, {
-          activeTabId,
-          localDraft: localDraftRef.current,
-        })
-      ) {
-        showExternalConflict();
-        return;
-      }
-
-      externalConflictPathsRef.current.delete(activePath);
-      applySnapshot(next);
-      setTabs((prev) =>
-        refreshActiveDocumentTabFromSnapshot({
-          tabs: prev,
-          activeTabId,
-          snapshot: next,
-        }),
-      );
-    } catch (error) {
-      if (!isCurrentRefresh()) return;
-      if (isReloadDocumentPreconditionError(error)) {
-        // The backend's active document changed under us. In a single window
-        // this is a transient race; with several windows sharing the one
-        // backend it means another window currently owns it. Either way, an
-        // automatic refresh must re-verify on the next tick rather than flag a
-        // sticky (and possibly false) conflict that would suppress it forever.
-        return;
-      }
-      const reason = error instanceof Error ? error.message : String(error);
-      applyExternalChangeState(
-        externalChangeVerificationErrorState(currentSnapshot.activeDocumentName, reason),
-      );
+      await refresh;
     } finally {
-      externalRefreshInFlightRef.current = false;
+      if (externalRefreshInFlightRef.current === refresh) externalRefreshInFlightRef.current = null;
     }
   });
 

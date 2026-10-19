@@ -19,6 +19,8 @@ const hasActiveDocumentExternalChangesMock = vi.fn();
 const reloadActiveDocumentFromDiskMock = vi.fn();
 const newDocumentMock = vi.fn();
 const openDocumentMock = vi.fn();
+const activateStartupDocumentMock = vi.fn();
+const readTextFilesMock = vi.fn();
 const openWorkspaceMock = vi.fn();
 const openWorkspaceDocumentMock = vi.fn();
 const replaceActiveDocumentSourceMock = vi.fn();
@@ -55,6 +57,7 @@ vi.mock('./lib/desktop', () => ({
   reloadActiveDocumentFromDisk: reloadActiveDocumentFromDiskMock,
   newDocument: newDocumentMock,
   openDocument: openDocumentMock,
+  activateStartupDocument: activateStartupDocumentMock,
   openWorkspace: openWorkspaceMock,
   openWorkspaceDocument: openWorkspaceDocumentMock,
   replaceActiveDocumentSource: replaceActiveDocumentSourceMock,
@@ -104,7 +107,7 @@ vi.mock('./lib/desktop', () => ({
   localAgentCancel: vi.fn().mockResolvedValue(true),
   openExternalUrl: vi.fn(),
   openExternalUrlInNewWindow: vi.fn(),
-  readTextFiles: vi.fn().mockResolvedValue([]),
+  readTextFiles: readTextFilesMock,
 }));
 
 vi.mock('@/shell/TerminalPanel', () => ({
@@ -280,6 +283,17 @@ describe('App core Markdown editing flow', () => {
     reloadActiveDocumentFromDiskMock.mockReset();
     newDocumentMock.mockReset();
     openDocumentMock.mockReset();
+    activateStartupDocumentMock.mockReset();
+    activateStartupDocumentMock.mockImplementation((path: string | null) =>
+      path === null ? newDocumentMock() : openDocumentMock(path));
+    readTextFilesMock.mockReset();
+    // Existing document fixtures describe disk reads as well as native activation.
+    // Reuse their data without counting a read as an open_document command.
+    readTextFilesMock.mockImplementation(async (paths: string[]) => Promise.all(paths.map(async (path) => {
+      const snapshot = await openDocumentMock.getMockImplementation()?.(path);
+      if (!snapshot || snapshot.activeDocumentSource === null) throw new Error('File unavailable');
+      return { path, contents: snapshot.activeDocumentSource };
+    })));
     openWorkspaceMock.mockReset();
     openWorkspaceDocumentMock.mockReset();
     replaceActiveDocumentSourceMock.mockReset();
@@ -569,6 +583,121 @@ describe('App core Markdown editing flow', () => {
     },
     CORE_FLOW_TIMEOUT_MS,
   );
+
+  it.each(['native', 'dialog'])('keeps a new %s open and its live draft while nonempty startup tabs finish restoring', async (opener) => {
+    let finishRestore!: (value: { openTabs: string[]; activeTabPath: string; cursorPositions: {} }) => void;
+    loadOpenTabsMock.mockReturnValue(new Promise((resolve) => { finishRestore = resolve; }));
+    const restoredPath = '/tmp/previous.md';
+    const livePath = '/tmp/live.md';
+    const liveSnapshot = baseSnapshot({
+      activeDocumentVersion: { id: 2, revision: 0 },
+      activeDocumentPath: livePath, activeDocumentName: 'live.md',
+      activeDocumentSource: '# Live', mode: 'Editor',
+    });
+    loadDraftBackupsMock.mockResolvedValue([
+      { path: restoredPath, untitledId: null, name: 'previous.md', draft: '# Recovered draft' },
+    ]);
+    readTextFilesMock.mockResolvedValue([{ path: restoredPath, contents: '# Previous' }]);
+    openDocumentMock.mockImplementation(async (path: string) => path === livePath ? liveSnapshot : baseSnapshot({
+      activeDocumentVersion: { id: 3, revision: 0 },
+      activeDocumentPath: restoredPath, activeDocumentName: 'previous.md',
+      activeDocumentSource: '# Previous', mode: 'Editor',
+    }));
+    reloadActiveDocumentFromDiskMock.mockResolvedValue(liveSnapshot);
+    // Keep the edit in the live editor while startup completes, before any mirror response.
+    replaceActiveDocumentSourceMock.mockReturnValue(new Promise(() => {}));
+    const { default: App } = await import('./App');
+    render(<App />);
+    await waitFor(() => expect(loadOpenTabsMock).toHaveBeenCalled());
+    if (opener === 'native') {
+      const listener = listenMock.mock.calls.find(([name]) => name === 'markdowner://update-snapshot')![1];
+      act(() => { listener({ payload: liveSnapshot }); });
+    } else {
+      openDialogMock.mockResolvedValue(livePath);
+      fireEvent.click(await screen.findByRole('button', { name: /^open file…$/i }));
+    }
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    await waitFor(() => expect(editor).toHaveValue('# Live'));
+    fireEvent.change(editor, { target: { value: '# Live typing' } });
+    await act(async () => { finishRestore({ openTabs: [restoredPath], activeTabPath: restoredPath, cursorPositions: {} }); });
+    await waitFor(() => expect(saveOpenTabsMock).toHaveBeenCalledWith(expect.objectContaining({
+      openTabs: [livePath, restoredPath], activeTabPath: livePath,
+    })));
+    expect(editor).toHaveValue('# Live typing');
+    expect(screen.getByRole('tab', { name: /live.md/i })).toHaveAttribute('aria-selected', 'true');
+    expect(saveDraftBackupsMock).toHaveBeenLastCalledWith(expect.arrayContaining([
+      expect.objectContaining({ path: restoredPath, draft: '# Recovered draft' }),
+      expect.objectContaining({ path: livePath, draft: '# Live typing' }),
+    ]));
+    expect(openDocumentMock).not.toHaveBeenCalledWith(restoredPath);
+  });
+
+  it('keeps a native file open when an already dispatched startup activation is rejected as stale', async () => {
+    const previousPath = '/tmp/previous.md';
+    const livePath = '/tmp/live.md';
+    loadOpenTabsMock.mockResolvedValue({ openTabs: [previousPath], activeTabPath: previousPath, cursorPositions: {} });
+    readTextFilesMock.mockResolvedValue([{ path: previousPath, contents: '# Previous' }]);
+    let finishActivation!: (snapshot: AppSnapshot | null) => void;
+    activateStartupDocumentMock.mockReturnValue(new Promise((resolve) => { finishActivation = resolve; }));
+    const liveSnapshot = baseSnapshot({
+      activeDocumentVersion: { id: 2, revision: 0 },
+      activeDocumentPath: livePath, activeDocumentName: 'live.md',
+      activeDocumentSource: '# Live', mode: 'Editor',
+    });
+    reloadActiveDocumentFromDiskMock.mockResolvedValue(liveSnapshot);
+    replaceActiveDocumentSourceMock.mockReturnValue(new Promise(() => {}));
+    const { default: App } = await import('./App');
+    render(<App />);
+    await waitFor(() => expect(activateStartupDocumentMock).toHaveBeenCalled());
+    const listener = listenMock.mock.calls.find(([name]) => name === 'markdowner://update-snapshot')![1];
+    act(() => { listener({ payload: liveSnapshot }); });
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    fireEvent.change(editor, { target: { value: '# Still typing' } });
+    await act(async () => { finishActivation(null); });
+    await waitFor(() => expect(saveOpenTabsMock).toHaveBeenCalledWith(expect.objectContaining({
+      openTabs: [livePath, previousPath], activeTabPath: livePath,
+    })));
+    expect(editor).toHaveValue('# Still typing');
+    expect(screen.getByRole('tab', { name: /live.md/i })).toHaveAttribute('aria-selected', 'true');
+    expect(openDocumentMock).not.toHaveBeenCalled();
+  });
+
+  it('preserves a newer native file and recovery drafts while an old bootstrap snapshot waits for backups', async () => {
+    const previousPath = '/tmp/bootstrap.md';
+    const livePath = '/tmp/live.md';
+    bootstrapMock.mockResolvedValue(baseSnapshot({
+      activeDocumentVersion: { id: 1, revision: 0 },
+      activeDocumentPath: previousPath, activeDocumentName: 'bootstrap.md',
+      activeDocumentSource: '# Bootstrap', mode: 'Editor',
+    }));
+    let finishBackups!: (entries: unknown[]) => void;
+    loadDraftBackupsMock.mockReturnValue(new Promise((resolve) => { finishBackups = resolve; }));
+    const liveSnapshot = baseSnapshot({
+      activeDocumentVersion: { id: 2, revision: 0 },
+      activeDocumentPath: livePath, activeDocumentName: 'live.md',
+      activeDocumentSource: '# Live', mode: 'Editor',
+    });
+    reloadActiveDocumentFromDiskMock.mockResolvedValue(liveSnapshot);
+    replaceActiveDocumentSourceMock.mockReturnValue(new Promise(() => {}));
+    const { default: App } = await import('./App');
+    render(<App />);
+    await waitFor(() => expect(loadDraftBackupsMock).toHaveBeenCalled());
+    const listener = listenMock.mock.calls.find(([name]) => name === 'markdowner://update-snapshot')![1];
+    act(() => { listener({ payload: liveSnapshot }); });
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    fireEvent.change(editor, { target: { value: '# New input' } });
+    await act(async () => { finishBackups([
+      { path: previousPath, untitledId: null, name: 'bootstrap.md', draft: '# Recover me' },
+    ]); });
+    await waitFor(() => expect(saveOpenTabsMock).toHaveBeenCalledWith(expect.objectContaining({
+      openTabs: [livePath, previousPath], activeTabPath: livePath,
+    })));
+    expect(editor).toHaveValue('# New input');
+    expect(screen.getByRole('tab', { name: /live.md/i })).toHaveAttribute('aria-selected', 'true');
+    expect(saveDraftBackupsMock).toHaveBeenLastCalledWith(expect.arrayContaining([
+      expect.objectContaining({ path: previousPath, draft: '# Recover me' }),
+    ]));
+  });
 
   it('restores persisted Markdown tabs before saving the open-tab session', async () => {
     const restoredPath = '/tmp/project/restored.md';

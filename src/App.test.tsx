@@ -103,6 +103,7 @@ vi.mock('./lib/desktop', () => ({
   newDocument: newDocumentMock,
   newWindow: newWindowMock,
   openDocument: openDocumentMock,
+  activateStartupDocument: (path: string | null) => path === null ? newDocumentMock() : openDocumentMock(path),
   openWorkspace: openWorkspaceMock,
   openWorkspaceDocument: openWorkspaceDocumentMock,
   replaceActiveDocumentSource: replaceActiveDocumentSourceMock,
@@ -880,7 +881,13 @@ describe('App recent documents', () => {
     openPathInDefaultAppMock.mockReset();
     openPathInDefaultAppMock.mockResolvedValue(undefined);
     readTextFilesMock.mockReset();
-    readTextFilesMock.mockResolvedValue([]);
+    // Existing document fixtures describe disk reads as well as native activation.
+    // Reuse their data without counting a read as an open_document command.
+    readTextFilesMock.mockImplementation(async (paths: string[]) => Promise.all(paths.map(async (path) => {
+      const snapshot = await openDocumentMock.getMockImplementation()?.(path);
+      if (!snapshot || snapshot.activeDocumentSource === null) throw new Error('File unavailable');
+      return { path, contents: snapshot.activeDocumentSource };
+    })));
     readImagesBase64Mock.mockReset();
     readImagesBase64Mock.mockResolvedValue([]);
     exportPdfFileMock.mockReset();
@@ -6375,6 +6382,166 @@ describe('App recent documents', () => {
         ([request]) => request.path === alphaPath,
       ),
     ).toBe(false);
+  });
+
+  it.each(['focus', 'manual'] as const)(
+    'can reload again after a %s reload completes during a local edit',
+    async (trigger) => {
+      let backend = baseSnapshot({
+        activeDocumentVersion: { id: 10, revision: 0 },
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Previous version',
+        mode: 'Editor',
+      });
+      bootstrapMock.mockImplementation(async () => backend);
+      hasActiveDocumentExternalChangesMock.mockResolvedValue(true);
+      let deliverReload: (() => void) | undefined;
+      let firstReload = true;
+      reloadActiveDocumentFromDiskMock.mockImplementation(async (request) => {
+        if (request.expectedSource !== backend.activeDocumentSource ||
+            request.expectedDirty !== backend.activeDocumentDirty) {
+          throw new Error('Could not reload document because it changed before the reload completed');
+        }
+        backend = { ...backend, activeDocumentVersion: { id: backend.activeDocumentVersion!.id + 1, revision: 0 },
+          activeDocumentSource: '# Latest disk version', activeDocumentDirty: false };
+        if (firstReload) {
+          firstReload = false;
+          const result = backend;
+          return new Promise<AppSnapshot>((resolve) => { deliverReload = () => resolve(result); });
+        }
+        return backend;
+      });
+      replaceActiveDocumentSourceMock.mockImplementation(async (source, target) => {
+        if (target.activeDocumentVersion.id !== backend.activeDocumentVersion!.id) {
+          throw new Error('The document changed before this operation completed. Please retry.');
+        }
+        backend = { ...backend, activeDocumentSource: source, activeDocumentDirty: true,
+          activeDocumentVersion: { id: backend.activeDocumentVersion!.id, revision: 1 } };
+        return backend;
+      });
+
+      const { default: App } = await import('./App');
+      render(<App />);
+      const sourceEditor = await screen.findByLabelText('Source editor');
+      if (trigger === 'focus') {
+        await act(async () => { window.dispatchEvent(new Event('focus')); });
+      } else {
+        const menu = await openAppMenu();
+        fireEvent.click(within(menu).getByRole('menuitem', { name: /^save$/i }));
+        fireEvent.click(await screen.findByRole('button', { name: /reload from disk/i }));
+      }
+      await waitFor(() => expect(deliverReload).toBeTypeOf('function'));
+      fireEvent.change(sourceEditor, { target: { value: '# Local edits during reload' } });
+      await act(async () => { deliverReload!(); });
+      expect(sourceEditor).toHaveValue('# Local edits during reload');
+      fireEvent.click(await screen.findByRole('button', { name: /reload from disk/i }));
+      await waitFor(() => expect(sourceEditor).toHaveValue('# Latest disk version'));
+      expect(screen.queryByRole('button', { name: /reload from disk/i })).not.toBeInTheDocument();
+    },
+  );
+
+  it('waits for an automatic reload before starting a requested disk reload', async () => {
+    let backend = baseSnapshot({
+      activeDocumentVersion: { id: 20, revision: 0 },
+      activeDocumentName: 'meeting-notes.md',
+      activeDocumentPath: '/tmp/project/meeting-notes.md',
+      activeDocumentSource: '# Previous version', mode: 'Editor',
+    });
+    bootstrapMock.mockImplementation(async () => backend);
+    hasActiveDocumentExternalChangesMock.mockResolvedValue(true);
+    let deliverReload: (() => void) | undefined;
+    reloadActiveDocumentFromDiskMock.mockImplementation(async (request) => {
+      if (request.expectedSource !== backend.activeDocumentSource) {
+        throw new Error('Could not reload document because it changed before the reload completed');
+      }
+      backend = { ...backend, activeDocumentVersion: { id: backend.activeDocumentVersion!.id + 1, revision: 0 },
+        activeDocumentSource: '# Latest disk version' };
+      const result = backend;
+      if (!deliverReload) {
+        return new Promise<AppSnapshot>((resolve) => { deliverReload = () => resolve(result); });
+      }
+      return result;
+    });
+    const { default: App } = await import('./App');
+    render(<App />);
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await waitFor(() => expect(deliverReload).toBeTypeOf('function'));
+    const menu = await openAppMenu();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /^save$/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /reload from disk/i }));
+    await act(async () => { deliverReload!(); });
+    await waitFor(() => expect(sourceEditor).toHaveValue('# Latest disk version'));
+    expect(screen.queryByRole('button', { name: /reload from disk/i })).not.toBeInTheDocument();
+  });
+
+  it('waits for a pending draft mirror before inspecting the reload precondition', async () => {
+    let backend = baseSnapshot({ activeDocumentVersion: { id: 30, revision: 0 },
+      activeDocumentName: 'meeting-notes.md', activeDocumentPath: '/tmp/project/meeting-notes.md',
+      activeDocumentSource: '# Previous version', mode: 'Editor' });
+    bootstrapMock.mockImplementation(async () => backend);
+    hasActiveDocumentExternalChangesMock.mockResolvedValue(true);
+    let deliverMirror: (() => void) | undefined;
+    replaceActiveDocumentSourceMock.mockImplementation(async (source) => {
+      backend = { ...backend, activeDocumentSource: source, activeDocumentDirty: true,
+        activeDocumentVersion: { id: 30, revision: 1 } };
+      const result = backend;
+      return new Promise<AppSnapshot>((resolve) => { deliverMirror = () => resolve(result); });
+    });
+    reloadActiveDocumentFromDiskMock.mockImplementation(async (request) => {
+      if (request.expectedSource !== backend.activeDocumentSource || request.expectedDirty !== backend.activeDocumentDirty) {
+        throw new Error('Could not reload document because it changed before the reload completed');
+      }
+      backend = { ...backend, activeDocumentVersion: { id: 31, revision: 0 },
+        activeDocumentSource: '# Latest disk version', activeDocumentDirty: false };
+      return backend;
+    });
+    const { default: App } = await import('./App');
+    render(<App />);
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    fireEvent.change(sourceEditor, { target: { value: '# Local edits' } });
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    const reload = await screen.findByRole('button', { name: /reload from disk/i });
+    await waitFor(() => expect(deliverMirror).toBeTypeOf('function'));
+    fireEvent.click(reload);
+    await act(async () => { deliverMirror!(); });
+    await waitFor(() => expect(sourceEditor).toHaveValue('# Latest disk version'));
+  });
+
+  it('keeps a WYSIWYG edit made during a manual reload and allows another reload', async () => {
+    const editor = createMockTiptapEditor('# Previous version', [{ text: '# Previous version', from: 1 }]);
+    tiptapMockState.editor = editor;
+    let backend = baseSnapshot({ activeDocumentVersion: { id: 40, revision: 0 },
+      activeDocumentName: 'meeting-notes.md', activeDocumentPath: '/tmp/project/meeting-notes.md',
+      activeDocumentSource: '# Previous version', mode: 'Wysiwyg' });
+    bootstrapMock.mockImplementation(async () => backend);
+    hasActiveDocumentExternalChangesMock.mockResolvedValue(true);
+    let deliverReload: (() => void) | undefined;
+    reloadActiveDocumentFromDiskMock.mockImplementation(async (request) => {
+      if (request.expectedSource !== backend.activeDocumentSource) {
+        throw new Error('Could not reload document because it changed before the reload completed');
+      }
+      backend = { ...backend, activeDocumentVersion: { id: backend.activeDocumentVersion!.id + 1, revision: 0 },
+        activeDocumentSource: '# Latest disk version', activeDocumentDirty: false };
+      const result = backend;
+      if (!deliverReload) return new Promise<AppSnapshot>((resolve) => { deliverReload = () => resolve(result); });
+      return result;
+    });
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByTestId('mock-tiptap-editor');
+    const menu = await openAppMenu();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /^save$/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /reload from disk/i }));
+    await waitFor(() => expect(deliverReload).toBeTypeOf('function'));
+    editor.commands.setContent.mockClear();
+    editor.getMarkdown.mockReturnValue('# Typed during reload');
+    act(() => { tiptapMockState.lastOptions.onUpdate({ editor }); });
+    await act(async () => { deliverReload!(); });
+    expect(editor.commands.setContent).not.toHaveBeenCalledWith('# Latest disk version', expect.anything());
+    fireEvent.click(await screen.findByRole('button', { name: /reload from disk/i }));
+    await waitFor(() => expect(editor.commands.setContent).toHaveBeenCalledWith('# Latest disk version', expect.anything()));
   });
 
   it('keeps an edit made while a focus reload is in flight', async () => {
