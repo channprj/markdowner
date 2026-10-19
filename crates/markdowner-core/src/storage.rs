@@ -287,6 +287,28 @@ pub(crate) fn read_stylesheet_source(path: &Path) -> Result<String, RuntimeError
 }
 
 pub(crate) fn write_document_source(path: &Path, source: &str) -> Result<(), RuntimeError> {
+    // Reads follow symlinks, but rename replaces the link itself. Resolve an
+    // existing link before staging so the same document receives the atomic
+    // write. A dangling link must remain intact and report a failed save.
+    let resolved_target = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Some(fs::canonicalize(path).map_err(|error| {
+                RuntimeError::new(format!(
+                    "Could not resolve markdown file '{}': {error}",
+                    path.display()
+                ))
+            })?)
+        }
+        Ok(_) => None,
+        Err(error) if error.kind() == ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(RuntimeError::new(format!(
+                "Could not inspect markdown file '{}': {error}",
+                path.display()
+            )));
+        }
+    };
+    let path = resolved_target.as_deref().unwrap_or(path);
     let parent = document_parent_directory(path);
     fs::create_dir_all(parent).map_err(|error| {
         RuntimeError::new(format!(

@@ -367,6 +367,105 @@ fn runtime_loads_markdown_contents_and_saves_active_document() {
 
 #[cfg(unix)]
 #[test]
+fn runtime_save_through_symlink_updates_target_atomically_and_preserves_links() {
+    let temp = tempdir().unwrap();
+    let target = temp.path().join("original.md");
+    let links = temp.path().join("links");
+    fs::create_dir(&links).unwrap();
+    let first_link = links.join("first.md");
+    let opened_link = links.join("opened.md");
+    fs::write(&target, "original\n").unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o640)).unwrap();
+    let original_inode = fs::metadata(&target).unwrap().ino();
+    std::os::unix::fs::symlink("../original.md", &first_link).unwrap();
+    std::os::unix::fs::symlink("first.md", &opened_link).unwrap();
+    let mut runtime = EditorRuntime::default();
+    runtime.open_document(&opened_link).unwrap();
+    runtime.replace_active_document_source("edited\n").unwrap();
+
+    runtime.save_active_document().unwrap();
+
+    assert_eq!(fs::read_to_string(&target).unwrap(), "edited\n");
+    assert_eq!(fs::read_to_string(&opened_link).unwrap(), "edited\n");
+    assert_eq!(
+        fs::read_link(&opened_link).unwrap(),
+        PathBuf::from("first.md")
+    );
+    assert_eq!(
+        fs::read_link(&first_link).unwrap(),
+        PathBuf::from("../original.md")
+    );
+    assert_ne!(fs::metadata(&target).unwrap().ino(), original_inode);
+    assert_eq!(
+        fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+    assert_eq!(
+        runtime.workspace().active_document_path(),
+        Some(opened_link.as_path())
+    );
+    assert!(!runtime.workspace().active_document().unwrap().is_dirty());
+}
+
+#[cfg(unix)]
+#[test]
+fn runtime_save_as_through_existing_symlink_updates_its_target() {
+    let temp = tempdir().unwrap();
+    let original = temp.path().join("original.md");
+    let destination = temp.path().join("destination.md");
+    let link = temp.path().join("destination-link.md");
+    fs::write(&original, "original\n").unwrap();
+    fs::write(&destination, "previous destination\n").unwrap();
+    std::os::unix::fs::symlink(&destination, &link).unwrap();
+    let mut runtime = EditorRuntime::default();
+    runtime.open_document(&original).unwrap();
+    runtime
+        .replace_active_document_source("saved copy\n")
+        .unwrap();
+
+    runtime.save_active_document_as(&link).unwrap();
+
+    assert_eq!(fs::read_to_string(&original).unwrap(), "original\n");
+    assert_eq!(fs::read_to_string(&destination).unwrap(), "saved copy\n");
+    assert_eq!(fs::read_link(&link).unwrap(), destination);
+    assert_eq!(
+        runtime.workspace().active_document_path(),
+        Some(link.as_path())
+    );
+    assert!(!runtime.workspace().active_document().unwrap().is_dirty());
+}
+
+#[cfg(unix)]
+#[test]
+fn runtime_save_through_dangling_symlink_preserves_link_and_dirty_draft() {
+    let temp = tempdir().unwrap();
+    let target = temp.path().join("removed.md");
+    let link = temp.path().join("shortcut.md");
+    fs::write(&target, "original\n").unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let mut runtime = EditorRuntime::default();
+    runtime.open_document(&link).unwrap();
+    runtime
+        .replace_active_document_source("unsaved edit\n")
+        .unwrap();
+    fs::remove_file(&target).unwrap();
+
+    let error = runtime.save_active_document().unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("Could not resolve markdown file")
+    );
+    assert_eq!(fs::read_link(&link).unwrap(), target);
+    assert!(!target.exists());
+    let document = runtime.workspace().active_document().unwrap();
+    assert_eq!(document.source(), "unsaved edit\n");
+    assert!(document.is_dirty());
+}
+
+#[cfg(unix)]
+#[test]
 fn runtime_save_preserves_read_only_file_failures_without_clobbering_existing_bytes() {
     let temp = tempdir().unwrap();
     let document_path = temp.path().join("locked.md");
