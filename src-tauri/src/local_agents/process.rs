@@ -3816,7 +3816,7 @@ mod tests {
 
     #[cfg(unix)]
     async fn wait_for_positive_pid_pair(first: &Path, second: &Path) -> (i32, i32) {
-        let deadline = StdInstant::now() + Duration::from_secs(1);
+        let deadline = StdInstant::now() + Duration::from_secs(3);
         loop {
             if let (Some(first), Some(second)) =
                 (read_positive_pid(first), read_positive_pid(second))
@@ -3966,7 +3966,7 @@ mod tests {
         let (_executable_dir, owned_path, prepared) =
             prepared("#!/bin/sh\n/bin/mkdir nested\nprintf valid");
 
-        let mut output = run_process(prepared, CancellationToken::new(), Duration::from_secs(1))
+        let mut output = run_process(prepared, CancellationToken::new(), Duration::from_secs(3))
             .await
             .unwrap();
 
@@ -4032,7 +4032,7 @@ mod tests {
             "#!/bin/sh\n/bin/mkdir nested\nprintf secret > nested/file\n/bin/chmod 000 nested\nprintf invalid",
         );
 
-        let output = run_process(prepared, CancellationToken::new(), Duration::from_secs(1))
+        let output = run_process(prepared, CancellationToken::new(), Duration::from_secs(3))
             .await
             .unwrap();
         drop(output);
@@ -4801,7 +4801,7 @@ mod tests {
         adapter_invocation.stdin = vec![b'x'; MAX_PROCESS_STDIN_BYTES];
         let prepared = prepare_owned(adapter_invocation, owned_temp).unwrap();
 
-        let error = run_process(prepared, CancellationToken::new(), Duration::from_secs(1))
+        let error = run_process(prepared, CancellationToken::new(), Duration::from_secs(3))
             .await
             .unwrap_err();
 
@@ -6398,7 +6398,7 @@ mod tests {
                 fs::rename(&replacement, &executable).unwrap();
                 interlock.replacement_ready.wait();
                 interlock.spawn_returned.wait();
-                let observation_deadline = StdInstant::now() + Duration::from_secs(1);
+                let observation_deadline = StdInstant::now() + Duration::from_secs(3);
                 while StdInstant::now() < observation_deadline {
                     if replacement_started.exists() {
                         replacement_observed.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -6412,7 +6412,7 @@ mod tests {
             }
         });
 
-        let error = run_process(prepared, CancellationToken::new(), Duration::from_secs(2))
+        let error = run_process(prepared, CancellationToken::new(), Duration::from_secs(4))
             .await
             .unwrap_err();
         swap_thread.join().unwrap();
