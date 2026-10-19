@@ -3732,9 +3732,11 @@ mod tests {
         cancellation: CancellationToken,
         timeout: Duration,
     ) -> Result<super::ProcessOutput, crate::local_agents::LocalAgentError> {
-        // Give fixtures the requested execution time in addition to the production
-        // cleanup reserve. A one-second total budget otherwise allows only 250 ms
-        // for spawning, validating the executable, and exchanging pipe contents.
+        // Scenario fixtures validate outcomes, not one-second startup performance.
+        // Allow at least three seconds for spawning, executable validation, and
+        // pipe exchange, in addition to the production cleanup reserve. Deadline
+        // tests call run_process_until directly to preserve their exact budgets.
+        let timeout = timeout.max(Duration::from_secs(3));
         let cleanup_reserve = (timeout * 3)
             .min(super::PROCESS_CLEANUP_TIMEOUT + Duration::from_millis(250));
         run_process_until(
@@ -3801,7 +3803,7 @@ mod tests {
 
     #[cfg(unix)]
     async fn wait_for_positive_pid(path: &Path) -> i32 {
-        let deadline = StdInstant::now() + Duration::from_secs(1);
+        let deadline = StdInstant::now() + Duration::from_secs(3);
         loop {
             if let Some(pid) = read_positive_pid(path) {
                 return pid;
@@ -4505,12 +4507,12 @@ mod tests {
         let error = run_process(prepared, CancellationToken::new(), Duration::from_secs(1))
             .await
             .unwrap_err();
+        assert_eq!(error.code, "local_agent_output_too_large");
         let agent_pid = fs::read_to_string(pid_file)
             .unwrap()
             .parse::<i32>()
             .unwrap();
 
-        assert_eq!(error.code, "local_agent_output_too_large");
         let debug = format!("{error:?}");
         assert!(!debug.contains("captured source"));
         assert!(!debug.contains("private prompt"));
@@ -4541,9 +4543,17 @@ mod tests {
     async fn timeout_kills_the_group_reaps_the_leader_and_cleans_temp() {
         let (_executable_dir, owned_path, prepared) = prepared("#!/bin/sh\n/bin/sleep 30");
 
-        let error = run_process(prepared, CancellationToken::new(), Duration::from_secs(1))
-            .await
-            .unwrap_err();
+        // Keep this deadline test's original one-second execution budget.
+        let timeout = Duration::from_secs(1);
+        let cleanup_reserve = (timeout * 3)
+            .min(super::PROCESS_CLEANUP_TIMEOUT + Duration::from_millis(250));
+        let error = run_process_until(
+            prepared,
+            CancellationToken::new(),
+            StdInstant::now() + timeout + cleanup_reserve,
+        )
+        .await
+        .unwrap_err();
 
         assert_eq!(error.code, "local_agent_timeout");
         assert!(!owned_path.exists());
@@ -6240,7 +6250,7 @@ mod tests {
                     }
                     interlock.replacement_ready.wait();
                     interlock.spawn_returned.wait();
-                    let deadline = StdInstant::now() + Duration::from_secs(1);
+                    let deadline = StdInstant::now() + Duration::from_secs(3);
                     while !child_ready.exists() {
                         assert!(
                             StdInstant::now() < deadline,
@@ -6252,7 +6262,7 @@ mod tests {
                 }
             });
 
-            let error = run_process(prepared, CancellationToken::new(), Duration::from_secs(2))
+            let error = run_process(prepared, CancellationToken::new(), Duration::from_secs(4))
                 .await
                 .unwrap_err();
             swap_thread.join().unwrap();

@@ -2881,7 +2881,6 @@ Usage: opencode debug config
         let runner_cancellation = cancellation.clone();
         let runner_script = script.clone();
         let runner_pid_file = pid_file.clone();
-        let started = Instant::now();
         let probe = thread::spawn(move || {
             CancellableProbeRunner {
                 cancellation: &runner_cancellation,
@@ -2893,7 +2892,7 @@ Usage: opencode debug config
                 &[],
             )
         });
-        let marker_deadline = Instant::now() + Duration::from_secs(1);
+        let marker_deadline = Instant::now() + Duration::from_secs(3);
         while !pid_file.exists() && Instant::now() < marker_deadline {
             thread::sleep(Duration::from_millis(5));
         }
@@ -2902,6 +2901,7 @@ Usage: opencode debug config
             "fake probe did not publish its descendant PID"
         );
 
+        let started = Instant::now();
         cancellation.cancel();
         let error = match probe.join().unwrap() {
             Err(error) => error,
