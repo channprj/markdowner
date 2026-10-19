@@ -389,6 +389,7 @@ import {
 } from './lib/latestRequest';
 import {
   buildSourceLineStartOffsets,
+  normalizeFinalNewline,
   clampSourceOffset,
   sourceOffsetForLine,
 } from './lib/sourceText';
@@ -4058,17 +4059,18 @@ export default function App() {
   const hasExternalChanges = async (
     options: { shouldAbort?: () => boolean } = {},
   ) => {
-    if (!activeDocumentOpen || !snapshot.activeDocumentPath) {
+    const current = snapshotRef.current;
+    if (current.activeDocumentSource === null || !current.activeDocumentPath) {
       if (!options.shouldAbort?.()) {
         clearExternalChangeState();
       }
       return false;
     }
 
-    const path = snapshot.activeDocumentPath;
+    const path = current.activeDocumentPath;
     if (externalConflictPathsRef.current.has(path)) {
       if (!options.shouldAbort?.()) {
-        applyExternalChangeState(externalChangeDetectedState(snapshot.activeDocumentName));
+        applyExternalChangeState(externalChangeDetectedState(current.activeDocumentName));
       }
       return true;
     }
@@ -4082,13 +4084,13 @@ export default function App() {
       }
 
       externalConflictPathsRef.current.add(path);
-      applyExternalChangeState(externalChangeDetectedState(snapshot.activeDocumentName));
+      applyExternalChangeState(externalChangeDetectedState(current.activeDocumentName));
       return true;
     } catch (error) {
       if (options.shouldAbort?.()) return false;
       const reason = error instanceof Error ? error.message : String(error);
       applyExternalChangeState(
-        externalChangeVerificationErrorState(snapshot.activeDocumentName, reason),
+        externalChangeVerificationErrorState(current.activeDocumentName, reason),
       );
       return true;
     }
@@ -4513,66 +4515,70 @@ export default function App() {
     });
   };
 
+  const settleDocumentBeforeSave = async (intent: number, tabId: string | null) => {
+    // A native reload/mirror can already be committed while its response is
+    // pending. Let it reconcile before choosing the save's mutation target.
+    await externalRefreshInFlightRef.current;
+    await draftMirrorInFlightRef.current;
+    return !isEditorOpStale(intent) && activeTabIdRef.current === tabId;
+  };
+
   const handleSave = async () => {
-    const target = snapshotRef.current;
-    if (!activeDocumentOpen) {
-      return;
-    }
-    if (!snapshot.activeDocumentPath) {
+    const requested = snapshotRef.current;
+    if (requested.activeDocumentSource === null) return;
+    if (!requested.activeDocumentPath) {
       await handleSaveAs();
       return;
     }
 
-    const token = nextEditorOpRequest();
+    const intent = editorOpRequests.current();
+    const tabId = activeTabIdRef.current;
     await withBusy(async () => {
-      await syncActiveDraft(undefined, {
-        forFinalSave: true,
-        ...editorOpAbortOptions(token),
-      });
+      if (!await settleDocumentBeforeSave(intent, tabId)) return;
+      const token = nextEditorOpRequest();
+      await syncActiveDraft(undefined, { forFinalSave: true, ...editorOpAbortOptions(token) });
       if (isEditorOpStale(token)) return;
-      if (await hasExternalChanges(editorOpAbortOptions(token))) {
-        return;
-      }
+      if (await hasExternalChanges(editorOpAbortOptions(token))) return;
       if (isEditorOpStale(token)) return;
-      const next = await saveActiveDocument(target);
+      const next = await saveActiveDocument(snapshotRef.current);
       if (isEditorOpStale(token)) return;
-      applySnapshot(next, true);
+      applySnapshot({ ...next, mode: snapshotRef.current.mode }, true);
       refreshActiveTabFromSnapshot(next);
     });
   };
 
   const saveActiveDocumentForClose = async () => {
-    const target = snapshotRef.current;
-    if (!activeDocumentOpen) {
-      return true;
-    }
-
-    if (!snapshot.activeDocumentPath) {
-      const selected = await saveDialog({
-        defaultPath: defaultMarkdownSavePath(
-          snapshot.activeDocumentPath,
-          snapshot.activeDocumentName,
-        ),
+    const requested = snapshotRef.current;
+    if (requested.activeDocumentSource === null) return true;
+    const intent = editorOpRequests.current();
+    const tabId = activeTabIdRef.current;
+    let selected: string | null = null;
+    if (!requested.activeDocumentPath) {
+      const result = await saveDialog({
+        defaultPath: defaultMarkdownSavePath(requested.activeDocumentPath, requested.activeDocumentName),
         filters: [{ name: 'Markdown', extensions: MARKDOWN_FILE_EXTENSIONS }],
       });
-
-      if (typeof selected !== 'string') {
-        return false;
-      }
-
-      await syncActiveDraft(undefined, { forFinalSave: true });
-      const next = await saveActiveDocumentAs(selected, target);
-      applySnapshot(next, true);
-      return true;
+      if (typeof result !== 'string') return false;
+      selected = result;
     }
 
-    await syncActiveDraft(undefined, { forFinalSave: true });
-    if (await hasExternalChanges()) {
-      return false;
-    }
-    const next = await saveActiveDocument(target);
-    applySnapshot(next, true);
-    return true;
+    if (!await settleDocumentBeforeSave(intent, tabId)) return false;
+    const token = nextEditorOpRequest();
+    await syncActiveDraft(undefined, { forFinalSave: true, ...editorOpAbortOptions(token) });
+    if (isEditorOpStale(token)) return false;
+    if (!selected && await hasExternalChanges(editorOpAbortOptions(token))) return false;
+    if (isEditorOpStale(token)) return false;
+    const next = selected
+      ? await saveActiveDocumentAs(selected, snapshotRef.current)
+      : await saveActiveDocument(snapshotRef.current);
+    if (isEditorOpStale(token)) return false;
+    flushWysiwygDraftNow();
+    applySnapshot({ ...next, mode: snapshotRef.current.mode }, true);
+    refreshActiveTabFromSnapshot(next);
+    // Save acknowledges only the bytes actually written. Input made while the
+    // native write was pending remains dirty and must keep its editor open.
+    return normalizeFinalNewline(localDraftRef.current) ===
+      normalizeFinalNewline(next.activeDocumentSource ?? '');
   };
 
   const requestCloseDecision = async (documentName = snapshot.activeDocumentName) => {
@@ -4603,8 +4609,13 @@ export default function App() {
       return;
     }
 
+    const closeIntent = editorOpRequests.current();
+    const closingTabId = activeTabIdRef.current;
     try {
       const closeDecisionAction = await requestCloseDecision();
+      // Native opens and navigation can replace the document while the prompt
+      // is displayed. Its answer applies only to the tab that requested it.
+      if (isEditorOpStale(closeIntent) || activeTabIdRef.current !== closingTabId) return;
 
       if (closeDecisionAction.kind === 'save') {
         await withBusy(async () => {
@@ -4922,33 +4933,26 @@ export default function App() {
   };
 
   const handleSaveAs = async () => {
-    const target = snapshotRef.current;
-    if (!activeDocumentOpen) {
-      return;
-    }
-
+    const requested = snapshotRef.current;
+    if (requested.activeDocumentSource === null) return;
+    const intent = editorOpRequests.current();
+    const tabId = activeTabIdRef.current;
     const selected = await saveDialog({
-      defaultPath: defaultMarkdownSavePath(
-        snapshot.activeDocumentPath,
-        snapshot.activeDocumentName,
-      ),
+      defaultPath: defaultMarkdownSavePath(requested.activeDocumentPath, requested.activeDocumentName),
       filters: [{ name: 'Markdown', extensions: MARKDOWN_FILE_EXTENSIONS }],
     });
+    if (typeof selected !== 'string') return;
 
-    if (typeof selected !== 'string') {
-      return;
-    }
-
-    const token = nextEditorOpRequest();
     await withBusy(async () => {
-      await syncActiveDraft(undefined, {
-        forFinalSave: true,
-        ...editorOpAbortOptions(token),
-      });
+      if (!await settleDocumentBeforeSave(intent, tabId)) {
+        throw new Error('The document changed while the Save As dialog was open. Please save again.');
+      }
+      const token = nextEditorOpRequest();
+      await syncActiveDraft(undefined, { forFinalSave: true, ...editorOpAbortOptions(token) });
       if (isEditorOpStale(token)) return;
-      const next = await saveActiveDocumentAs(selected, target);
+      const next = await saveActiveDocumentAs(selected, snapshotRef.current);
       if (isEditorOpStale(token)) return;
-      applySnapshot(next, true);
+      applySnapshot({ ...next, mode: snapshotRef.current.mode }, true);
       refreshActiveTabFromSnapshot(next);
     });
   };
@@ -5353,7 +5357,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    if (!autoSaveEligibility.shouldSchedule) return;
+    if (!autoSaveEligibility.shouldRun) return;
 
     const timer = window.setTimeout(() => {
       triggerAutoSave();
@@ -5364,7 +5368,7 @@ export default function App() {
     activeDocumentOpen,
     snapshot.activeDocumentPath,
     hasUnsavedChanges,
-    autoSaveEligibility.shouldSchedule,
+    autoSaveEligibility.shouldRun,
     localDraft,
   ]);
 

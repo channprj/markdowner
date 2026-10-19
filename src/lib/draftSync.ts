@@ -50,8 +50,9 @@ export function resolveActiveDraftSyncPlan(
 
   return {
     outgoingDraft,
-    shouldReplaceActiveSource:
-      normalizeFinalNewline(outgoingDraft) !== normalizeFinalNewline(input.activeDocumentSource),
+    shouldReplaceActiveSource: input.forFinalSave
+      ? outgoingDraft !== input.activeDocumentSource
+      : normalizeFinalNewline(outgoingDraft) !== normalizeFinalNewline(input.activeDocumentSource),
     shouldUpdateLocalDraft: outgoingDraft !== draft,
   };
 }

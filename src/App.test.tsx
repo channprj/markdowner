@@ -5235,6 +5235,146 @@ describe('App recent documents', () => {
     });
   });
 
+  it('saves against the current native version after a pending automatic reload', async () => {
+    let backend = baseSnapshot({ activeDocumentVersion: { id: 80, revision: 0 },
+      activeDocumentName: 'meeting-notes.md', activeDocumentPath: '/tmp/project/meeting-notes.md',
+      activeDocumentSource: '# Original', mode: 'Editor' });
+    bootstrapMock.mockImplementation(async () => backend);
+    hasActiveDocumentExternalChangesMock.mockResolvedValueOnce(true).mockResolvedValue(false);
+    let deliverReload!: () => void;
+    reloadActiveDocumentFromDiskMock.mockImplementation(async () => {
+      backend = { ...backend, activeDocumentVersion: { id: 81, revision: 0 }, activeDocumentSource: '# Current disk content' };
+      const result = backend;
+      return new Promise<AppSnapshot>((resolve) => { deliverReload = () => resolve(result); });
+    });
+    replaceActiveDocumentSourceMock.mockImplementation(async (source, target) => {
+      if (target.activeDocumentVersion.id !== backend.activeDocumentVersion!.id) {
+        throw new Error('The document changed before this operation completed. Please retry.');
+      }
+      backend = { ...backend, activeDocumentSource: source, activeDocumentDirty: true };
+      return backend;
+    });
+    let savedSource: string | undefined;
+    saveActiveDocumentMock.mockImplementation(async (target) => {
+      if (target.activeDocumentVersion.id !== backend.activeDocumentVersion!.id) {
+        throw new Error('The document changed before this operation completed. Please retry.');
+      }
+      savedSource = backend.activeDocumentSource!;
+      return backend;
+    });
+    const { default: App } = await import('./App');
+    render(<App />);
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await waitFor(() => expect(deliverReload).toBeTypeOf('function'));
+    fireEvent.keyDown(window, { key: 's', metaKey: true });
+    await act(async () => { deliverReload(); });
+    await waitFor(() => expect(savedSource).toBe('# Current disk content\n'));
+    expect(sourceEditor).toHaveValue('# Current disk content\n');
+  });
+
+  it('does not save or close a newly opened file when an earlier close confirmation returns', async () => {
+    const alpha = baseSnapshot({ activeDocumentName: 'alpha.md', activeDocumentPath: '/tmp/alpha.md',
+      activeDocumentSource: '# Alpha', mode: 'Editor' });
+    const beta = baseSnapshot({ activeDocumentVersion: { id: 2, revision: 0 },
+      activeDocumentName: 'beta.md', activeDocumentPath: '/tmp/beta.md',
+      activeDocumentSource: '# Beta', mode: 'Editor' });
+    bootstrapMock.mockResolvedValue(alpha);
+    let finishDecision!: (decision: string) => void;
+    messageMock.mockReturnValue(new Promise((resolve) => { finishDecision = resolve; }));
+    replaceActiveDocumentSourceMock.mockImplementation(async (source, target) => ({
+      ...target, activeDocumentSource: source, activeDocumentDirty: true,
+    }));
+    let savedPath: string | undefined;
+    saveActiveDocumentMock.mockImplementation(async (target) => {
+      savedPath = target.activeDocumentPath;
+      return { ...target, activeDocumentDirty: false };
+    });
+    reloadActiveDocumentFromDiskMock.mockResolvedValue(beta);
+    const { default: App } = await import('./App');
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText('Source editor'), { target: { value: '# Alpha unsaved' } });
+    fireEvent.keyDown(window, { key: 'w', metaKey: true });
+    await waitFor(() => expect(finishDecision).toBeTypeOf('function'));
+    await act(async () => { await updateSnapshotHandler!({ payload: beta }); });
+    await waitFor(() => expect(screen.getByLabelText('Source editor')).toHaveValue('# Beta'));
+    await act(async () => { finishDecision('Save'); });
+    expect(savedPath).toBeUndefined();
+    expect(screen.getByLabelText('Source editor')).toHaveValue('# Beta');
+    expect(screen.getByRole('tab', { name: /alpha.md/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /beta.md/i })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('keeps edits made during save-on-close open instead of discarding them', async () => {
+    const initial = baseSnapshot({ activeDocumentName: 'meeting-notes.md',
+      activeDocumentPath: '/tmp/project/meeting-notes.md', activeDocumentSource: '# Original', mode: 'Editor' });
+    bootstrapMock.mockResolvedValue(initial);
+    messageMock.mockResolvedValue('Save');
+    let backend = initial;
+    replaceActiveDocumentSourceMock.mockImplementation(async (source) => {
+      backend = { ...backend, activeDocumentSource: source, activeDocumentDirty: true };
+      return backend;
+    });
+    let deliverSave!: () => void;
+    let diskSource: string | null = null;
+    saveActiveDocumentMock.mockImplementation(async () => {
+      diskSource = backend.activeDocumentSource;
+      const saved = { ...backend, activeDocumentDirty: false };
+      return new Promise<AppSnapshot>((resolve) => { deliverSave = () => resolve(saved); });
+    });
+    const { default: App } = await import('./App');
+    render(<App />);
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    fireEvent.change(sourceEditor, { target: { value: '# Save this' } });
+    fireEvent.keyDown(window, { key: 'w', metaKey: true });
+    await waitFor(() => expect(deliverSave).toBeTypeOf('function'));
+    fireEvent.change(sourceEditor, { target: { value: '# Typed while saving' } });
+    await act(async () => { deliverSave(); });
+    expect(diskSource).toBe('# Save this\n');
+    expect(screen.getByLabelText('Source editor')).toHaveValue('# Typed while saving');
+    expect(screen.getByRole('tab', { name: /meeting-notes.md/i })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    saveActiveDocumentMock.mockImplementation(async () => {
+      diskSource = backend.activeDocumentSource;
+      return { ...backend, activeDocumentDirty: false };
+    });
+    fireEvent.keyDown(window, { key: 'w', metaKey: true });
+    await waitFor(() => expect(screen.queryByRole('tab', { name: /meeting-notes.md/i })).not.toBeInTheDocument());
+    expect(diskSource).toBe('# Typed while saving\n');
+  });
+
+  it('does not save a different document when the Save As dialog returns after a tab switch', async () => {
+    const alphaPath = '/tmp/project/alpha.md';
+    const betaPath = '/tmp/project/beta.md';
+    loadOpenTabsMock.mockResolvedValue({ openTabs: [alphaPath, betaPath], activeTabPath: alphaPath, cursorPositions: {} });
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+    let backendSource = '';
+    openDocumentMock.mockImplementation(async (path) => {
+      backendSource = path === alphaPath ? '# Alpha' : '# Beta';
+      return baseSnapshot({ activeDocumentName: path.split('/').pop(), activeDocumentPath: path,
+        activeDocumentSource: backendSource, mode: 'Editor' });
+    });
+    let finishDialog!: (path: string) => void;
+    saveDialogMock.mockReturnValue(new Promise((resolve) => { finishDialog = resolve; }));
+    let copiedSource: string | undefined;
+    saveActiveDocumentAsMock.mockImplementation(async () => {
+      copiedSource = backendSource;
+      return baseSnapshot({ activeDocumentName: 'copy.md', activeDocumentPath: '/tmp/copy.md',
+        activeDocumentSource: backendSource, mode: 'Editor' });
+    });
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByRole('tab', { name: /alpha.md/i });
+    const menu = await openAppMenu();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /^save as…$/i }));
+    await waitFor(() => expect(finishDialog).toBeTypeOf('function'));
+    fireEvent.click(screen.getByRole('tab', { name: /beta.md/i }));
+    await waitFor(() => expect(screen.getByLabelText('Source editor')).toHaveValue('# Beta'));
+    await act(async () => { finishDialog('/tmp/copy.md'); });
+    expect(copiedSource).toBeUndefined();
+    expect(screen.getByLabelText('Source editor')).toHaveValue('# Beta');
+  });
+
   it('keeps a switched tab active when an earlier Save As resolves later', async () => {
     const alphaPath = '/tmp/project/alpha.md';
     const betaPath = '/tmp/project/beta.md';
@@ -5831,8 +5971,8 @@ describe('App recent documents', () => {
       expect(reloadActiveDocumentFromDiskMock).toHaveBeenCalledTimes(1);
       expect(reloadActiveDocumentFromDiskMock).toHaveBeenCalledWith({
         path: '/tmp/project/meeting-notes.md',
-        expectedSource: '# Meeting notes',
-        expectedDirty: false,
+        expectedSource: '# Meeting notes\n',
+        expectedDirty: true,
       });
       expect(openDocumentMock).not.toHaveBeenCalled();
       expect(screen.getByLabelText('Source editor')).toHaveValue(
@@ -6441,7 +6581,7 @@ describe('App recent documents', () => {
     },
   );
 
-  it('waits for an automatic reload before starting a requested disk reload', async () => {
+  it('keeps manual reload usable when Save follows a pending automatic reload', async () => {
     let backend = baseSnapshot({
       activeDocumentVersion: { id: 20, revision: 0 },
       activeDocumentName: 'meeting-notes.md',
@@ -6463,6 +6603,10 @@ describe('App recent documents', () => {
       }
       return result;
     });
+    replaceActiveDocumentSourceMock.mockImplementation(async (source) => {
+      backend = { ...backend, activeDocumentSource: source, activeDocumentDirty: true };
+      return backend;
+    });
     const { default: App } = await import('./App');
     render(<App />);
     const sourceEditor = await screen.findByLabelText('Source editor');
@@ -6470,8 +6614,8 @@ describe('App recent documents', () => {
     await waitFor(() => expect(deliverReload).toBeTypeOf('function'));
     const menu = await openAppMenu();
     fireEvent.click(within(menu).getByRole('menuitem', { name: /^save$/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /reload from disk/i }));
     await act(async () => { deliverReload!(); });
+    fireEvent.click(await screen.findByRole('button', { name: /reload from disk/i }));
     await waitFor(() => expect(sourceEditor).toHaveValue('# Latest disk version'));
     expect(screen.queryByRole('button', { name: /reload from disk/i })).not.toBeInTheDocument();
   });
@@ -10999,6 +11143,46 @@ describe('App recent documents', () => {
       },
       { timeout: 4000 },
     );
+  });
+
+  it('rearms autosave for edits made while a slow save is still pending', async () => {
+    invokeMock.mockImplementation(async (command: string) => command === 'load_settings'
+      ? { autoSave: true, editorFontSize: 14, editorFontFamily: '' } : undefined);
+    let backend = baseSnapshot({ activeDocumentName: 'notes.md', activeDocumentPath: '/tmp/notes.md',
+      activeDocumentSource: '# Original', mode: 'Editor' });
+    bootstrapMock.mockResolvedValue(backend);
+    replaceActiveDocumentSourceMock.mockImplementation(async (source) => {
+      backend = { ...backend, activeDocumentSource: source, activeDocumentDirty: true };
+      return backend;
+    });
+    const savedSources: string[] = [];
+    let deliverFirstSave!: () => void;
+    saveActiveDocumentMock.mockImplementation(async () => {
+      const saved = { ...backend, activeDocumentDirty: false };
+      savedSources.push(saved.activeDocumentSource!);
+      if (savedSources.length === 1) {
+        return new Promise<AppSnapshot>((resolve) => { deliverFirstSave = () => resolve(saved); });
+      }
+      return saved;
+    });
+    const { default: App } = await import('./App');
+    render(<App />);
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(sourceEditor, { target: { value: '# First edit' } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(deliverFirstSave).toBeTypeOf('function');
+      fireEvent.change(sourceEditor, { target: { value: '# Later edit' } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      expect(savedSources).toEqual(['# First edit\n']);
+      await act(async () => { deliverFirstSave(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(savedSources).toEqual(['# First edit\n', '# Later edit\n']);
+      expect(sourceEditor).toHaveValue('# Later edit\n');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps recovery backups without writing the file when autoSave is disabled', async () => {

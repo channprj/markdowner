@@ -57,6 +57,15 @@ describe('resolveActiveDraftSyncPlan', () => {
     });
   });
 
+  it('sends the exact normalized bytes for a final save even when only trailing newlines changed', () => {
+    expect(resolveActiveDraftSyncPlan({
+      activeDocumentOpen: true, activeDocumentSource: '# Saved',
+      localDraft: '# Saved\n\n', flushedDraft: null, forFinalSave: true,
+    })).toEqual({
+      outgoingDraft: '# Saved\n', shouldReplaceActiveSource: true, shouldUpdateLocalDraft: true,
+    });
+  });
+
   it('skips replacement when only final-newline normalization differs from the saved source', () => {
     expect(
       resolveActiveDraftSyncPlan({
