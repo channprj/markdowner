@@ -29,6 +29,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
-    exclude: [...configDefaults.exclude, '.worktrees/**'],
+    // Agent worktrees nest full checkouts; never collect their test copies.
+    exclude: [...configDefaults.exclude, '.worktrees/**', '.claude/**'],
   },
 });
