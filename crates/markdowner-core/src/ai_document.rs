@@ -1007,7 +1007,9 @@ fn validate_selection_surroundings(
 /// tokenized like the source, so list markers such as `1.` are syntax rather
 /// than numbers. Every number of the selection must appear verbatim and in its
 /// original order, which also rejects two numbers that swap places. New
-/// numbers may be added, as with any other new text.
+/// numbers may be added, as with any other new text. Inline enumerators are the
+/// exception: turning `1) open 2) close` into a list may carry them as
+/// ordered-list markers, or drop `)`-style ones in favour of bullets.
 fn validate_selection_numbers(
     envelope: &AiDocumentEnvelope,
     replacement: ByteRange,
@@ -1017,38 +1019,75 @@ fn validate_selection_numbers(
         .protected
         .iter()
         .filter(|token| is_number_literal(token))
-        .map(|token| token.original.clone())
+        .map(|token| (token.original.as_str(), inline_enumerator(&envelope.source[token.range.end..])))
         .collect::<Vec<_>>();
     if expected.is_empty() {
         return Ok(());
     }
-    let observed = AiDocumentEnvelope::with_policy(
+    let proposed = AiDocumentEnvelope::with_policy(
         "selection-numbers",
         proposed,
         Some(replacement),
         envelope.policy,
-    )?
-    .protected
-    .into_iter()
-    .filter(is_number_literal)
-    .map(|token| token.original)
-    .collect::<Vec<_>>();
-    if let Some(missing) = first_missing_in_order(&expected, &observed) {
-        return Err(ValidationError::single(
-            ValidationIssueCode::ProtectedTokenChanged,
-            format!("The number {missing} was changed, dropped, or moved out of order."),
-        ));
+    )?;
+    // (value, is an ordered-list marker), in document order.
+    let observed = proposed
+        .protected
+        .iter()
+        .filter_map(|token| {
+            if is_number_literal(token) {
+                Some((token.original.as_str(), false))
+            } else if token.kind == ProtectedKind::MarkdownMarker {
+                ordered_marker_number(&token.original).map(|number| (number, true))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut cursor = 0;
+    for (number, enumerator) in expected {
+        let found = observed[cursor..]
+            .iter()
+            .position(|(value, marker)| *value == number && (!marker || enumerator.is_some()));
+        match found {
+            Some(offset) => cursor += offset + 1,
+            None if enumerator == Some(InlineEnumerator::Paren) => {}
+            None => {
+                return Err(ValidationError::single(
+                    ValidationIssueCode::ProtectedTokenChanged,
+                    format!("The number {number} was changed, dropped, or moved out of order."),
+                ));
+            }
+        }
     }
     Ok(())
 }
 
-/// The first `expected` item that `observed` lacks as an ordered subsequence.
-fn first_missing_in_order<'a>(expected: &'a [String], observed: &[String]) -> Option<&'a str> {
-    let mut observed = observed.iter();
-    expected
-        .iter()
-        .find(|item| !observed.any(|candidate| candidate == *item))
-        .map(String::as_str)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InlineEnumerator {
+    /// `1)` or `(1)`: list structure can replace it, so it may be dropped.
+    Paren,
+    /// `1. `: it may become a list marker but, like a sentence-final number,
+    /// must not disappear.
+    Dot,
+}
+
+/// Whether a number in running text enumerates items (`1) open 2) close`). A
+/// structural edit may turn it into an ordered-list marker with the same digits.
+fn inline_enumerator(after: &str) -> Option<InlineEnumerator> {
+    let mut chars = after.chars();
+    match (chars.next(), chars.next()) {
+        (Some(')'), _) => Some(InlineEnumerator::Paren),
+        (Some('.'), next) if next.is_none_or(char::is_whitespace) => Some(InlineEnumerator::Dot),
+        _ => None,
+    }
+}
+
+/// The digits of an ordered-list marker token such as `1. ` or `  10) `.
+fn ordered_marker_number(marker: &str) -> Option<&str> {
+    let marker = marker.trim();
+    let digits = marker.strip_suffix('.').or_else(|| marker.strip_suffix(')'))?;
+    (!digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())).then_some(digits)
 }
 
 fn selection_validated_document(

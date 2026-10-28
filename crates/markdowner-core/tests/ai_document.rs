@@ -761,6 +761,34 @@ fn selection_markdown_numbers_are_content_that_moves_into_the_new_structure() {
 }
 
 #[test]
+fn selection_markdown_inline_enumerators_may_become_list_structure() {
+    let source = "Tasks: 1) open 2) close 3) save\n";
+    let envelope = selection_envelope(source, source.trim_end());
+    for replacement in [
+        "Tasks:\n\n1. open\n2. close\n3. save",
+        "Tasks:\n\n- 1) open\n- 2) close\n- 3) save",
+        "Tasks:\n\n- open\n- close\n- save",
+    ] {
+        validate_selection_markdown_response(&envelope, replacement, Vec::new())
+            .unwrap_or_else(|error| panic!("{replacement:?}: {error}"));
+    }
+
+    let source = "Steps 1. mix 2. bake for 30 minutes.\n";
+    let envelope = selection_envelope(source, source.trim_end());
+    validate_selection_markdown_response(&envelope, "Steps:\n\n1. mix\n2. bake for 30 minutes.", Vec::new())
+        .expect("dot enumerators become list markers");
+    for (label, replacement) in [
+        ("dropped dot enumerators", "Steps:\n\n- mix\n- bake for 30 minutes."),
+        ("changed quantity", "Steps:\n\n1. mix\n2. bake for 40 minutes."),
+        ("quantity only as a marker", "Steps:\n\n1. mix\n2. bake\n30. minutes."),
+    ] {
+        let error = validate_selection_markdown_response(&envelope, replacement, Vec::new())
+            .expect_err(label);
+        assert_eq!(error.issues[0].code, ValidationIssueCode::ProtectedTokenChanged, "{label}");
+    }
+}
+
+#[test]
 fn selection_markdown_numbers_must_survive_verbatim_and_in_order() {
     let envelope = AiDocumentEnvelope::new(
         "doc-1",
