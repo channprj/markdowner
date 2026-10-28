@@ -1,10 +1,20 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ChevronUp, GripHorizontal, LoaderCircle, Minus, Sparkles, Square, X } from 'lucide-react';
+import { Check, ChevronUp, GripHorizontal, LoaderCircle, Minus, Sparkles, Square, X } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { useEditorPopoverPosition } from '@/components/wysiwyg/useEditorPopoverPosition';
 
 import { Button } from '@/components/ui/button';
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+} from '@/components/ui/combobox';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 import {
   aiCancel,
   aiKeyStatus,
@@ -21,12 +31,15 @@ import {
   outputTokenLimitForTask,
   orderModels,
   defaultModelForTask,
+  type AiModelOption,
   resolveUsageCost,
 } from './model';
-import type { AiSelectionSnapshot } from './selection';
+import { expandSelectionToBlockPrefix, type AiSelectionSnapshot } from './selection';
 import {
   resolveSelectionInstruction,
   SELECTION_ACTIONS,
+  selectionActionById,
+  type SelectionAction,
   type SelectionActionId,
 } from './selectionActions';
 import { AI_METADATA_UI_TIMEOUT_MS } from './requestTimeout';
@@ -110,6 +123,7 @@ export function AiSelectionPopover({
     pointerId: number; x: number; y: number; left: number; top: number;
   } | null>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  const [openPicker, setOpenPicker] = useState<'mode' | 'model' | null>(null);
 
   useEffect(() => {
     if (!minimized) promptRef.current?.focus();
@@ -188,14 +202,15 @@ export function AiSelectionPopover({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || minimized) return;
+      // Escape first closes an open mode/model list, not the whole prompt.
+      if (event.key !== 'Escape' || minimized || openPicker) return;
       event.preventDefault();
       if (runningRequestId) setMinimized(true);
       else onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, runningRequestId, minimized]);
+  }, [onClose, runningRequestId, minimized, openPicker]);
 
   const modelOptions = useMemo(() => orderModels(models, 'custom'), [models]);
   const selectedModel =
@@ -259,6 +274,7 @@ export function AiSelectionPopover({
   );
   const requestZdrOnly = settings.aiZdrOnly && !noZdrEndpoint;
   const instruction = resolveSelectionInstruction(actionId, prompt);
+  const selectedAction = selectionActionById(actionId);
   const canRun =
     configured === true &&
     !catalogLoading &&
@@ -273,19 +289,25 @@ export function AiSelectionPopover({
   const handleRun = async () => {
     if (!canRun || !selectedModel) return;
     const requestId = createRequestId();
+    const selectionFormat = selectedAction.format;
+    // Structural edits replace whole blocks, including their list/heading
+    // markers; text edits keep the exact captured range.
+    const target =
+      selectionFormat === 'markdown' ? expandSelectionToBlockPrefix(snapshot) : snapshot;
     const request: AiRunRequest = {
       systemPrompt: systemPromptForTask('custom', settings.aiSystemPrompts),
       requestId,
-      documentId: snapshot.documentId,
-      source: snapshot.source,
-      selection: snapshot.byteRange,
+      documentId: target.documentId,
+      source: target.source,
+      selection: target.byteRange,
       task: 'custom',
       model: selectedModel.id,
       targetLanguage: null,
       instruction,
       zdrOnly: requestZdrOnly,
-      maxOutputTokens: outputTokenLimitForTask('custom', snapshot.selectedText, selectedModel),
+      maxOutputTokens: outputTokenLimitForTask('custom', target.selectedText, selectedModel),
       recordHistory: settings.aiHistoryEnabled,
+      selectionFormat,
     };
     setRunningRequestId(requestId);
     setStatus('Sending the selected text to OpenRouter…');
@@ -312,7 +334,7 @@ export function AiSelectionPopover({
               usage: resolveUsageCost(result.usage, selectedModel.pricing),
             }
           : result,
-        snapshot,
+        target,
         request,
       );
     } catch (reason) {
@@ -425,25 +447,84 @@ export function AiSelectionPopover({
 
       <div hidden={minimized} className={minimized ? 'hidden' : 'mt-3 grid min-h-0 gap-3 overflow-y-auto'}>
         <div className="grid gap-1.5">
-          <div className="flex flex-wrap gap-1.5" aria-label="Selection actions">
-            {SELECTION_ACTIONS.map((action) => (
-              <Button
-                key={action.id}
-                type="button"
-                size="sm"
-                variant={actionId === action.id ? 'secondary' : 'outline'}
-                aria-pressed={actionId === action.id}
-                disabled={Boolean(runningRequestId)}
-                onClick={() => {
-                  setActionId(action.id);
-                  if (action.id === 'custom') promptRef.current?.focus();
-                }}
-              >
-                {action.label}
-              </Button>
-            ))}
-          </div>
-          <Label htmlFor="ai-selection-prompt">Prompt for selected text</Label>
+          <Label id="ai-selection-mode-label">Mode</Label>
+          <Combobox<SelectionAction>
+            items={SELECTION_ACTIONS}
+            value={selectedAction}
+            itemToStringLabel={(action) => action.label}
+            itemToStringValue={(action) => action.id}
+            isItemEqualToValue={(item, value) => item.id === value.id}
+            autoHighlight
+            disabled={Boolean(runningRequestId)}
+            onOpenChange={(open) => setOpenPicker(open ? 'mode' : null)}
+            onValueChange={(action) => {
+              if (!action) return;
+              setActionId(action.id);
+              // A preset defines the instruction; a stale custom prompt would
+              // silently be ignored, so clear it.
+              if (action.id === 'custom') {
+                requestAnimationFrame(() => promptRef.current?.focus());
+              } else {
+                setPrompt('');
+              }
+            }}
+          >
+            <ComboboxTrigger
+              aria-labelledby="ai-selection-mode-label"
+              data-testid="ai-selection-mode"
+              data-mode={selectedAction.id}
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-auto min-h-9 w-full justify-between gap-2 border-primary/40 bg-primary/5 py-1.5 pl-2 font-normal hover:bg-primary/10 dark:bg-primary/10"
+                />
+              }
+            >
+              <span className="flex min-w-0 items-center gap-2 text-left">
+                <span
+                  aria-hidden
+                  className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+                >
+                  <Check className="size-3" />
+                </span>
+                <span className="grid min-w-0">
+                  <span className="truncate text-sm font-semibold text-foreground">
+                    {selectedAction.label}
+                  </span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {selectedAction.description}
+                  </span>
+                </span>
+              </span>
+            </ComboboxTrigger>
+            <ComboboxContent className="min-w-(--anchor-width)">
+              <ComboboxInput
+                showTrigger={false}
+                showSearchIcon
+                aria-label="Search modes"
+                placeholder="Search modes"
+              />
+              <ComboboxEmpty>No modes found.</ComboboxEmpty>
+              <ComboboxList aria-label="Selection modes">
+                {(action: SelectionAction) => (
+                  <ComboboxItem
+                    key={action.id}
+                    value={action}
+                    className="items-start py-1.5 data-selected:bg-primary/10"
+                  >
+                    <span className="grid min-w-0">
+                      <span className="font-medium">{action.label}</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {action.description}
+                      </span>
+                    </span>
+                  </ComboboxItem>
+                )}
+              </ComboboxList>
+            </ComboboxContent>
+          </Combobox>
+          <Label htmlFor="ai-selection-prompt" className="mt-1">Prompt for selected text</Label>
           <textarea
             id="ai-selection-prompt"
             ref={promptRef}
@@ -466,14 +547,18 @@ export function AiSelectionPopover({
               event.preventDefault();
               void handleRun();
             }}
-            placeholder="Describe how to transform only this selection…"
+            placeholder={
+              actionId === 'custom'
+                ? 'e.g. Make this a numbered list, add a table, bold the key terms…'
+                : `Using ${selectedAction.label}. Type to give a custom instruction instead…`
+            }
             className="w-full resize-y rounded-md border border-input bg-background px-2 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
 
         <div className="grid gap-1.5">
           <div className="flex items-center justify-between gap-2">
-            <Label htmlFor="ai-selection-model">Model for this request</Label>
+            <Label id="ai-selection-model-label">Model for this request</Label>
             {catalogLoading ? (
               <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                 <LoaderCircle className="size-3 animate-spin" />
@@ -481,27 +566,59 @@ export function AiSelectionPopover({
               </span>
             ) : null}
           </div>
-          <select
-            id="ai-selection-model"
-            value={selectedModel?.id ?? model}
+          <Combobox<AiModelOption>
+            items={modelOptions}
+            value={selectedModel}
+            itemToStringLabel={(option) => `${option.name} · ${option.id}`}
+            itemToStringValue={(option) => option.id}
+            isItemEqualToValue={(item, value) => item.id === value.id}
+            autoHighlight
             disabled={catalogLoading || Boolean(runningRequestId)}
-            onChange={(event) => {
-              setModel(event.target.value);
+            onOpenChange={(open) => setOpenPicker(open ? 'model' : null)}
+            onValueChange={(option) => {
+              if (!option) return;
+              setModel(option.id);
               setConfirmedNonZdr(false);
             }}
-            className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {!selectedModel ? <option value={model} disabled>{model} · unavailable</option> : null}
-            {modelOptions.map((option) => (
-              <option
-                key={option.id}
-                value={option.id}
-                disabled={!option.enabled}
-              >
-                {option.name} · {option.id}
-              </option>
-            ))}
-          </select>
+            <ComboboxTrigger
+              id="ai-selection-model"
+              aria-labelledby="ai-selection-model-label"
+              data-testid="ai-selection-model"
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-between gap-2 pl-2 font-normal"
+                />
+              }
+            >
+              <span className={cn('min-w-0 truncate text-left text-sm', !selectedModel && 'text-muted-foreground')}>
+                {selectedModel
+                  ? `${selectedModel.name} · ${selectedModel.id}`
+                  : `${model} · unavailable`}
+              </span>
+            </ComboboxTrigger>
+            <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))]">
+              <ComboboxInput
+                showTrigger={false}
+                showSearchIcon
+                aria-label="Search models"
+                placeholder="Search models"
+              />
+              <ComboboxEmpty>No models found.</ComboboxEmpty>
+              <ComboboxList aria-label="Models">
+                {(option: AiModelOption) => (
+                  <ComboboxItem key={option.id} value={option} disabled={!option.enabled}>
+                    <span className="grid min-w-0">
+                      <span className="truncate">{option.name}</span>
+                      <span className="truncate text-[11px] text-muted-foreground">{option.id}</span>
+                    </span>
+                  </ComboboxItem>
+                )}
+              </ComboboxList>
+            </ComboboxContent>
+          </Combobox>
           {catalogError && !catalogLoading ? (
             <div
               role="alert"

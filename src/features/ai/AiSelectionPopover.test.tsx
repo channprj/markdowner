@@ -13,6 +13,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+async function chooseOption(comboboxName: string, optionName: RegExp) {
+  fireEvent.click(screen.getByRole('combobox', { name: comboboxName }));
+  fireEvent.click(await screen.findByRole('option', { name: optionName }));
+  await waitFor(() => expect(screen.queryByRole('option')).toBeNull());
+}
+
 describe('AiSelectionPopover', () => {
   it.each([
     ['z-ai/glm-5.3-flash', '', 'z-ai/glm-5.3-flash'],
@@ -40,7 +46,8 @@ describe('AiSelectionPopover', () => {
         aiCloudDisclosureAccepted: true, aiZdrOnly: false }} onClose={vi.fn()} onResult={vi.fn()}
       services={{ keyStatus: async () => ({ configured: true, maskedLabel: null }),
         listModels: async () => [], run: vi.fn(), cancel: vi.fn() }} />);
-    expect(await screen.findByRole('option', { name: 'vendor/removed · unavailable' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Model for this request' }))
+      .toHaveTextContent('vendor/removed · unavailable'));
     expect(screen.getByRole('button', { name: 'Run on selection' })).toBeDisabled();
   });
 
@@ -71,7 +78,7 @@ describe('AiSelectionPopover', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show AI prompt' }));
     expect(screen.getByRole('textbox', { name: 'Prompt for selected text' })).toHaveValue('Translate to Korean');
     expect(screen.getByRole('textbox', { name: 'Prompt for selected text' })).toHaveFocus();
-    expect(screen.getByRole('button', { name: 'Custom instruction' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('combobox', { name: 'Mode' })).toHaveAttribute('data-mode', 'custom');
   });
 
   it('keeps a hidden request alive and delivers its result once for the captured selection', async () => {
@@ -551,18 +558,21 @@ describe('AiSelectionPopover', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Improve' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Make table' }));
+    const mode = screen.getByRole('combobox', { name: 'Mode' });
+    expect(mode).toHaveAttribute('data-mode', 'improve');
+    expect(mode).toHaveTextContent('Improve');
+    fireEvent.click(mode);
+    expect(await screen.findByRole('option', { name: /^Improve/ })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('option', { name: /^Make table/ }));
+    await waitFor(() => expect(mode).toHaveAttribute('data-mode', 'make_table'));
+    expect(mode).toHaveTextContent('Make table');
     expect(run).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Use local agent' }));
     expect(onLocalAgent).toHaveBeenCalledWith(snapshot);
     expect(run).not.toHaveBeenCalled();
   });
 
-  it('focuses the custom instruction field when selected', () => {
+  it('focuses the custom instruction field when selected', async () => {
     const snapshot = captureSourceSelection('alpha beta', 6, 10, 'doc-1');
     if (!snapshot) throw new Error('selection required');
     render(
@@ -579,8 +589,93 @@ describe('AiSelectionPopover', () => {
         }}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Custom instruction' }));
-    expect(screen.getByLabelText('Prompt for selected text')).toHaveFocus();
+    await chooseOption('Mode', /^Custom instruction/);
+    await waitFor(() => expect(screen.getByLabelText('Prompt for selected text')).toHaveFocus());
     expect(screen.queryByRole('button', { name: 'Use local agent' })).toBeNull();
+  });
+
+  function modelFixture(id: string) {
+    return { id, name: id, contextLength: 100_000, inputModalities: ['text'], outputModalities: ['text'],
+      supportedParameters: ['structured_outputs'], pricing: { prompt: 0, completion: 0, updatedAt: '' } };
+  }
+
+  function renderRunnablePrompt(source: string, start: number, end: number, models = ['vendor/a']) {
+    const snapshot = captureSourceSelection(source, start, end, 'doc-1')!;
+    const run = vi.fn<AiSelectionServices['run']>(() => new Promise(() => {}));
+    const onClose = vi.fn();
+    render(<AiSelectionPopover snapshot={snapshot}
+      settings={{ ...DEFAULT_SETTINGS, aiCustomPromptModel: models[0],
+        aiCloudDisclosureAccepted: true, aiZdrOnly: false }} onClose={onClose} onResult={vi.fn()}
+      services={{ keyStatus: async () => ({ configured: true, maskedLabel: null }),
+        listModels: async () => models.map(modelFixture), run, cancel: vi.fn() }} />);
+    return { run, onClose };
+  }
+
+  it('sends structure-preserving presets as text edits', async () => {
+    const { run } = renderRunnablePrompt('alpha beta', 6, 10);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run on selection' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Run on selection' }));
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ selectionFormat: 'text', selection: { start: 6, end: 10 } }),
+      expect.any(Function),
+    );
+  });
+
+  it('sends format requests as Markdown edits that include the block marker', async () => {
+    const source = '- one\n- two\n';
+    const { run } = renderRunnablePrompt(source, 2, source.indexOf('two') + 3);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run on selection' })).toBeEnabled());
+    fireEvent.change(screen.getByLabelText('Prompt for selected text'), {
+      target: { value: '번호 매긴 리스트로 만들어주세요' },
+    });
+    expect(screen.getByRole('combobox', { name: 'Mode' })).toHaveAttribute('data-mode', 'custom');
+    fireEvent.click(screen.getByRole('button', { name: 'Run on selection' }));
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selectionFormat: 'markdown',
+        selection: { start: 0, end: '- one\n- two'.length },
+        instruction: '번호 매긴 리스트로 만들어주세요',
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it('clears a stale custom prompt when a preset mode is chosen', async () => {
+    const { run } = renderRunnablePrompt('alpha beta', 6, 10);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run on selection' })).toBeEnabled());
+    fireEvent.change(screen.getByLabelText('Prompt for selected text'), { target: { value: 'Translate' } });
+    await chooseOption('Mode', /^Make list/);
+    expect(screen.getByLabelText('Prompt for selected text')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Run on selection' }));
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selectionFormat: 'markdown',
+        instruction: expect.stringContaining('Markdown bullet list'),
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it('chooses the request model from a searchable model list', async () => {
+    const { run } = renderRunnablePrompt('alpha beta', 6, 10, ['vendor/a', 'vendor/b']);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run on selection' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('combobox', { name: 'Model for this request' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Search models' }), {
+      target: { value: 'vendor/b' },
+    });
+    await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(1));
+    fireEvent.click(screen.getByRole('option', { name: /vendor\/b/ }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Model for this request' }))
+      .toHaveTextContent('vendor/b'));
+    fireEvent.click(screen.getByRole('button', { name: 'Run on selection' }));
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ model: 'vendor/b' }), expect.any(Function));
+  });
+
+  it('lets Escape close an open mode list without closing the prompt', async () => {
+    const { onClose } = renderRunnablePrompt('alpha beta', 6, 10);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Mode' }));
+    await screen.findByRole('option', { name: /^Improve/ });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

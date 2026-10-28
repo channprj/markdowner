@@ -219,12 +219,15 @@ export function applyWysiwygSelectionReplacement(input: {
     input.currentSource.slice(input.snapshot.characterRange.end);
   try {
     // Plain inline edits can retain the exact surrounding marks and block
-    // nodes. Verify serialization before dispatching; Markdown syntax in the
-    // replacement will instead take the contextual parse path below.
-    const inline = previousState.tr.insertText(input.replacement, range.start, range.end);
-    if (normalizeFinalNewline(manager.serialize(inline.doc.toJSON())) === normalizeFinalNewline(nextSource)) {
-      input.editor.view.dispatch(closeHistory(inline).scrollIntoView());
-      return true;
+    // nodes. Markdown syntax (`**bold**`, `- item`, tables) must be parsed:
+    // inserting it as text would serialize to the same Markdown yet show
+    // literal syntax in the editor instead of the requested formatting.
+    if (isPlainMarkdownText(manager, input.replacement)) {
+      const inline = previousState.tr.insertText(input.replacement, range.start, range.end);
+      if (normalizeFinalNewline(manager.serialize(inline.doc.toJSON())) === normalizeFinalNewline(nextSource)) {
+        input.editor.view.dispatch(closeHistory(inline).scrollIntoView());
+        return true;
+      }
     }
     // Parse in the full document's context: parsing an isolated replacement
     // creates a closed paragraph and loses surrounding marks/list structure.
@@ -245,6 +248,56 @@ export function applyWysiwygSelectionReplacement(input: {
     if (input.editor.state !== previousState) input.editor.view.updateState(previousState);
     return false;
   }
+}
+
+type MarkdownJson = { type?: string; text?: string; marks?: unknown[]; content?: MarkdownJson[] };
+
+function isPlainMarkdownText(
+  manager: { parse: (markdown: string) => unknown },
+  text: string,
+): boolean {
+  if (!text.trim()) return false;
+  try {
+    const blocks = (manager.parse(text) as MarkdownJson).content ?? [];
+    if (blocks.length !== 1 || blocks[0].type !== 'paragraph') return false;
+    const inline = blocks[0].content ?? [];
+    return (
+      inline.every((node) => node.type === 'text' && !node.marks?.length) &&
+      inline.map((node) => node.text ?? '').join('') === text
+    );
+  } catch {
+    return false;
+  }
+}
+
+// Block prefixes that can precede a selection on its first line: quotes,
+// bullets, ordered items, task boxes, and headings.
+const BLOCK_PREFIX_PATTERN =
+  /^(?:[ \t]*(?:>[ \t]?|[-+*][ \t]+(?:\[[ xX]\][ \t]+)?|\d{1,9}[.)][ \t]+(?:\[[ xX]\][ \t]+)?|#{1,6}[ \t]+))+$/;
+
+/**
+ * Structural edits need the selection's block syntax. A WYSIWYG selection of
+ * whole list items or a heading starts after its marker (`- `, `## `), so
+ * include the first line's prefix; otherwise "make a numbered list" would be
+ * nested inside the original bullet.
+ */
+export function expandSelectionToBlockPrefix(
+  snapshot: AiSelectionSnapshot,
+): AiSelectionSnapshot {
+  const { source } = snapshot;
+  const { start, end } = snapshot.characterRange;
+  const lineStart = source.lastIndexOf('\n', start - 1) + 1;
+  const prefix = source.slice(lineStart, start);
+  if (!prefix || !BLOCK_PREFIX_PATTERN.test(prefix)) return snapshot;
+  return captureSelection({
+    source,
+    start: lineStart,
+    end,
+    documentId: snapshot.documentId,
+    surface: snapshot.surface,
+    proseMirrorRange: snapshot.proseMirrorRange,
+    requiresReview: snapshot.requiresReview,
+  }) ?? snapshot;
 }
 
 function captureSelection(input: {

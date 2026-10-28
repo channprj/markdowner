@@ -813,6 +813,176 @@ pub fn validate_selection_response(
     validate_restored_protected_context(envelope, &proposed_markdown, &bindings, scope.start)?;
     validate_fixed_markdown_identifiers(&envelope.source, &proposed_markdown)?;
     validate_markdown_structure(&envelope.source, &proposed_markdown)?;
+    Ok(selection_validated_document(
+        envelope,
+        scope,
+        replacement,
+        proposed_markdown,
+        response.warnings,
+    ))
+}
+
+/// Structural edits (lists, tables, headings, emphasis) need the selection's
+/// Markdown syntax. Syntax stays visible; content whose exact bytes matter —
+/// code, link destinations, HTML, identifiers, and literals — stays opaque.
+fn is_selection_markdown_opaque(kind: ProtectedKind) -> bool {
+    !matches!(
+        kind,
+        ProtectedKind::Blank | ProtectedKind::MarkdownMarker | ProtectedKind::TableDelimiter
+    )
+}
+
+/// The selection as editable Markdown for a structural selection edit.
+pub fn selection_markdown_view(envelope: &AiDocumentEnvelope) -> String {
+    let mut text = envelope
+        .segments
+        .iter()
+        .map(|segment| segment.text.as_str())
+        .collect::<String>();
+    for token in &envelope.protected {
+        if !is_selection_markdown_opaque(token.kind) {
+            text = text.replacen(&token.placeholder, &token.original, 1);
+        }
+    }
+    text
+}
+
+/// True when a selection boundary cuts through Markdown syntax, so a
+/// structural rewrite of only one side could change the surrounding meaning.
+pub fn selection_splits_markdown_syntax(envelope: &AiDocumentEnvelope) -> bool {
+    let Some(scope) = envelope.selection else {
+        return false;
+    };
+    AiDocumentEnvelope::with_policy("selection-boundary", &envelope.source, None, envelope.policy)
+        .map(|full| {
+            full.protected.iter().any(|token| {
+                boundary_splits_range(scope.start, token.range)
+                    || boundary_splits_range(scope.end, token.range)
+            })
+        })
+        .unwrap_or(true)
+}
+
+/// Validates a structural selection edit returned as Markdown.
+///
+/// The provider may change Markdown syntax inside the selection. Opaque
+/// content must survive exactly once and in order, and every protected token
+/// outside the selection must keep its meaning in the proposed document.
+pub fn validate_selection_markdown_response(
+    envelope: &AiDocumentEnvelope,
+    replacement_markdown: &str,
+    warnings: Vec<String>,
+) -> Result<ValidatedDocument, ValidationError> {
+    let Some(scope) = envelope.selection else {
+        return Err(ValidationError::single(
+            ValidationIssueCode::SelectionRequired,
+            "A non-empty selection is required for direct replacement.",
+        ));
+    };
+    let opaque = envelope
+        .protected
+        .iter()
+        .filter(|token| is_selection_markdown_opaque(token.kind))
+        .collect::<Vec<_>>();
+    validate_protected_sequence(envelope, replacement_markdown, &opaque, None)?;
+    let (restored, _) = restore_text_with_bindings(envelope, replacement_markdown)?;
+    // Whitespace around the selection separates it from neighboring blocks;
+    // keep the original so a new list or table cannot absorb adjacent lines.
+    let original = &envelope.source[scope.start..scope.end];
+    let leading = &original[..original.len() - original.trim_start().len()];
+    let trailing = &original[original.trim_end().len()..];
+    let replacement = format!("{leading}{}{trailing}", restored.trim());
+    if replacement.trim().is_empty() {
+        return Err(ValidationError::single(
+            ValidationIssueCode::MissingSegment,
+            "The AI returned an empty replacement.",
+        ));
+    }
+    let proposed_markdown = format!(
+        "{}{}{}",
+        &envelope.source[..scope.start],
+        replacement,
+        &envelope.source[scope.end..]
+    );
+    if replacement.trim().contains('\n') && !selection_covers_whole_lines(&envelope.source, scope) {
+        return Err(ValidationError::single(
+            ValidationIssueCode::MarkdownStructureChanged,
+            "Multi-line Markdown needs a selection of whole lines.",
+        ));
+    }
+    validate_document_complexity(&proposed_markdown)?;
+    validate_fixed_markdown_identifiers(&envelope.source, &proposed_markdown)?;
+    validate_markdown_structure(&envelope.source, &proposed_markdown)?;
+    validate_selection_surroundings(envelope, scope, &proposed_markdown)?;
+    Ok(selection_validated_document(
+        envelope,
+        scope,
+        replacement,
+        proposed_markdown,
+        warnings,
+    ))
+}
+
+/// A block-level result replaces whole lines. Text before the selection may
+/// only be block prefixes (`>`, list markers, task boxes, headings), and the
+/// line must end with the selection; otherwise new lines would split inline
+/// syntax such as emphasis or links around the selection.
+fn selection_covers_whole_lines(source: &str, scope: ByteRange) -> bool {
+    let line_start = source[..scope.start].rfind('\n').map_or(0, |index| index + 1);
+    let mut prefix = &source[line_start..scope.start];
+    while let Some(end) = markdown_prefix_end(prefix)
+        .or_else(|| task_marker_regex().find(prefix).map(|matched| matched.end()))
+        .filter(|end| *end > 0)
+    {
+        prefix = &prefix[end..];
+    }
+    let line_end = source[scope.end..]
+        .find('\n')
+        .map_or(source.len(), |index| scope.end + index);
+    let ends_line = source[..scope.end].ends_with('\n') || source[scope.end..line_end].trim().is_empty();
+    prefix.trim().is_empty() && ends_line
+}
+
+fn validate_selection_surroundings(
+    envelope: &AiDocumentEnvelope,
+    scope: ByteRange,
+    proposed: &str,
+) -> Result<(), ValidationError> {
+    let original =
+        AiDocumentEnvelope::with_policy("selection-context", &envelope.source, None, envelope.policy)?;
+    let observed =
+        AiDocumentEnvelope::with_policy("selection-context", proposed, None, envelope.policy)?;
+    let observed_by_range = observed
+        .protected
+        .iter()
+        .map(|token| ((token.range.start, token.range.end), token))
+        .collect::<HashMap<_, _>>();
+    let length_delta = proposed.len() as i128 - envelope.source.len() as i128;
+    for token in &original.protected {
+        let expected = if token.range.end <= scope.start {
+            Some(token.range)
+        } else if token.range.start >= scope.end {
+            shift_byte_range(token.range, length_delta)
+        } else {
+            continue;
+        };
+        let matches = expected
+            .and_then(|range| observed_by_range.get(&(range.start, range.end)))
+            .is_some_and(|candidate| candidate.kind == token.kind && candidate.original == token.original);
+        if !matches {
+            return Err(fixed_identifier_error());
+        }
+    }
+    Ok(())
+}
+
+fn selection_validated_document(
+    envelope: &AiDocumentEnvelope,
+    scope: ByteRange,
+    replacement: String,
+    proposed_markdown: String,
+    warnings: Vec<String>,
+) -> ValidatedDocument {
     let original = envelope.source[scope.start..scope.end].to_string();
     let operation = ValidatedOperation {
         id: "selection:replace".to_string(),
@@ -824,7 +994,7 @@ pub fn validate_selection_response(
         finding_ids: Vec::new(),
     };
 
-    Ok(ValidatedDocument {
+    ValidatedDocument {
         source_revision_hash: envelope.revision_hash.clone(),
         proposed_markdown,
         validation: ValidationReport {
@@ -843,7 +1013,7 @@ pub fn validate_selection_response(
         assumptions: Vec::new(),
         detected_source_language: None,
         target_language: None,
-        warnings: response.warnings,
+        warnings,
         source: envelope.source.clone(),
         scope,
         segments: vec![EditableSegment {
@@ -851,7 +1021,7 @@ pub fn validate_selection_response(
             range: scope,
             text: original,
         }],
-    })
+    }
 }
 
 pub fn validate_full_replacement(

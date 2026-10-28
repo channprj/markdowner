@@ -80,7 +80,15 @@ export interface AiRunRequest {
   scope?: AiRunScope;
   interviewId?: string | null;
   resume?: boolean;
+  /** Selection prompts only; see `AiSelectionFormat`. */
+  selectionFormat?: AiSelectionFormat;
 }
+
+/**
+ * `text` edits prose fragments and keeps Markdown structure; `markdown` lets
+ * the model rewrite the selection's Markdown (lists, tables, headings).
+ */
+export type AiSelectionFormat = 'text' | 'markdown';
 
 export type AiInterviewStatus =
   | 'awaiting_model'

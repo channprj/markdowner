@@ -23,7 +23,7 @@ async fn configured_provider_translates_dense_inline_markdown_with_local_structu
     assert!(envelope.protected.len() > 105);
     let completion_request = AiCompletionRequest {
         system_prompt: None, task: request.task, model: request.model.clone(),
-        document: serde_json::to_value(&envelope).unwrap(), selection:true,
+        document: serde_json::to_value(&envelope).unwrap(), selection:true, selection_markdown:false,
         target_language:None, instruction:request.instruction.clone(), zdr_only:true, max_output_tokens:8192,
     };
     let mut received = 0;

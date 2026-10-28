@@ -9,11 +9,11 @@ use std::{
 use markdowner_core::ai_document::{
     AiDocumentEnvelope, ByteRange, PrdResponse, ProtectionPolicy,
     SummaryResponse, TranslationResponse, ValidatedDocument, ValidationError,
-    validate_batched_translation, validate_prd_response, validate_selection_response,
+    selection_splits_markdown_syntax, validate_batched_translation, validate_prd_response,
     validate_summary_response, validate_translation,
 };
 #[cfg(test)]
-use markdowner_core::ai_document::SelectionResponse;
+use markdowner_core::ai_document::{SelectionResponse, validate_selection_response};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State, ipc::Channel};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -407,6 +407,19 @@ pub struct AiRunRequest {
     pub interview_id: Option<String>,
     #[serde(default)]
     pub resume: bool,
+    #[serde(default)]
+    pub selection_format: SelectionFormat,
+}
+
+/// How a selection prompt may change the selected Markdown. `Text` rewrites
+/// prose fragments and keeps every Markdown token; `Markdown` lets the
+/// provider restructure the selection (lists, tables, headings, emphasis).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SelectionFormat {
+    #[default]
+    Text,
+    Markdown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1001,6 +1014,7 @@ where F: FnMut(usize, u32, u32, &str),
             instruction: Some("Prepare compact context for a PRD discovery interview. Use at most 150 words per part. Preserve actors, requirements, constraints, dependencies, metrics, unresolved questions, and decisions already answered. Do not ask questions or invent facts.".to_string()),
             system_prompt: None, zdr_only: request.zdr_only, max_output_tokens: 2_048,
             record_history: false, scope: None, interview_id: None, resume: false,
+            selection_format: SelectionFormat::Text,
         };
         let envelope = prepare_run_envelope(&digest_request)?;
         let mut digest_received = 0;
@@ -1151,6 +1165,7 @@ pub async fn ai_run(
         model: request.model.clone(),
         document,
         selection: request.selection.is_some(),
+        selection_markdown: false,
         target_language: request.target_language.clone(),
         instruction: request.instruction.clone(),
         zdr_only: request.zdr_only,
@@ -1193,6 +1208,12 @@ pub async fn ai_run(
         request.selection.is_some(),
         openrouter::provider_document(&completion_request.document, request.task).to_string().len(),
     );
+    // Oversized selections and selections that cut through Markdown syntax
+    // fall back to text-fragment edits, which keep all structure in place.
+    let completion_request = AiCompletionRequest {
+        selection_markdown: !proactive_chunks && uses_selection_markdown(&request, &envelope),
+        ..completion_request
+    };
     let initial_outcome = if proactive_chunks {
         None
     } else {
@@ -1514,6 +1535,7 @@ where F: FnMut(usize, u32, u32, &str),
             model: request.model.clone(),
             document: serde_json::to_value(&chunk).map_err(|_| AiError::new("invalid_document", "Could not encode a document part."))?,
             selection: chunk.selection.is_some(),
+            selection_markdown: false,
             target_language: request.target_language.clone(),
             instruction: request.instruction.clone(),
             zdr_only: request.zdr_only,
@@ -1622,6 +1644,13 @@ fn merge_chunk_contents(task: AiTask, selection: bool, contents: Vec<String>) ->
 fn recovery_chunk_limit(source_bytes: usize) -> u32 {
     let estimated = u32::try_from(source_bytes.saturating_add(3) / 4).unwrap_or(u32::MAX);
     (estimated / 2).clamp(1, RECOVERY_CHUNK_INPUT_TOKENS)
+}
+
+fn uses_selection_markdown(request: &AiRunRequest, envelope: &AiDocumentEnvelope) -> bool {
+    request.task == AiTask::Custom
+        && request.selection.is_some()
+        && request.selection_format == SelectionFormat::Markdown
+        && !selection_splits_markdown_syntax(envelope)
 }
 
 fn should_prechunk_request(task: AiTask, _selection: bool, source_bytes: usize) -> bool {
@@ -1778,6 +1807,7 @@ async fn run_chunked_translation(
             model: request.model.clone(),
             document,
             selection: false,
+            selection_markdown: false,
             target_language: request.target_language.clone(),
             instruction: request.instruction.clone(),
             zdr_only: request.zdr_only,
@@ -2331,10 +2361,7 @@ fn validate_provider_result(
                 validate_prd_response(envelope, response).map_err(validation_issues)
             }),
         AiTask::Custom if envelope.selection.is_some() => {
-            selection_edits::restore_response(envelope, content)
-                .and_then(|response| {
-                    validate_selection_response(envelope, response).map_err(validation_issues)
-                })
+            selection_edits::validate_response(envelope, content)
         }
         AiTask::Custom => serde_json::from_str::<PrdResponse>(content)
             .map_err(schema_error)
@@ -2544,6 +2571,7 @@ mod tests {
             scope: None,
             interview_id: None,
             resume: false,
+            selection_format: super::SelectionFormat::Text,
         }
     }
 
@@ -2741,6 +2769,7 @@ mod tests {
             scope: None,
             interview_id: None,
             resume: true,
+            selection_format: super::SelectionFormat::Text,
         };
         let original = AiDocumentEnvelope::with_policy(
             &request.document_id,

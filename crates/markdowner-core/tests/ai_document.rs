@@ -2,7 +2,8 @@ use markdowner_core::ai_document::{
     AI_SCHEMA_VERSION, AiDocumentEnvelope, ByteRange, OperationKind, PrdFinding, PrdOperation,
     PrdResponse, ProtectedKind, ProtectionPolicy, SelectionResponse, SummaryResponse,
     TranslationResponse, TranslationSegment, ValidationIssueCode, markdown_block_ranges,
-    validate_prd_response, validate_selection_response, validate_summary_response,
+    selection_markdown_view, selection_splits_markdown_syntax, validate_prd_response,
+    validate_selection_markdown_response, validate_selection_response, validate_summary_response,
     validate_translation,
 };
 use serde::Deserialize;
@@ -701,4 +702,152 @@ fn markdown_block_ranges_partition_frontmatter_tables_and_fences_exactly() {
     assert!(blocks.iter().all(|block| {
         source.is_char_boundary(block.range.start) && source.is_char_boundary(block.range.end)
     }));
+}
+
+fn selection_envelope(source: &str, selected: &str) -> AiDocumentEnvelope {
+    let start = source.find(selected).expect("selected text");
+    AiDocumentEnvelope::new(
+        "doc-1",
+        source,
+        Some(ByteRange {
+            start,
+            end: start + selected.len(),
+        }),
+    )
+    .expect("selection envelope")
+}
+
+#[test]
+fn selection_markdown_view_shows_syntax_and_masks_exact_content() {
+    let source = "Intro\n\n- **Ship** [docs](/guide) with `cfg` by 2026\n- Next\n\nOutro\n";
+    let envelope = selection_envelope(source, "- **Ship** [docs](/guide) with `cfg` by 2026\n- Next");
+    let view = selection_markdown_view(&envelope);
+
+    assert!(view.starts_with("- **Ship** [docs]("), "{view}");
+    assert!(view.ends_with("\n- Next"), "{view}");
+    for opaque in ["/guide", "`cfg`", "2026"] {
+        assert!(!view.contains(opaque), "{opaque} should stay opaque: {view}");
+    }
+}
+
+#[test]
+fn selection_markdown_response_turns_a_paragraph_into_a_list() {
+    let source = "# Groceries\n\nBuy apples, pears, and [plums](/plums).\n\nDone.\n";
+    let envelope = selection_envelope(source, "Buy apples, pears, and [plums](/plums).");
+    let view = selection_markdown_view(&envelope);
+    let destination = view
+        .split("](")
+        .nth(1)
+        .and_then(|rest| rest.split(')').next())
+        .expect("masked destination")
+        .to_string();
+    let replacement = format!("- apples\n- pears\n- [plums]({destination})\n");
+
+    let validated = validate_selection_markdown_response(&envelope, &replacement, Vec::new())
+        .expect("structural edit validates");
+
+    assert_eq!(
+        validated.proposed_markdown,
+        "# Groceries\n\n- apples\n- pears\n- [plums](/plums)\n\nDone.\n"
+    );
+    assert_eq!(validated.operations[0].proposed_markdown, "- apples\n- pears\n- [plums](/plums)");
+}
+
+#[test]
+fn selection_markdown_response_can_remove_and_change_syntax() {
+    let source = "Before\n\n## Old *title*\n\n1. one\n2. two\n\nAfter\n";
+    let envelope = selection_envelope(source, "## Old *title*\n\n1. one\n2. two");
+
+    let validated = validate_selection_markdown_response(
+        &envelope,
+        "**New title**\n\n- [ ] one\n- [ ] two",
+        Vec::new(),
+    )
+    .expect("syntax changes validate");
+
+    assert_eq!(
+        validated.proposed_markdown,
+        "Before\n\n**New title**\n\n- [ ] one\n- [ ] two\n\nAfter\n"
+    );
+}
+
+#[test]
+fn selection_markdown_response_requires_opaque_content_once_and_in_order() {
+    let source = "Use `alpha` then `beta` in 2026.\n";
+    let envelope = selection_envelope(source, "Use `alpha` then `beta` in 2026.");
+    let view = selection_markdown_view(&envelope);
+
+    let dropped = view.replacen("`", "", 0);
+    let placeholders = envelope
+        .protected
+        .iter()
+        .map(|token| token.placeholder.clone())
+        .collect::<Vec<_>>();
+    assert!(placeholders.len() >= 3);
+
+    let missing = dropped.replace(&placeholders[0], "");
+    let error = validate_selection_markdown_response(&envelope, &missing, Vec::new())
+        .expect_err("missing code span");
+    assert_eq!(error.issues[0].code, ValidationIssueCode::ProtectedTokenMissing);
+
+    let reordered = view
+        .replace(&placeholders[0], "@@first@@")
+        .replace(&placeholders[1], &placeholders[0])
+        .replace("@@first@@", &placeholders[1]);
+    let error = validate_selection_markdown_response(&envelope, &reordered, Vec::new())
+        .expect_err("reordered code spans");
+    assert!(error
+        .issues
+        .iter()
+        .any(|issue| issue.code == ValidationIssueCode::ProtectedTokenReordered));
+
+    let unknown = format!("{view} ⟪MDNER_000000000000_P99999⟫");
+    let error = validate_selection_markdown_response(&envelope, &unknown, Vec::new())
+        .expect_err("unknown placeholder");
+    assert_eq!(error.issues[0].code, ValidationIssueCode::UnknownProtectedToken);
+}
+
+#[test]
+fn selection_markdown_response_keeps_the_selection_separated_from_neighbors() {
+    let source = "First paragraph.\nSecond line.\n\nNext.\n";
+    let envelope = selection_envelope(source, "First paragraph.\n");
+
+    let validated =
+        validate_selection_markdown_response(&envelope, "  - first\n  - paragraph  ", Vec::new())
+            .expect("trimmed replacement");
+
+    assert_eq!(
+        validated.proposed_markdown,
+        "- first\n  - paragraph\nSecond line.\n\nNext.\n"
+    );
+}
+
+#[test]
+fn selection_markdown_response_rejects_breaking_markdown_outside_the_selection() {
+    let source = "Start **bold text** end.\n";
+    let envelope = selection_envelope(source, "bold");
+
+    let error = validate_selection_markdown_response(&envelope, "bold\n\nmore", Vec::new())
+        .expect_err("a block split inside emphasis would change meaning");
+    assert_eq!(error.issues[0].code, ValidationIssueCode::MarkdownStructureChanged);
+
+    let item = "- [ ] > one two\n";
+    let nested = selection_envelope(item, "one two");
+    validate_selection_markdown_response(&nested, "one\ntwo", Vec::new())
+        .expect("whole-line selections may become multi-line");
+
+    let error = validate_selection_markdown_response(&envelope, "", Vec::new())
+        .expect_err("empty replacement");
+    assert_eq!(error.issues[0].code, ValidationIssueCode::MissingSegment);
+}
+
+#[test]
+fn selection_boundary_detection_reports_split_markdown_syntax() {
+    let source = "Read [docs](/private/path) safely.\n";
+    let inside = AiDocumentEnvelope::new("doc-1", source, Some(ByteRange { start: 13, end: 20 }))
+        .expect("selection envelope");
+    assert!(selection_splits_markdown_syntax(&inside));
+
+    let whole = selection_envelope(source, "Read [docs](/private/path) safely.");
+    assert!(!selection_splits_markdown_syntax(&whole));
 }

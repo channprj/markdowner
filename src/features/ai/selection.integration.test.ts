@@ -4,7 +4,12 @@ import StarterKit from '@tiptap/starter-kit';
 import { undoDepth } from '@tiptap/pm/history';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { applyWysiwygSelectionReplacement, captureWysiwygSelection, captureWysiwygEditorSelection } from './selection';
+import {
+  applyWysiwygSelectionReplacement,
+  captureWysiwygSelection,
+  captureWysiwygEditorSelection,
+  expandSelectionToBlockPrefix,
+} from './selection';
 
 let editor: Editor | undefined;
 afterEach(() => editor?.destroy());
@@ -61,5 +66,82 @@ describe('inline AI replacement in the real Markdown editor', () => {
     expect(editor.state).toBe(previousState);
     expect(editor.getMarkdown()).toBe('alpha beta');
     expect(undoDepth(editor.state)).toBe(0);
+  });
+
+  function editorWith(source: string) {
+    editor = new Editor({ extensions: [StarterKit, Markdown], content: source, contentType: 'markdown' });
+    editor.commands.setTextSelection(1);
+    return editor.getMarkdown();
+  }
+
+  function rangeOf(text: string): { from: number; to: number } {
+    let from = -1;
+    editor!.state.doc.descendants((node, pos) => {
+      const offset = node.isText ? node.text!.indexOf(text) : -1;
+      if (offset >= 0 && from < 0) from = pos + offset;
+    });
+    expect(from).toBeGreaterThan(0);
+    return { from, to: from + text.length };
+  }
+
+  it('renders Markdown formatting from the result instead of literal syntax', () => {
+    const source = editorWith('alpha beta gamma');
+    const { from, to } = rangeOf('beta');
+    const snapshot = captureWysiwygEditorSelection({ editor: editor!, documentId: 'doc', source, from, to })!;
+
+    expect(applyWysiwygSelectionReplacement({ editor: editor!, snapshot, currentSource: source,
+      replacement: '**BETA**' })).toBe(true);
+
+    expect(editor!.getMarkdown()).toBe(source.replace('beta', '**BETA**'));
+    expect(editor!.state.doc.textContent).not.toContain('**');
+    let bold = false;
+    editor!.state.doc.descendants((node) => {
+      if (node.text === 'BETA') bold = node.marks.some((mark) => mark.type.name === 'bold');
+    });
+    expect(bold).toBe(true);
+  });
+
+  it('turns a paragraph into a real list and undoes in one step', () => {
+    const source = editorWith('Intro\n\napples, pears, plums\n\nOutro');
+    const historyDepth = undoDepth(editor!.state);
+    const { from, to } = rangeOf('apples, pears, plums');
+    const snapshot = captureWysiwygEditorSelection({ editor: editor!, documentId: 'doc', source, from, to })!;
+
+    expect(applyWysiwygSelectionReplacement({ editor: editor!, snapshot, currentSource: source,
+      replacement: '- apples\n- pears\n- plums' })).toBe(true);
+
+    const types: string[] = [];
+    editor!.state.doc.forEach((node) => types.push(node.type.name));
+    expect(types.slice(0, 3)).toEqual(['paragraph', 'bulletList', 'paragraph']);
+    expect(editor!.state.doc.child(1).childCount).toBe(3);
+    expect(editor!.state.doc.textContent).not.toContain('- ');
+    expect(undoDepth(editor!.state)).toBe(historyDepth + 1);
+    expect(editor!.commands.undo()).toBe(true);
+    expect(editor!.getMarkdown()).toBe(source);
+  });
+
+  it('includes block markers so whole list items can change list type', () => {
+    const source = editorWith('- one\n- two\n\nAfter');
+    const start = rangeOf('one').from;
+    const end = rangeOf('two').to;
+    const captured = captureWysiwygEditorSelection({ editor: editor!, documentId: 'doc', source, from: start, to: end })!;
+    expect(captured.selectedText).toBe('one\n- two');
+
+    const snapshot = expandSelectionToBlockPrefix(captured);
+    expect(snapshot.selectedText).toBe('- one\n- two');
+    expect(snapshot.characterRange.start).toBe(0);
+    expect(snapshot.byteRange).toEqual({ start: 0, end: '- one\n- two'.length });
+
+    expect(applyWysiwygSelectionReplacement({ editor: editor!, snapshot, currentSource: source,
+      replacement: '1. one\n2. two' })).toBe(true);
+    expect(editor!.state.doc.child(0).type.name).toBe('orderedList');
+    expect(editor!.getMarkdown()).toContain('1. one\n2. two');
+  });
+
+  it('keeps a mid-line selection unchanged when expanding block prefixes', () => {
+    const source = editorWith('- one two');
+    const { from, to } = rangeOf('two');
+    const captured = captureWysiwygEditorSelection({ editor: editor!, documentId: 'doc', source, from, to })!;
+    expect(expandSelectionToBlockPrefix(captured)).toBe(captured);
   });
 });

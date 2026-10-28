@@ -2,11 +2,14 @@
 //! never the opaque tokens representing links, code, or Markdown delimiters.
 use std::collections::{BTreeMap, HashMap};
 
-use markdowner_core::ai_document::{AiDocumentEnvelope, SelectionResponse};
+use markdowner_core::ai_document::{
+    AiDocumentEnvelope, SelectionResponse, ValidatedDocument, selection_markdown_view,
+    validate_selection_markdown_response,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{AiValidationIssue, schema_error};
+use super::{AiValidationIssue, schema_error, validation_issues};
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -128,6 +131,67 @@ pub(super) fn response_schema(document: &Value) -> Value {
                 "required":required,"properties":properties},
             "warnings":{"type":"array","items":{"type":"string"}}
         }
+    })
+}
+
+/// A structural selection edit: the provider rewrites the selection's
+/// Markdown, so formatting requests become real Markdown syntax.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SelectionMarkdownResponse {
+    #[serde(alias = "schemaVersion")]
+    pub schema_version: u32,
+    #[serde(alias = "replacementMarkdown")]
+    pub replacement_markdown: String,
+    pub warnings: Vec<String>,
+}
+
+pub(super) fn markdown_provider_document(document: &Value) -> Value {
+    let markdown = serde_json::from_value::<AiDocumentEnvelope>(document.clone())
+        .map(|envelope| selection_markdown_view(&envelope))
+        .unwrap_or_default();
+    json!({"selection_markdown": markdown})
+}
+
+pub(super) fn markdown_response_schema() -> Value {
+    json!({
+        "type":"object", "additionalProperties":false,
+        "required":["schema_version","replacement_markdown","warnings"],
+        "properties": {
+            "schema_version":{"type":"integer","const":1},
+            "replacement_markdown":{"type":"string"},
+            "warnings":{"type":"array","items":{"type":"string"}}
+        }
+    })
+}
+
+/// Structural (Markdown) results and text-fragment results share one
+/// validation entry point; the response shape identifies the mode.
+pub(super) fn validate_response(
+    envelope: &AiDocumentEnvelope,
+    content: &str,
+) -> Result<ValidatedDocument, Vec<AiValidationIssue>> {
+    if let Ok(response) = serde_json::from_str::<SelectionMarkdownResponse>(content) {
+        if response.schema_version != 1 {
+            return Err(vec![AiValidationIssue {
+                code: "invalid_schema".to_string(),
+                message: format!(
+                    "Unsupported schema version {}; expected 1.",
+                    response.schema_version
+                ),
+                segment_id: None,
+            }]);
+        }
+        return validate_selection_markdown_response(
+            envelope,
+            &response.replacement_markdown,
+            response.warnings,
+        )
+        .map_err(validation_issues);
+    }
+    restore_response(envelope, content).and_then(|response| {
+        markdowner_core::ai_document::validate_selection_response(envelope, response)
+            .map_err(validation_issues)
     })
 }
 
@@ -299,6 +363,48 @@ mod tests {
         assert_eq!(
             validated.proposed_markdown,
             "[안녕](https://private.example.test) outside"
+        );
+    }
+
+    #[test]
+    fn markdown_responses_validate_structural_edits_and_text_responses_still_work() {
+        let source = "Intro\n\nApples, pears, and `plums`.\n\nOutro\n";
+        let start = source.find("Apples").unwrap();
+        let end = start + "Apples, pears, and `plums`.".len();
+        let envelope = AiDocumentEnvelope::new("doc", source, Some(ByteRange { start, end })).unwrap();
+        let document = serde_json::to_value(&envelope).unwrap();
+        let view = markdown_provider_document(&document)["selection_markdown"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let code = envelope.protected.iter().find(|token| token.original == "`plums`").unwrap();
+        assert!(view.contains(&code.placeholder));
+
+        let content = json!({
+            "schema_version": 1,
+            "replacement_markdown": format!("- Apples\n- pears\n- {}", code.placeholder),
+            "warnings": []
+        })
+        .to_string();
+        let validated = validate_response(&envelope, &content).unwrap();
+        assert_eq!(
+            validated.proposed_markdown,
+            "Intro\n\n- Apples\n- pears\n- `plums`\n\nOutro\n"
+        );
+
+        let missing = json!({"schema_version":1,"replacement_markdown":"- Apples\n- pears","warnings":[]});
+        assert!(validate_response(&envelope, &missing.to_string()).is_err());
+
+        let text_mode = json!({
+            "schema_version": 1,
+            "replacements": provider_document(&document)["segments"].as_array().unwrap().iter()
+                .map(|segment| (segment["id"].as_str().unwrap().to_string(), segment["text"].clone()))
+                .collect::<serde_json::Map<_, _>>(),
+            "warnings": []
+        });
+        assert_eq!(
+            validate_response(&envelope, &text_mode.to_string()).unwrap().proposed_markdown,
+            source
         );
     }
 }
