@@ -21,6 +21,7 @@ const activeDocumentDiskSourceMock = vi.fn();
 const importThemeMock = vi.fn();
 const hasActiveDocumentExternalChangesMock = vi.fn();
 const reloadActiveDocumentFromDiskMock = vi.fn();
+const takePendingExternalOpensMock = vi.fn();
 const newDocumentMock = vi.fn();
 const newWindowMock = vi.fn();
 const openDocumentMock = vi.fn();
@@ -100,6 +101,7 @@ vi.mock('./lib/desktop', () => ({
   importTheme: importThemeMock,
   hasActiveDocumentExternalChanges: hasActiveDocumentExternalChangesMock,
   reloadActiveDocumentFromDisk: reloadActiveDocumentFromDiskMock,
+  takePendingExternalOpens: takePendingExternalOpensMock,
   newDocument: newDocumentMock,
   newWindow: newWindowMock,
   openDocument: openDocumentMock,
@@ -1023,6 +1025,8 @@ describe('App recent documents', () => {
     listenMock.mockReset();
     hasActiveDocumentExternalChangesMock.mockReset();
     reloadActiveDocumentFromDiskMock.mockReset();
+    takePendingExternalOpensMock.mockReset();
+    takePendingExternalOpensMock.mockResolvedValue([]);
     invokeMock.mockReset();
     sourceSkillHighlightMock.create.mockClear();
     tiptapMockState.editor = null;
@@ -12474,6 +12478,121 @@ describe('App recent documents', () => {
       );
       expect(screen.queryByTestId('settings-panel')).not.toBeInTheDocument();
     });
+  });
+
+  it('opens a queued native file after restoring the previous session instead of the previous document', async () => {
+    const previousPath = '/tmp/project/previous.md';
+    const requestedPath = '/tmp/project/requested.md';
+    loadOpenTabsMock.mockResolvedValue({
+      openTabs: [previousPath],
+      activeTabPath: previousPath,
+      cursorPositions: {},
+    });
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+    openDocumentMock.mockImplementation(async (path: string) =>
+      baseSnapshot({
+        activeDocumentName: path.split('/').pop(),
+        activeDocumentPath: path,
+        activeDocumentSource: path === requestedPath ? '# Requested' : '# Previous',
+        mode: 'Editor',
+      }),
+    );
+    // Finder delivered the file before the webview could listen for it.
+    takePendingExternalOpensMock
+      .mockResolvedValueOnce([requestedPath])
+      .mockResolvedValue([]);
+
+    const { default: App } = await import('./App');
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /requested\.md/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+    });
+    expect(screen.getByRole('tab', { name: /previous\.md/i })).toBeInTheDocument();
+    expect(screen.getByLabelText('Source editor')).toHaveValue('# Requested');
+    expect(openDocumentMock).toHaveBeenLastCalledWith(requestedPath);
+  });
+
+  it('drains queued native opens when a running window is notified', async () => {
+    let externalOpenHandler: (() => void) | undefined;
+    const defaultListen = listenMock.getMockImplementation();
+    listenMock.mockImplementation(async (eventName: string, handler: () => void) => {
+      if (eventName === 'markdowner://external-open-requested') externalOpenHandler = handler;
+      return defaultListen?.(eventName, handler) ?? vi.fn();
+    });
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
+    openDocumentMock.mockImplementation(async (path: string) =>
+      baseSnapshot({
+        activeDocumentName: path.split('/').pop(),
+        activeDocumentPath: path,
+        activeDocumentSource: '# Agent prompt',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByRole('tab', { name: /meeting-notes\.md/i });
+    await waitFor(() => expect(externalOpenHandler).toBeTypeOf('function'));
+    await waitFor(() => expect(takePendingExternalOpensMock).toHaveBeenCalled());
+
+    takePendingExternalOpensMock
+      .mockResolvedValueOnce(['/tmp/claude-prompt.md'])
+      .mockResolvedValue([]);
+    await act(async () => {
+      externalOpenHandler?.();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /claude-prompt\.md/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+    });
+    expect(screen.getByLabelText('Source editor')).toHaveValue('# Agent prompt');
+    expect(openDocumentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('switches to an already-open tab for a queued native open', async () => {
+    const alphaPath = '/tmp/project/alpha.md';
+    const betaPath = '/tmp/project/beta.md';
+    loadOpenTabsMock.mockResolvedValue({
+      openTabs: [alphaPath, betaPath],
+      activeTabPath: alphaPath,
+      cursorPositions: {},
+    });
+    bootstrapMock.mockResolvedValue(baseSnapshot());
+    openDocumentMock.mockImplementation(async (path: string) =>
+      baseSnapshot({
+        activeDocumentName: path.split('/').pop(),
+        activeDocumentPath: path,
+        activeDocumentSource: path === alphaPath ? '# Alpha' : '# Beta',
+        mode: 'Editor',
+      }),
+    );
+    takePendingExternalOpensMock.mockResolvedValueOnce([betaPath]).mockResolvedValue([]);
+
+    const { default: App } = await import('./App');
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /beta\.md/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+    });
+    expect(screen.getAllByRole('tab', { name: /beta\.md/i })).toHaveLength(1);
+    expect(screen.getByLabelText('Source editor')).toHaveValue('# Beta');
   });
 
   it('applies native update-snapshot events from external file opens', async () => {

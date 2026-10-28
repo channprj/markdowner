@@ -1419,6 +1419,85 @@ const CLI_WAIT_SOCKET_FILE: &str = "dev.chann.markdowner.cli-wait.sock";
 /// Open streams blocked on `--wait`, keyed by the canonical document path.
 struct PendingCliWaits(Mutex<HashMap<String, Vec<UnixStream>>>);
 
+const EXTERNAL_OPEN_REQUESTED_EVENT: &str = "markdowner://external-open-requested";
+
+/// Documents requested from outside the app (Finder, a second `markdowner`
+/// launch, `mdner --wait`) wait here until the main window drains them.
+///
+/// Activating them in the backend and pushing a snapshot event raced the
+/// frontend's session restore: an event sent before the webview listened was
+/// lost, and a restore that finished later re-activated the previously viewed
+/// document. The frontend drains this queue only after its restore settles,
+/// through the same open flow as an in-app open, so the request always wins.
+#[derive(Default)]
+struct PendingExternalOpens(Mutex<Vec<String>>);
+
+impl PendingExternalOpens {
+    fn push(&self, paths: impl IntoIterator<Item = String>) {
+        if let Ok(mut pending) = self.0.lock() {
+            for path in paths {
+                if !pending.contains(&path) {
+                    pending.push(path);
+                }
+            }
+        }
+    }
+
+    fn take(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .map(|mut pending| std::mem::take(&mut *pending))
+            .unwrap_or_default()
+    }
+}
+
+/// Route native open requests: documents are queued for the main window and
+/// folders still open directly as the main window's workspace.
+fn request_external_opens(app: &AppHandle, paths: &[PathBuf]) {
+    if paths.is_empty() || app.state::<session_flush::SessionFlush>().is_pending() {
+        return;
+    }
+    let (folders, documents): (Vec<&PathBuf>, Vec<&PathBuf>) =
+        paths.iter().partition(|path| path.is_dir());
+
+    if !folders.is_empty()
+        && let Some(window) = app.get_webview_window("main")
+        && let Ok(mut backend) = app.state::<DesktopAppState>().main.lock()
+    {
+        backend.set_ignore_list(load_desktop_settings(app).unwrap_or_default().ignore_list);
+        for folder in folders {
+            if backend.open_workspace(folder).is_ok() {
+                let _ = window.emit("markdowner://update-snapshot", backend.snapshot());
+            }
+        }
+    }
+
+    if !documents.is_empty() {
+        app.state::<PendingExternalOpens>().push(
+            documents
+                .into_iter()
+                .map(|path| path.to_string_lossy().into_owned()),
+        );
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.emit_to(window.label(), EXTERNAL_OPEN_REQUESTED_EVENT, ());
+        }
+    }
+    focus_main_window(app);
+}
+
+/// Frontend hook: the main window takes queued external opens once its
+/// session restore has settled. Other windows never receive them.
+#[tauri::command]
+fn take_pending_external_opens(
+    window: WebviewWindow,
+    pending: State<'_, PendingExternalOpens>,
+) -> Vec<String> {
+    if window.label() != "main" {
+        return Vec::new();
+    }
+    pending.take()
+}
+
 fn cli_wait_socket_path() -> PathBuf {
     env::temp_dir().join(CLI_WAIT_SOCKET_FILE)
 }
@@ -1520,14 +1599,14 @@ fn handle_cli_wait_connection(app_handle: AppHandle, stream: UnixStream) {
     let key = cli_wait_key(&path);
 
     // Open the file as a normal tab in the running app and pull it forward.
-    let state = app_handle.state::<DesktopAppState>();
-    if !app_handle.state::<session_flush::SessionFlush>().is_pending()
-        && let Ok(mut backend) = state.main.lock() {
-        let _ = backend.open_document(&path);
+    if !app_handle.state::<session_flush::SessionFlush>().is_pending() {
+        app_handle
+            .state::<PendingExternalOpens>()
+            .push([path.to_string_lossy().into_owned()]);
         if let Some(window) = app_handle.get_webview_window("main") {
-            focus_main_window(&app_handle);
-            let _ = window.emit("markdowner://update-snapshot", backend.snapshot());
+            let _ = window.emit_to(window.label(), EXTERNAL_OPEN_REQUESTED_EVENT, ());
         }
+        focus_main_window(&app_handle);
     }
 
     if let Ok(mut pending) = app_handle.state::<PendingCliWaits>().0.lock() {
@@ -2294,31 +2373,20 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // Managed before any plugin so a second launch racing this one's
+        // setup can already queue its documents.
+        .manage(PendingExternalOpens::default())
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             focus_main_window(app);
-            if let Some(window) = app.get_webview_window("main") {
-                let cwd_path = Path::new(&cwd);
-                let cwd_arg = if cwd_path.as_os_str().is_empty() {
-                    None
-                } else {
-                    Some(cwd_path)
-                };
-                let paths = resolve_cli_open_paths(argv.iter().skip(1), cwd_arg);
-                if !paths.is_empty() {
-                    let ignore_list = load_desktop_settings(app).unwrap_or_default().ignore_list;
-                    let state = app.state::<DesktopAppState>();
-                    if !app.state::<session_flush::SessionFlush>().is_pending()
-                        && let Ok(mut backend) = state.main.lock() {
-                        backend.set_ignore_list(ignore_list);
-                        let snapshots = open_startup_paths_with_snapshots(&mut backend, &paths)
-                            .unwrap_or_else(|_| vec![backend.snapshot()]);
-                        for snapshot in snapshots {
-                            let _ = window.emit("markdowner://update-snapshot", snapshot);
-                        }
-                    }
-                }
-            }
+            let cwd_path = Path::new(&cwd);
+            let cwd_arg = if cwd_path.as_os_str().is_empty() {
+                None
+            } else {
+                Some(cwd_path)
+            };
+            let paths = resolve_cli_open_paths(argv.iter().skip(1), cwd_arg);
+            request_external_opens(app, &paths);
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -2385,6 +2453,7 @@ pub fn run() {
             close_window_session,
             open_document,
             activate_startup_document,
+            take_pending_external_opens,
             open_workspace,
             open_workspace_document,
             replace_active_document_source,
@@ -2520,22 +2589,9 @@ pub fn run() {
                 let paths = urls
                     .iter()
                     .filter_map(|url| url.to_file_path().ok())
+                    .filter(|path| path.is_file() || path.is_dir())
                     .collect::<Vec<_>>();
-                if !paths.is_empty()
-                    && let Some(window) = app_handle.get_webview_window("main")
-                {
-                    let state = app_handle.state::<DesktopAppState>();
-                    if !app_handle.state::<session_flush::SessionFlush>().is_pending()
-                        && let Ok(mut backend) = state.main.lock() {
-                        let snapshots = open_startup_paths_with_snapshots(&mut backend, &paths)
-                            .unwrap_or_else(|_| vec![backend.snapshot()]);
-                        for snapshot in snapshots {
-                            let _ = window.emit("markdowner://update-snapshot", snapshot);
-                        }
-                    }
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                request_external_opens(app_handle, &paths);
             }
             // macOS: clicking the dock icon while the only window is hidden
             // (the user pressed ⌘W on an empty workspace) must bring the
@@ -3461,6 +3517,32 @@ mod tests {
         let snapshot = backend.snapshot();
         assert_eq!(snapshot.active_document_source.as_deref(), Some("# Local edits\n"));
         assert!(snapshot.active_document_dirty);
+    }
+
+    #[test]
+    fn pending_external_opens_drain_once_in_request_order_without_duplicates() {
+        let pending = super::PendingExternalOpens::default();
+        pending.push(["/tmp/a.md".to_string(), "/tmp/b.md".to_string()]);
+        pending.push(["/tmp/a.md".to_string(), "/tmp/c.md".to_string()]);
+
+        assert_eq!(pending.take(), vec!["/tmp/a.md", "/tmp/b.md", "/tmp/c.md"]);
+        assert!(pending.take().is_empty());
+    }
+
+    #[test]
+    fn native_open_requests_queue_documents_instead_of_activating_them() {
+        let source = include_str!("lib.rs");
+        for handler in ["fn handle_cli_wait_connection", "fn request_external_opens"] {
+            let body = function_body(source, handler).expect("handler body should be readable");
+            assert!(
+                body.contains("PendingExternalOpens"),
+                "{handler} must queue documents for the frontend's ordered open flow"
+            );
+            assert!(
+                !body.contains("open_document("),
+                "{handler} must not activate a document behind the frontend's session restore"
+            );
+        }
     }
 
     #[test]

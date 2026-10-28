@@ -108,6 +108,11 @@ export async function activateStartupDocument(path: string | null, expected: App
   });
 }
 
+/** Documents requested by Finder, a second launch, or `mdner --wait`, oldest first. */
+export async function takePendingExternalOpens() {
+  return invoke<string[]>('take_pending_external_opens');
+}
+
 export async function openWorkspace(path: string) {
   return invoke<AppSnapshot>('open_workspace', { path });
 }

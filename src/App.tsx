@@ -136,6 +136,7 @@ import {
   newWindow,
   openDocument,
   activateStartupDocument,
+  takePendingExternalOpens,
   openWorkspace,
   openWorkspaceDocument,
   openExternalUrl,
@@ -477,6 +478,7 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 
 const MENU_COMMAND_EVENT = 'markdowner://menu-command';
 const SNAPSHOT_UPDATE_EVENT = 'markdowner://update-snapshot';
+const EXTERNAL_OPEN_REQUESTED_EVENT = 'markdowner://external-open-requested';
 const NEW_WINDOW_QUERY_PARAM = 'markdownerNewWindow';
 const STARTUP_OPEN_TABS_RETRY_MS = 100;
 
@@ -557,6 +559,9 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [externalChangeMessage, setExternalChangeMessage] = useState<string | null>(null);
   const [showExternalChangeActions, setShowExternalChangeActions] = useState(false);
+  // A failed startup never marks its tabs ready, but queued native opens must
+  // still be delivered once restoration has given up.
+  const [startupFailed, setStartupFailed] = useState(false);
   const [externalCompareSource, setExternalCompareSource] = useState<string | null>(null);
   const [collapsedFolderKeys, setCollapsedFolderKeys] = useState<string[]>([]);
   const [workspaceFilter, setWorkspaceFilter] = useState('');
@@ -692,6 +697,7 @@ export default function App() {
   const externalCompareRequests = useLatestRequestTracker();
   const externalRefreshRequests = useLatestRequestTracker();
   const externalConflictPathsRef = useRef(new Set<string>());
+  const externalOpenDrainRef = useRef<Promise<void> | null>(null);
   const dismissedAiRequestIdsRef = useRef(new Set<string>());
   const externalRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const draftMirrorInFlightRef = useRef<Promise<void> | null>(null);
@@ -3095,12 +3101,14 @@ export default function App() {
         } catch (error) {
           if (!cancelled) {
             reportOperationError(error, 'Could not restore previous tabs');
+            setStartupFailed(true);
           }
         }
       })
       .catch((error) => {
         if (!cancelled) {
           reportOperationError(error, 'Could not start Markdowner');
+          setStartupFailed(true);
         }
       });
 
@@ -5601,8 +5609,10 @@ export default function App() {
     path: string,
     openPath: (path: string) => Promise<AppSnapshot>,
   ) => {
+    // Read live tabs: queued external opens run back to back, before React
+    // commits the tab added by the previous one.
     const pathTransition = resolveOpenDocumentPathTransition({
-      currentTabs: tabs,
+      currentTabs: tabsRef.current,
       path,
     });
 
@@ -6566,6 +6576,62 @@ export default function App() {
       })
       .catch((error) => {
         reportOperationError(error, 'Could not listen for native menu commands');
+      });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // Finder, a second `markdowner` launch, and `mdner --wait` queue documents in
+  // Rust. Draining only after this window's session restore settles means the
+  // request can neither be lost before the listener exists nor be replaced by
+  // the previously viewed document that restoration re-activates.
+  const drainPendingExternalOpens = useEffectEvent(() => {
+    if (sessionExit.deferWhileLocked(() => { drainPendingExternalOpens(); })) return;
+    if ((!startupTabsReadyRef.current && !startupFailed) || externalOpenDrainRef.current) return;
+    const drain = (async () => {
+      try {
+        for (;;) {
+          const paths = await takePendingExternalOpens();
+          if (paths.length === 0) return;
+          for (const path of paths) await openExternalDocument(path);
+        }
+      } catch (error) {
+        reportOperationError(error, 'Could not open the requested document');
+      } finally {
+        externalOpenDrainRef.current = null;
+      }
+    })();
+    externalOpenDrainRef.current = drain;
+  });
+
+  const openExternalDocument = useEffectEvent((path: string) =>
+    openKnownDocumentPath(path, openDocument),
+  );
+
+  useEffect(() => {
+    if (startupTabsReady || startupFailed) drainPendingExternalOpens();
+  }, [startupTabsReady, startupFailed]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    listen(EXTERNAL_OPEN_REQUESTED_EVENT, () => {
+      drainPendingExternalOpens();
+    })
+      .then((nextUnlisten) => {
+        if (cancelled) {
+          nextUnlisten();
+          return;
+        }
+
+        unlisten = nextUnlisten;
+      })
+      .catch((error) => {
+        reportOperationError(error, 'Could not listen for external file opens');
       });
 
     return () => {

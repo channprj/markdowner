@@ -17,6 +17,7 @@ const activeDocumentDiskSourceMock = vi.fn();
 const importThemeMock = vi.fn();
 const hasActiveDocumentExternalChangesMock = vi.fn();
 const reloadActiveDocumentFromDiskMock = vi.fn();
+const takePendingExternalOpensMock = vi.fn();
 const newDocumentMock = vi.fn();
 const openDocumentMock = vi.fn();
 const activateStartupDocumentMock = vi.fn();
@@ -55,6 +56,7 @@ vi.mock('./lib/desktop', () => ({
   importTheme: importThemeMock,
   hasActiveDocumentExternalChanges: hasActiveDocumentExternalChangesMock,
   reloadActiveDocumentFromDisk: reloadActiveDocumentFromDiskMock,
+  takePendingExternalOpens: takePendingExternalOpensMock,
   newDocument: newDocumentMock,
   openDocument: openDocumentMock,
   activateStartupDocument: activateStartupDocumentMock,
@@ -281,6 +283,8 @@ describe('App core Markdown editing flow', () => {
     importThemeMock.mockReset();
     hasActiveDocumentExternalChangesMock.mockReset();
     reloadActiveDocumentFromDiskMock.mockReset();
+    takePendingExternalOpensMock.mockReset();
+    takePendingExternalOpensMock.mockResolvedValue([]);
     newDocumentMock.mockReset();
     openDocumentMock.mockReset();
     activateStartupDocumentMock.mockReset();
