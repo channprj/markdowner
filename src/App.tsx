@@ -5814,14 +5814,16 @@ export default function App() {
               if (isEditorOpStale(token)) return;
               applySnapshot(activated);
               activeTabIdRef.current = target.id;
-              setActiveTabId(target.id);
-              setTabs((prev) =>
-                refreshActiveDocumentTabFromSnapshot({
-                  tabs: prev,
-                  activeTabId: target.id,
-                  snapshot: activated,
-                }),
-              );
+              startTransition(() => {
+                setActiveTabId(target.id);
+                setTabs((prev) =>
+                  refreshActiveDocumentTabFromSnapshot({
+                    tabs: prev,
+                    activeTabId: target.id,
+                    snapshot: activated,
+                  }),
+                );
+              });
               if (isReloadDocumentPreconditionError(error)) {
                 externalConflictPathsRef.current.add(transition.path);
                 applyExternalChangeState(
@@ -5841,14 +5843,18 @@ export default function App() {
             }
             applySnapshot(reloaded);
             activeTabIdRef.current = target.id;
-            setActiveTabId(target.id);
-            setTabs((prev) =>
-              refreshActiveDocumentTabFromSnapshot({
-                tabs: prev,
-                activeTabId: target.id,
-                snapshot: reloaded,
-              }),
-            );
+            // Commit the tab with applySnapshot's transition so it never shows
+            // as active (and dirty) over the previous document's text.
+            startTransition(() => {
+              setActiveTabId(target.id);
+              setTabs((prev) =>
+                refreshActiveDocumentTabFromSnapshot({
+                  tabs: prev,
+                  activeTabId: target.id,
+                  snapshot: reloaded,
+                }),
+              );
+            });
             return;
           }
 

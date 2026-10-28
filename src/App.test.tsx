@@ -12758,18 +12758,39 @@ describe('App recent documents', () => {
       }),
     );
     takePendingExternalOpensMock.mockResolvedValueOnce([betaPath]).mockResolvedValue([]);
+    // Every commit that shows beta as active must also show its text; a split
+    // commit paints beta as active and dirty over alpha's content.
+    const tornEditorValues: string[] = [];
+    const observer = new MutationObserver(() => {
+      const activeTab = document.querySelector('[role="tab"][aria-selected="true"]');
+      const editor = document.querySelector<HTMLTextAreaElement>('[aria-label="Source editor"]');
+      if (activeTab?.textContent?.includes('beta.md') && editor && editor.value !== '# Beta') {
+        tornEditorValues.push(editor.value);
+      }
+    });
+    observer.observe(document.body, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
 
     const { default: App } = await import('./App');
     render(<App />);
 
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /beta\.md/i })).toHaveAttribute(
-        'aria-selected',
-        'true',
-      );
-    });
+    try {
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: /beta\.md/i })).toHaveAttribute(
+          'aria-selected',
+          'true',
+        );
+        expect(screen.getByLabelText('Source editor')).toHaveValue('# Beta');
+      });
+    } finally {
+      observer.disconnect();
+    }
+    expect(tornEditorValues).toEqual([]);
     expect(screen.getAllByRole('tab', { name: /beta\.md/i })).toHaveLength(1);
-    expect(screen.getByLabelText('Source editor')).toHaveValue('# Beta');
   });
 
   it('applies native update-snapshot events from external file opens', async () => {
