@@ -11,6 +11,7 @@ export type EditorOverlayEvent =
   | 'link:edit-request'
   | 'link:inspect-request'
   | 'link:open'
+  | 'link:popup-visibility'
   | 'slash:open-at-cursor';
 
 interface LinkEditRequest {
@@ -32,6 +33,11 @@ interface LinkOpenRequest {
   openInNewTab: boolean;
 }
 
+interface LinkPopupVisibility {
+  /** The link popup owns the selection while open; other overlays yield. */
+  open: boolean;
+}
+
 interface SlashOpenAtCursorRequest {
   /**
    * 'insert' opens the classic block-insert list at the caret. 'convert'
@@ -47,9 +53,11 @@ type PayloadFor<E extends EditorOverlayEvent> = E extends 'link:edit-request'
     ? LinkInspectRequest
     : E extends 'link:open'
       ? LinkOpenRequest
-      : E extends 'slash:open-at-cursor'
-        ? SlashOpenAtCursorRequest
-        : never;
+      : E extends 'link:popup-visibility'
+        ? LinkPopupVisibility
+        : E extends 'slash:open-at-cursor'
+          ? SlashOpenAtCursorRequest
+          : never;
 
 type Listener<E extends EditorOverlayEvent> = (payload: PayloadFor<E>) => void;
 

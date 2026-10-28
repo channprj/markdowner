@@ -13,7 +13,7 @@ import type {
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { Editor } from '@tiptap/react';
-import { Check, Copy, ExternalLink, Pencil, Unlink } from 'lucide-react';
+import { Check, Copy, CornerDownLeft, ExternalLink, Unlink } from 'lucide-react';
 
 import { publishEditorEvent, subscribeEditorEvent } from '@/lib/editorEvents';
 
@@ -46,13 +46,20 @@ type AnchorRect = {
 type LinkPopupState =
   | { mode: 'closed' }
   | {
+      /**
+       * Existing link: the URL field sits above Open / Copy / Remove. Focusing
+       * the field (click or ArrowUp) switches to editing; Enter or Save
+       * applies the new URL.
+       */
       mode: 'viewing';
       target: LinkTarget;
       anchor: AnchorRect;
       status: string | null;
+      editing: boolean;
+      error: string | null;
     }
   | {
-      mode: 'creating' | 'editing';
+      mode: 'creating';
       target: LinkTarget;
       anchor: AnchorRect;
       error: string | null;
@@ -63,14 +70,14 @@ const POPUP_GUTTER_PX = 8;
 const VIEWPORT_MARGIN_PX = 8;
 
 function targetForState(state: LinkPopupState): LinkTarget | null {
-  if (
-    state.mode === 'viewing' ||
-    state.mode === 'creating' ||
-    state.mode === 'editing'
-  ) {
+  if (state.mode === 'viewing' || state.mode === 'creating') {
     return state.target;
   }
   return null;
+}
+
+function isEditingUrl(state: LinkPopupState): boolean {
+  return state.mode === 'creating' || (state.mode === 'viewing' && state.editing);
 }
 
 function measureAnchor(
@@ -100,9 +107,10 @@ function mutationError(reason: 'empty-url' | 'invalid-url' | 'stale-target') {
 /**
  * Explicit WYSIWYG link UI.
  *
- * Ordinary link clicks request the read-only card. Creating or editing opens
- * only from an explicit command. Drafts live in React state and the document
- * changes exactly once, on Apply or Remove.
+ * Ordinary link clicks open a compact card styled like the formatting
+ * toolbar: the URL field above Open / Copy / Remove. Clicking the field or
+ * pressing ArrowUp edits the URL. New links use the full form. Drafts live in
+ * React state and the document changes exactly once, on Save/Apply or Remove.
  */
 export function LinkPopup({ editor, enabled = true }: Props) {
   const [state, setState] = useState<LinkPopupState>({ mode: 'closed' });
@@ -135,13 +143,21 @@ export function LinkPopup({ editor, enabled = true }: Props) {
       setDisplayText(target.displayText);
       setHref(target.href);
       setPlacement('above');
-      setState({
-        mode: target.kind === 'existing' ? 'editing' : 'creating',
-        target,
-        anchor,
-        error: null,
-      });
+      setState(
+        target.kind === 'existing'
+          ? { mode: 'viewing', target, anchor, status: null, editing: true, error: null }
+          : { mode: 'creating', target, anchor, error: null },
+      );
     },
+    [],
+  );
+
+  const isOpen = state.mode !== 'closed';
+  useEffect(() => {
+    publishEditorEvent('link:popup-visibility', { open: isOpen });
+  }, [isOpen]);
+  useEffect(
+    () => () => publishEditorEvent('link:popup-visibility', { open: false }),
     [],
   );
 
@@ -178,6 +194,7 @@ export function LinkPopup({ editor, enabled = true }: Props) {
           setState({ mode: 'closed' });
           return;
         }
+        publishEditorEvent('link:popup-visibility', { open: true });
         openFormForTarget(captured.target, anchor);
       },
     );
@@ -196,9 +213,13 @@ export function LinkPopup({ editor, enabled = true }: Props) {
           return;
         }
 
+        // Announce before selecting the link so the formatting toolbar never
+        // flashes on top of the link card for the new text selection.
+        publishEditorEvent('link:popup-visibility', { open: true });
         editor.commands.setTextSelection({ from: target.from, to: target.to });
+        setHref(target.href);
         setPlacement('above');
-        setState({ mode: 'viewing', target, anchor, status: null });
+        setState({ mode: 'viewing', target, anchor, status: null, editing: false, error: null });
       },
     );
 
@@ -251,14 +272,45 @@ export function LinkPopup({ editor, enabled = true }: Props) {
     };
   }, [editor, enabled, state.mode]);
 
+  const editing = isEditingUrl(state);
   useEffect(() => {
-    if (state.mode !== 'creating' && state.mode !== 'editing') return;
+    if (!editing) return;
     const frame = requestAnimationFrame(() => {
+      if (document.activeElement === urlInputRef.current) return;
       urlInputRef.current?.focus();
       urlInputRef.current?.select();
     });
     return () => cancelAnimationFrame(frame);
-  }, [state.mode, state.mode === 'closed' ? null : targetForState(state)]);
+  }, [editing, state.mode === 'closed' ? null : targetForState(state)]);
+
+  // While the card is only showing a link, focus stays in the editor. ArrowUp
+  // moves into the URL field above, mirroring the card's visual layout.
+  const viewingOnly = state.mode === 'viewing' && !state.editing;
+  useEffect(() => {
+    if (!viewingOnly) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.isComposing) {
+        event.preventDefault();
+        setState({ mode: 'closed' });
+        return;
+      }
+      if (
+        event.key !== 'ArrowUp' ||
+        event.shiftKey ||
+        event.altKey ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.isComposing
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      startEditing();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [viewingOnly]);
 
   useEffect(() => {
     if (state.mode === 'closed') return;
@@ -358,13 +410,25 @@ export function LinkPopup({ editor, enabled = true }: Props) {
     }
   };
 
-  const handleEdit = () => {
-    if (!editor || state.mode !== 'viewing') return;
-    if (!isLinkTargetCurrent(editor, state.target)) {
-      close();
-      return;
+  function startEditing() {
+    setState(current =>
+      current.mode === 'viewing' && !current.editing
+        ? { ...current, editing: true, status: null }
+        : current,
+    );
+    const input = urlInputRef.current;
+    if (input && document.activeElement !== input) {
+      input.focus();
+      input.select();
     }
-    openFormForTarget(state.target, state.anchor);
+  }
+
+  const setUrlError = (error: string | null) => {
+    setState(current =>
+      current.mode === 'creating' || current.mode === 'viewing'
+        ? { ...current, error }
+        : current,
+    );
   };
 
   const handleRemove = () => {
@@ -376,14 +440,16 @@ export function LinkPopup({ editor, enabled = true }: Props) {
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (
-      !editor ||
-      (state.mode !== 'creating' && state.mode !== 'editing')
-    ) {
+    if (!editor || (state.mode !== 'creating' && state.mode !== 'viewing')) {
       return;
     }
 
-    const result = applyLinkDraft(editor, state.target, { displayText, href });
+    // The compact card edits only the URL; the link text stays as written.
+    const draft =
+      state.mode === 'viewing'
+        ? { displayText: state.target.displayText, href }
+        : { displayText, href };
+    const result = applyLinkDraft(editor, state.target, draft);
     if (result.ok) {
       close();
       return;
@@ -392,11 +458,7 @@ export function LinkPopup({ editor, enabled = true }: Props) {
       close();
       return;
     }
-    setState(current =>
-      current.mode === 'creating' || current.mode === 'editing'
-        ? { ...current, error: mutationError(result.reason) }
-        : current,
-    );
+    setUrlError(mutationError(result.reason));
   };
 
   const handlePopupKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -405,10 +467,7 @@ export function LinkPopup({ editor, enabled = true }: Props) {
       closeAndFocusTarget();
       return;
     }
-    if (
-      event.key !== 'Tab' ||
-      (state.mode !== 'creating' && state.mode !== 'editing')
-    ) {
+    if (event.key !== 'Tab' || !isEditingUrl(state)) {
       return;
     }
 
@@ -425,7 +484,7 @@ export function LinkPopup({ editor, enabled = true }: Props) {
   };
 
   const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
-    if (state.mode !== 'creating' && state.mode !== 'editing') return;
+    if (!isEditingUrl(state)) return;
     const next = event.relatedTarget as Node | null;
     if (next && event.currentTarget.contains(next)) return;
     close();
@@ -446,12 +505,7 @@ export function LinkPopup({ editor, enabled = true }: Props) {
       clamp.dx,
   };
 
-  const dialogLabel =
-    state.mode === 'viewing'
-      ? 'Link details'
-      : state.mode === 'editing'
-        ? 'Edit link'
-        : 'Add link';
+  const dialogLabel = state.mode === 'viewing' ? 'Link details' : 'Add link';
 
   return createPortal(
     <div
@@ -460,17 +514,61 @@ export function LinkPopup({ editor, enabled = true }: Props) {
       aria-label={dialogLabel}
       data-testid="link-popup"
       data-placement={placement}
-      className="link-popup"
+      className={`link-popup${state.mode === 'viewing' ? ' is-compact' : ''}`}
       style={clampedStyle}
       onKeyDown={handlePopupKeyDown}
       onBlur={handleBlur}
     >
       {state.mode === 'viewing' ? (
-        <div className="link-popup-card">
-          <div className="link-popup-url" title={state.target.href}>
-            {state.target.href}
-          </div>
-          <div className="link-popup-actions">
+        <div className="link-popup-compact">
+          <form className="link-popup-url-row" onSubmit={handleSubmit}>
+            <input
+              ref={urlInputRef}
+              type="text"
+              aria-label="Link URL"
+              title={state.editing ? undefined : 'Click or press ↑ to edit'}
+              spellCheck={false}
+              autoComplete="off"
+              className="link-popup-url-input"
+              data-editing={state.editing ? 'true' : undefined}
+              value={href}
+              aria-invalid={state.error ? true : undefined}
+              onFocus={event => {
+                if (!state.editing) {
+                  startEditing();
+                  event.currentTarget.select();
+                }
+              }}
+              onMouseUp={event => {
+                // Keep the select-all from focus instead of placing a caret.
+                if (event.currentTarget.selectionStart === event.currentTarget.selectionEnd) {
+                  event.preventDefault();
+                  event.currentTarget.select();
+                }
+              }}
+              onChange={event => {
+                setHref(event.target.value);
+                if (state.error) setUrlError(null);
+              }}
+            />
+            {state.editing ? (
+              <button
+                type="submit"
+                className="link-popup-save"
+                aria-label="Save link"
+                onMouseDown={event => event.preventDefault()}
+              >
+                <CornerDownLeft aria-hidden className="size-3.5" />
+                Save
+              </button>
+            ) : null}
+          </form>
+          <div
+            role="toolbar"
+            aria-label="Link actions"
+            className="link-popup-toolbar"
+            onMouseDown={event => event.preventDefault()}
+          >
             <LinkPopupButton label="Open link" onClick={handleOpen}>
               <ExternalLink aria-hidden className="size-4" />
               Open
@@ -483,16 +581,17 @@ export function LinkPopup({ editor, enabled = true }: Props) {
               )}
               Copy
             </LinkPopupButton>
-            <LinkPopupButton label="Edit link" onClick={handleEdit}>
-              <Pencil aria-hidden className="size-4" />
-              Edit
-            </LinkPopupButton>
+            <span aria-hidden className="selection-toolbar-separator" />
             <LinkPopupButton label="Remove link" danger onClick={handleRemove}>
               <Unlink aria-hidden className="size-4" />
               Remove
             </LinkPopupButton>
           </div>
-          {state.status ? (
+          {state.error ? (
+            <p className="link-popup-error" role="status">
+              {state.error}
+            </p>
+          ) : state.status ? (
             <p className="link-popup-status" role="status">
               {state.status}
             </p>
@@ -531,13 +630,7 @@ export function LinkPopup({ editor, enabled = true }: Props) {
               aria-invalid={state.error ? true : undefined}
               onChange={event => {
                 setHref(event.target.value);
-                if (state.error) {
-                  setState(current =>
-                    current.mode === 'creating' || current.mode === 'editing'
-                      ? { ...current, error: null }
-                      : current,
-                  );
-                }
+                if (state.error) setUrlError(null);
               }}
             />
           </label>
@@ -547,11 +640,6 @@ export function LinkPopup({ editor, enabled = true }: Props) {
             </p>
           ) : null}
           <div className="link-popup-actions">
-            {state.mode === 'editing' ? (
-              <LinkPopupButton label="Remove link" danger onClick={handleRemove}>
-                Remove link
-              </LinkPopupButton>
-            ) : null}
             <button type="submit" className="link-popup-button is-primary">
               Apply
             </button>

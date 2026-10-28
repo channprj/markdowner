@@ -82,9 +82,11 @@ describe('LinkPopup', () => {
   }
 
   async function openEditor() {
-    await openInspection();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit link' }));
-    return screen.findByRole('dialog', { name: 'Edit link' });
+    const dialog = await openInspection();
+    const url = screen.getByRole('textbox', { name: 'Link URL' });
+    act(() => url.focus());
+    await screen.findByRole('button', { name: 'Save link' });
+    return dialog;
   }
 
   async function openCreator(position = 8) {
@@ -117,9 +119,28 @@ describe('LinkPopup', () => {
   it('opens an inspection card only from an explicit event', async () => {
     await openInspection();
 
-    expect(screen.getByText('https://old.example')).toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: 'Link URL' })).toBeNull();
+    const url = screen.getByRole('textbox', { name: 'Link URL' });
+    expect(url).toHaveValue('https://old.example');
+    expect(url).not.toHaveAttribute('data-editing');
+    expect(url).not.toHaveFocus();
+    expect(
+      screen.getAllByRole('button').map(button => button.getAttribute('aria-label')),
+    ).toEqual(['Open link', 'Copy URL', 'Remove link']);
+    expect(screen.getByRole('toolbar', { name: 'Link actions' })).toBeInTheDocument();
     expect(editor.state.selection).toMatchObject({ from: 1, to: 5 });
+  });
+
+  it('announces itself so the formatting toolbar yields to the link card', async () => {
+    const visibility: boolean[] = [];
+    const unsubscribe = subscribeEditorEvent('link:popup-visibility', ({ open }) => {
+      visibility.push(open);
+    });
+    await openInspection();
+    expect(visibility[visibility.length - 1]).toBe(true);
+
+    fireEvent.mouseDown(document.body);
+    expect(visibility[visibility.length - 1]).toBe(false);
+    unsubscribe();
   });
 
   it('publishes the inspected URL only from Open link', async () => {
@@ -188,13 +209,31 @@ describe('LinkPopup', () => {
     expect(screen.getByRole('dialog', { name: 'Link details' })).toBeInTheDocument();
   });
 
-  it('transitions from inspection to an editor with populated fields', async () => {
+  it('selects the whole URL for editing when the field is focused', async () => {
     await openEditor();
 
-    expect(screen.getByRole('textbox', { name: 'Display text (optional)' })).toHaveValue('docs');
-    expect(screen.getByRole('textbox', { name: 'Link URL' })).toHaveValue(
-      'https://old.example',
-    );
+    const url = screen.getByRole('textbox', { name: 'Link URL' }) as HTMLInputElement;
+    expect(url).toHaveAttribute('data-editing', 'true');
+    expect(url).toHaveValue('https://old.example');
+    expect([url.selectionStart, url.selectionEnd]).toEqual([0, 'https://old.example'.length]);
+    expect(screen.queryByRole('textbox', { name: 'Display text (optional)' })).toBeNull();
+  });
+
+  it('moves into the URL field with ArrowUp from the editor', async () => {
+    await openInspection();
+    const event = new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true });
+
+    act(() => {
+      editor.view.dom.dispatchEvent(event);
+    });
+
+    const url = screen.getByRole('textbox', { name: 'Link URL' }) as HTMLInputElement;
+    expect(event.defaultPrevented).toBe(true);
+    expect(url).toHaveFocus();
+    expect(url).toHaveAttribute('data-editing', 'true');
+    expect([url.selectionStart, url.selectionEnd]).toEqual([0, url.value.length]);
+    expect(screen.getByRole('button', { name: 'Save link' })).toBeInTheDocument();
+    expect(editor.state.selection).toMatchObject({ from: 1, to: 5 });
   });
 
   it('applies a new link using the URL when display text is blank', async () => {
@@ -225,23 +264,23 @@ describe('LinkPopup', () => {
     expect(screen.queryByTestId('link-popup')).toBeNull();
   });
 
-  it('applies both edited fields to an existing link', async () => {
+  it.each([
+    ['Enter', () => fireEvent.submit(screen.getByRole('textbox', { name: 'Link URL' }).closest('form')!)],
+    ['Save', () => fireEvent.click(screen.getByRole('button', { name: 'Save link' }))],
+  ])('saves an edited URL with %s and keeps the link text', async (_label, save) => {
     await openEditor();
-    fireEvent.change(
-      screen.getByRole('textbox', { name: 'Display text (optional)' }),
-      { target: { value: 'Guides' } },
-    );
     fireEvent.change(screen.getByRole('textbox', { name: 'Link URL' }), {
       target: { value: 'https://new.example/guides' },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    save();
 
     expect(linkAt(editor)).toEqual({
-      text: 'Guides',
+      text: 'docs',
       href: 'https://new.example/guides',
     });
-    expect(editor.getText()).toBe('Guides tail');
+    expect(editor.getText()).toBe('docs tail');
+    expect(screen.queryByTestId('link-popup')).toBeNull();
   });
 
   it('removes the link without removing its text', async () => {
@@ -254,7 +293,6 @@ describe('LinkPopup', () => {
   });
 
   it.each([
-    ['Cancel', 'cancel'],
     ['Escape', 'escape'],
     ['outside click', 'outside'],
     ['blur', 'blur'],
@@ -264,9 +302,7 @@ describe('LinkPopup', () => {
     const url = screen.getByRole('textbox', { name: 'Link URL' });
     fireEvent.change(url, { target: { value: 'https://unsaved.example' } });
 
-    if (action === 'cancel') {
-      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    } else if (action === 'escape') {
+    if (action === 'escape') {
       fireEvent.keyDown(url, { key: 'Escape' });
     } else if (action === 'outside') {
       fireEvent.mouseDown(document.body);
@@ -283,7 +319,7 @@ describe('LinkPopup', () => {
     const url = screen.getByRole('textbox', { name: 'Link URL' });
     fireEvent.change(url, { target: { value: 'javascript:alert(1)' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save link' }));
 
     expect(screen.getByRole('status')).toHaveTextContent('Enter a valid link URL');
     expect(url).toHaveValue('javascript:alert(1)');
@@ -352,8 +388,8 @@ describe('LinkPopup', () => {
     const before = editor.getHTML();
     await openEditor();
     const target = shiftKey
-      ? screen.getByRole('textbox', { name: 'Display text (optional)' })
-      : screen.getByRole('button', { name: 'Cancel' });
+      ? screen.getByRole('textbox', { name: 'Link URL' })
+      : screen.getByRole('button', { name: 'Remove link' });
     target.focus();
 
     fireEvent.keyDown(target, { key: 'Tab', shiftKey });
@@ -363,7 +399,6 @@ describe('LinkPopup', () => {
   });
 
   it.each([
-    ['Cancel', () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))],
     [
       'Escape',
       () =>
@@ -374,9 +409,9 @@ describe('LinkPopup', () => {
     [
       'Tab past the final control',
       () => {
-        const cancel = screen.getByRole('button', { name: 'Cancel' });
-        cancel.focus();
-        fireEvent.keyDown(cancel, { key: 'Tab' });
+        const remove = screen.getByRole('button', { name: 'Remove link' });
+        remove.focus();
+        fireEvent.keyDown(remove, { key: 'Tab' });
       },
     ],
   ])('returns focus to the captured link boundary after %s', async (_label, dismiss) => {

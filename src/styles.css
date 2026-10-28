@@ -1322,6 +1322,95 @@ section[data-mode='Wysiwyg'] {
 .link-popup-button.is-danger:hover {
   background: color-mix(in srgb, var(--destructive) 10%, transparent);
 }
+/* Existing link: compact card that matches the formatting toolbar. */
+.link-popup.is-compact {
+  width: auto;
+  min-width: min(280px, calc(100vw - 16px));
+  padding: 4px;
+  border-radius: 8px;
+}
+.link-popup-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.link-popup-url-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.link-popup-url-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--muted);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+  text-overflow: ellipsis;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+  transition: border-color 80ms ease, background-color 80ms ease;
+}
+.link-popup-url-input:hover {
+  border-color: var(--border);
+}
+.link-popup-url-input[data-editing="true"] {
+  border-color: var(--ring);
+  background: var(--background);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 30%, transparent);
+}
+.link-popup-url-input[aria-invalid="true"] {
+  border-color: var(--destructive);
+}
+.link-popup-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: none;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.link-popup-save:hover {
+  background: color-mix(in srgb, var(--primary) 88%, transparent);
+}
+.link-popup-save:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.link-popup-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  user-select: none;
+}
+.link-popup-toolbar .link-popup-button {
+  min-height: 30px;
+  padding: 0 8px;
+  border: none;
+}
+.link-popup-toolbar .link-popup-button:focus-visible {
+  outline-offset: -2px;
+}
+.link-popup-compact .link-popup-status,
+.link-popup-compact .link-popup-error {
+  padding: 0 6px 2px;
+}
+
 .link-popup-status,
 .link-popup-error {
   margin: 0;

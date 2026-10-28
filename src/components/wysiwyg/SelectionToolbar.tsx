@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { publishEditorEvent } from '@/lib/editorEvents';
+import { publishEditorEvent, subscribeEditorEvent } from '@/lib/editorEvents';
 import { useEditorSurfaceClamp } from './useEditorSurfaceClamp';
 
 interface Props {
@@ -54,6 +54,7 @@ export function SelectionToolbar({
   const [position, setPosition] = useState<Position>({ top: 0, left: 0 });
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const aiSelectionRef = useRef<{ from: number; to: number } | null>(null);
+  const linkPopupOpenRef = useRef(false);
 
   const computePosition = useCallback((): Position | null => {
     if (!editor) return null;
@@ -61,6 +62,9 @@ export function SelectionToolbar({
     const { from, to, empty } = state.selection;
     if (empty || from === to) return null;
     if (!view.hasFocus() && !window.getSelection()?.toString()) return null;
+    // Clicking a link selects it for the link card; formatting buttons on top
+    // of that card would compete for the same selection.
+    if (linkPopupOpenRef.current) return null;
 
     // A multi-cell table selection (CellSelection) is structural, not a text
     // run — inline marks across a cell span are meaningless and the table
@@ -146,6 +150,15 @@ export function SelectionToolbar({
       }, 50);
     };
 
+    const unsubscribeLinkPopup = subscribeEditorEvent(
+      'link:popup-visibility',
+      ({ open }) => {
+        linkPopupOpenRef.current = open;
+        if (open) setVisible(false);
+        else schedule();
+      },
+    );
+
     editor.on('selectionUpdate', schedule);
     editor.on('transaction', schedule);
     editor.on('blur', handleBlur);
@@ -155,6 +168,7 @@ export function SelectionToolbar({
 
     return () => {
       if (frame !== null) cancelAnimationFrame(frame);
+      unsubscribeLinkPopup();
       editor.off('selectionUpdate', schedule);
       editor.off('transaction', schedule);
       editor.off('blur', handleBlur);

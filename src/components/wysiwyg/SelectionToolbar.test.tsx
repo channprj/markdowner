@@ -10,7 +10,7 @@ import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { subscribeEditorEvent } from '@/lib/editorEvents';
+import { publishEditorEvent, subscribeEditorEvent } from '@/lib/editorEvents';
 
 import { SelectionToolbar } from './SelectionToolbar';
 
@@ -90,6 +90,30 @@ describe('SelectionToolbar', () => {
       editor.emit('selectionUpdate');
     });
 
+    expect(
+      await screen.findByRole('toolbar', { name: /text formatting/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('stays hidden while the link card owns the selection', async () => {
+    const editor = createSelectionEditor();
+
+    render(<SelectionToolbar editor={editor} />);
+    act(() => {
+      editor.emit('selectionUpdate');
+    });
+    expect(
+      await screen.findByRole('toolbar', { name: /text formatting/i }),
+    ).toBeInTheDocument();
+
+    act(() => publishEditorEvent('link:popup-visibility', { open: true }));
+    act(() => {
+      editor.emit('selectionUpdate');
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByRole('toolbar', { name: /text formatting/i })).toBeNull();
+
+    act(() => publishEditorEvent('link:popup-visibility', { open: false }));
     expect(
       await screen.findByRole('toolbar', { name: /text formatting/i }),
     ).toBeInTheDocument();
