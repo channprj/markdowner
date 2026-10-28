@@ -725,9 +725,142 @@ fn selection_markdown_view_shows_syntax_and_masks_exact_content() {
 
     assert!(view.starts_with("- **Ship** [docs]("), "{view}");
     assert!(view.ends_with("\n- Next"), "{view}");
-    for opaque in ["/guide", "`cfg`", "2026"] {
+    assert!(view.contains("by 2026\n"), "numbers are visible content: {view}");
+    for opaque in ["/guide", "`cfg`"] {
         assert!(!view.contains(opaque), "{opaque} should stay opaque: {view}");
     }
+}
+
+const LIST_SOURCE: &str = "테스트\n\n이것은\n\n리스트\n\n만들기 위한\n\n문장들 입니다\n\n123123\n";
+const LIST_RESULT: &str = "- 테스트\n- 이것은\n- 리스트\n- 만들기 위한\n- 문장들 입니다\n- 123123";
+
+#[test]
+fn selection_markdown_numbers_are_content_that_moves_into_the_new_structure() {
+    // A paragraph holding only a number used to reach the provider as a bare
+    // placeholder line, which it left outside the requested list.
+    let number_end = LIST_SOURCE.find("123123").unwrap() + "123123".len();
+    for end in [LIST_SOURCE.len(), number_end] {
+        let envelope =
+            AiDocumentEnvelope::new("doc-1", LIST_SOURCE, Some(ByteRange { start: 0, end }))
+                .expect("selection envelope");
+        let view = selection_markdown_view(&envelope);
+        assert_eq!(view, &LIST_SOURCE[..end]);
+        assert!(!view.contains("⟪MDNER_"), "{view}");
+
+        let validated = validate_selection_markdown_response(&envelope, LIST_RESULT, Vec::new())
+            .expect("the number becomes a list item");
+        assert_eq!(
+            validated.proposed_markdown,
+            "- 테스트\n- 이것은\n- 리스트\n- 만들기 위한\n- 문장들 입니다\n- 123123\n"
+        );
+
+        let numbered = "1. 테스트\n2. 이것은\n3. 리스트\n4. 만들기 위한\n5. 문장들 입니다\n6. 123123";
+        validate_selection_markdown_response(&envelope, numbered, Vec::new())
+            .expect("ordered-list markers are syntax, not numbers");
+    }
+}
+
+#[test]
+fn selection_markdown_numbers_must_survive_verbatim_and_in_order() {
+    let envelope = AiDocumentEnvelope::new(
+        "doc-1",
+        LIST_SOURCE,
+        Some(ByteRange { start: 0, end: LIST_SOURCE.len() }),
+    )
+    .expect("selection envelope");
+    for (label, replacement) in [
+        ("changed", LIST_RESULT.replace("123123", "123124")),
+        ("dropped", LIST_RESULT.replace("\n- 123123", "")),
+        ("reformatted", LIST_RESULT.replace("123123", "123,123")),
+    ] {
+        let error = validate_selection_markdown_response(&envelope, &replacement, Vec::new())
+            .expect_err(label);
+        assert_eq!(error.issues[0].code, ValidationIssueCode::ProtectedTokenChanged, "{label}");
+        assert!(error.issues[0].message.contains("123123"), "{label}: {error}");
+    }
+
+    let source = "A팀 참석자 10명, B팀 참석자 20명, 성장률 3.5% 기록.\n";
+    let envelope = selection_envelope(source, source.trim_end());
+    let view = selection_markdown_view(&envelope);
+    assert_eq!(view, source.trim_end());
+    validate_selection_markdown_response(
+        &envelope,
+        "| 팀 | 참석자 |\n| --- | --- |\n| A팀 | 10명 |\n| B팀 | 20명 |\n\n성장률 3.5% 기록.",
+        Vec::new(),
+    )
+    .expect("numbers move into table cells in reading order");
+    validate_selection_markdown_response(
+        &envelope,
+        "- A팀 참석자 10명\n- B팀 참석자 20명\n- 합계 30명\n- 성장률 3.5% 기록",
+        Vec::new(),
+    )
+    .expect("new numbers may be added like any other text");
+    let error = validate_selection_markdown_response(
+        &envelope,
+        "- A팀 참석자 20명\n- B팀 참석자 10명\n- 성장률 3.5% 기록",
+        Vec::new(),
+    )
+    .expect_err("swapped numbers change the facts");
+    assert_eq!(error.issues[0].code, ValidationIssueCode::ProtectedTokenChanged);
+}
+
+#[test]
+fn selection_markdown_keeps_frontmatter_and_merged_identifiers_opaque() {
+    let source = "---\ntitle: Plan 2026\n---\n\nUse 10 KB/sec or 42 items.\n";
+    let envelope = AiDocumentEnvelope::new(
+        "doc-1",
+        source,
+        Some(ByteRange { start: 0, end: source.len() }),
+    )
+    .expect("selection envelope");
+    let view = selection_markdown_view(&envelope);
+    assert!(!view.contains("title: Plan 2026"), "frontmatter stays opaque: {view}");
+    assert!(!view.contains("10 KB/sec"), "a number merged with an identifier stays opaque: {view}");
+    assert!(view.contains("or 42 items."), "{view}");
+
+    let literal = envelope
+        .protected
+        .iter()
+        .find(|token| token.original == "10 KB/sec")
+        .expect("merged literal token");
+    assert_eq!(literal.kind, ProtectedKind::Literal);
+    let changed = view.replacen(&literal.placeholder, "", 1);
+    let error = validate_selection_markdown_response(&envelope, &changed, Vec::new())
+        .expect_err("opaque literals still need their placeholder");
+    assert_eq!(error.issues[0].code, ValidationIssueCode::ProtectedTokenMissing);
+}
+
+#[test]
+fn text_selection_edits_keep_numbers_as_placeholders() {
+    let envelope = AiDocumentEnvelope::new(
+        "doc-1",
+        LIST_SOURCE,
+        Some(ByteRange { start: 0, end: LIST_SOURCE.len() }),
+    )
+    .expect("selection envelope");
+    let literal = envelope
+        .protected
+        .iter()
+        .find(|token| token.original == "123123")
+        .expect("number token");
+    assert_eq!(literal.kind, ProtectedKind::Literal);
+    assert!(envelope.segments.iter().any(|segment| segment.text.contains(&literal.placeholder)));
+    let without_number = envelope
+        .segments
+        .iter()
+        .map(|segment| segment.text.as_str())
+        .collect::<String>()
+        .replace(&literal.placeholder, "");
+    let error = validate_selection_response(
+        &envelope,
+        SelectionResponse {
+            schema_version: 1,
+            replacement_text: without_number,
+            warnings: Vec::new(),
+        },
+    )
+    .expect_err("text edits still require the number placeholder");
+    assert_eq!(error.issues[0].code, ValidationIssueCode::ProtectedTokenMissing);
 }
 
 #[test]

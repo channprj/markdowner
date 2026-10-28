@@ -823,13 +823,30 @@ pub fn validate_selection_response(
 }
 
 /// Structural edits (lists, tables, headings, emphasis) need the selection's
-/// Markdown syntax. Syntax stays visible; content whose exact bytes matter —
-/// code, link destinations, HTML, identifiers, and literals — stays opaque.
-fn is_selection_markdown_opaque(kind: ProtectedKind) -> bool {
-    !matches!(
-        kind,
-        ProtectedKind::Blank | ProtectedKind::MarkdownMarker | ProtectedKind::TableDelimiter
-    )
+/// Markdown syntax. Syntax stays visible, and so do numbers: a number is
+/// content that a list item, table cell, or heading must carry, and an opaque
+/// placeholder on a line of its own reads as a non-content token the provider
+/// leaves outside the new structure. `validate_selection_numbers` still
+/// requires every number to survive verbatim and in order. Content whose exact
+/// bytes matter — code, link destinations, HTML, identifiers, frontmatter —
+/// stays opaque.
+fn is_selection_markdown_opaque(token: &ProtectedToken) -> bool {
+    match token.kind {
+        ProtectedKind::Blank | ProtectedKind::MarkdownMarker | ProtectedKind::TableDelimiter => {
+            false
+        }
+        ProtectedKind::Literal => !is_number_literal(token),
+        _ => true,
+    }
+}
+
+/// A literal token that is exactly one number. Frontmatter lines and numbers
+/// merged with an overlapping identifier are also `Literal` but stay opaque.
+fn is_number_literal(token: &ProtectedToken) -> bool {
+    token.kind == ProtectedKind::Literal
+        && literal_regex()
+            .find(&token.original)
+            .is_some_and(|matched| matched.start() == 0 && matched.end() == token.original.len())
 }
 
 /// The selection as editable Markdown for a structural selection edit.
@@ -840,7 +857,7 @@ pub fn selection_markdown_view(envelope: &AiDocumentEnvelope) -> String {
         .map(|segment| segment.text.as_str())
         .collect::<String>();
     for token in &envelope.protected {
-        if !is_selection_markdown_opaque(token.kind) {
+        if !is_selection_markdown_opaque(token) {
             text = text.replacen(&token.placeholder, &token.original, 1);
         }
     }
@@ -866,7 +883,8 @@ pub fn selection_splits_markdown_syntax(envelope: &AiDocumentEnvelope) -> bool {
 /// Validates a structural selection edit returned as Markdown.
 ///
 /// The provider may change Markdown syntax inside the selection. Opaque
-/// content must survive exactly once and in order, and every protected token
+/// content must survive exactly once and in order, every number in the
+/// selection must survive verbatim and in order, and every protected token
 /// outside the selection must keep its meaning in the proposed document.
 pub fn validate_selection_markdown_response(
     envelope: &AiDocumentEnvelope,
@@ -882,7 +900,7 @@ pub fn validate_selection_markdown_response(
     let opaque = envelope
         .protected
         .iter()
-        .filter(|token| is_selection_markdown_opaque(token.kind))
+        .filter(|token| is_selection_markdown_opaque(token))
         .collect::<Vec<_>>();
     validate_protected_sequence(envelope, replacement_markdown, &opaque, None)?;
     let (restored, _) = restore_text_with_bindings(envelope, replacement_markdown)?;
@@ -914,6 +932,14 @@ pub fn validate_selection_markdown_response(
     validate_fixed_markdown_identifiers(&envelope.source, &proposed_markdown)?;
     validate_markdown_structure(&envelope.source, &proposed_markdown)?;
     validate_selection_surroundings(envelope, scope, &proposed_markdown)?;
+    validate_selection_numbers(
+        envelope,
+        ByteRange {
+            start: scope.start,
+            end: scope.start + replacement.len(),
+        },
+        &proposed_markdown,
+    )?;
     Ok(selection_validated_document(
         envelope,
         scope,
@@ -974,6 +1000,55 @@ fn validate_selection_surroundings(
         }
     }
     Ok(())
+}
+
+/// Numbers are visible in a structural edit so they can move into list items
+/// or table cells; they must still not change. The proposed replacement is
+/// tokenized like the source, so list markers such as `1.` are syntax rather
+/// than numbers. Every number of the selection must appear verbatim and in its
+/// original order, which also rejects two numbers that swap places. New
+/// numbers may be added, as with any other new text.
+fn validate_selection_numbers(
+    envelope: &AiDocumentEnvelope,
+    replacement: ByteRange,
+    proposed: &str,
+) -> Result<(), ValidationError> {
+    let expected = envelope
+        .protected
+        .iter()
+        .filter(|token| is_number_literal(token))
+        .map(|token| token.original.clone())
+        .collect::<Vec<_>>();
+    if expected.is_empty() {
+        return Ok(());
+    }
+    let observed = AiDocumentEnvelope::with_policy(
+        "selection-numbers",
+        proposed,
+        Some(replacement),
+        envelope.policy,
+    )?
+    .protected
+    .into_iter()
+    .filter(is_number_literal)
+    .map(|token| token.original)
+    .collect::<Vec<_>>();
+    if let Some(missing) = first_missing_in_order(&expected, &observed) {
+        return Err(ValidationError::single(
+            ValidationIssueCode::ProtectedTokenChanged,
+            format!("The number {missing} was changed, dropped, or moved out of order."),
+        ));
+    }
+    Ok(())
+}
+
+/// The first `expected` item that `observed` lacks as an ordered subsequence.
+fn first_missing_in_order<'a>(expected: &'a [String], observed: &[String]) -> Option<&'a str> {
+    let mut observed = observed.iter();
+    expected
+        .iter()
+        .find(|item| !observed.any(|candidate| candidate == *item))
+        .map(String::as_str)
 }
 
 fn selection_validated_document(

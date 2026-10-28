@@ -25,7 +25,7 @@ const OPENROUTER_METADATA_TIMEOUT: Duration = Duration::from_secs(20);
 const OPENROUTER_STREAM_HEADERS_TIMEOUT: Duration = Duration::from_secs(45);
 const OPENROUTER_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 pub(crate) const PROMPT_VERSION: &str = "2026-09-06.v2";
-pub(crate) const CUSTOM_PROMPT_VERSION: &str = "2026-10-28.custom.v4";
+pub(crate) const CUSTOM_PROMPT_VERSION: &str = "2026-10-28.custom.v5";
 pub(crate) const SUMMARY_PROMPT_VERSION: &str = "2026-09-06.summary.v2";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -343,7 +343,7 @@ pub fn build_messages(request: &AiCompletionRequest) -> Vec<Value> {
     let protection = if request.task == AiTask::Summary {
         "Treat document_data.source as the authoritative source material. Use the requested target language, or the detected source language when no target is supplied."
     } else if request.task == AiTask::Custom && request.selection && request.selection_markdown {
-        "document_data.selection_markdown is the selected Markdown. Return replacement_markdown: the complete Markdown that replaces the selection, transformed according to the user's instruction. Express every formatting request (bullet or numbered lists, checklists, tables, headings, quotes, emphasis) with real Markdown syntax, never with prose or plain-text bullets. Keep Markdown syntax the instruction does not ask to change. Placeholders like ⟪MDNER_…⟫ stand for protected code, link destinations, HTML, identifiers, and numbers: copy every placeholder exactly once, in the original order, and never invent one. Return only the replacement, with no explanation or surrounding code fence."
+        "document_data.selection_markdown is the selected Markdown. Return replacement_markdown: the complete Markdown that replaces the selection, transformed according to the user's instruction. Express every formatting request (bullet or numbered lists, checklists, tables, headings, quotes, emphasis) with real Markdown syntax, never with prose or plain-text bullets. Keep Markdown syntax the instruction does not ask to change. Keep every number exactly as written and in its original order. Placeholders like ⟪MDNER_…⟫ stand for protected code, link destinations, HTML, and identifiers; treat each one as content and put it where that content belongs, so a line holding only a placeholder becomes a list item, table cell, or heading like any other line. Copy every placeholder exactly once, in the original order, and never invent one. Return only the replacement, with no explanation or surrounding code fence."
     } else if request.task == AiTask::Custom && request.selection {
         "The segments contain only editable text fragments in document order. Return a replacements object with EVERY supplied text ID, including unchanged text. Transform the text values according to the user's instruction, using neighboring fragments as context. Markdown structure, links, code, and surrounding whitespace are kept locally and restored by the app; do not add them to the replacements. Never omit a text ID or invent one."
     } else {
@@ -1214,6 +1214,29 @@ mod tests {
             schema["schema"]["required"],
             json!(["schema_version", "replacement_markdown", "warnings"])
         );
+    }
+
+    #[test]
+    fn markdown_selection_prompt_shows_numbers_as_content_to_restructure() {
+        use markdowner_core::ai_document::{AiDocumentEnvelope, ByteRange};
+        let source = "테스트\n\n이것은\n\n리스트\n\n만들기 위한\n\n문장들 입니다\n\n123123\n";
+        let end = source.find("123123").unwrap() + "123123".len();
+        let envelope = AiDocumentEnvelope::new("doc", source, Some(ByteRange { start: 0, end })).unwrap();
+        let mut request = fixture_request(AiTask::Custom);
+        request.selection = true;
+        request.selection_markdown = true;
+        request.instruction = Some("리스트로 만들어줘".to_string());
+        request.document = serde_json::to_value(&envelope).unwrap();
+
+        let messages = build_messages(&request);
+        let system = messages[0]["content"].as_str().unwrap();
+        let user = messages[1]["content"].as_str().unwrap();
+        assert!(user.contains(r#"문장들 입니다\n\n123123""#), "{user}");
+        assert!(!user.contains("⟪MDNER_"), "{user}");
+        assert!(system.contains("Keep every number exactly as written"));
+        assert!(system.contains("a line holding only a placeholder becomes a list item"));
+        assert!(!system.contains("identifiers, and numbers"));
+        assert_eq!(prompt_version_for_task(AiTask::Custom), "2026-10-28.custom.v5");
     }
 
     #[test]

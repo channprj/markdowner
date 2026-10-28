@@ -407,4 +407,32 @@ mod tests {
             source
         );
     }
+
+    #[test]
+    fn markdown_list_conversion_keeps_a_number_only_paragraph_in_the_list() {
+        let source = "테스트\n\n이것은\n\n리스트\n\n만들기 위한\n\n문장들 입니다\n\n123123\n";
+        let end = source.find("123123").unwrap() + "123123".len();
+        let envelope =
+            AiDocumentEnvelope::new("doc", source, Some(ByteRange { start: 0, end })).unwrap();
+        let document = serde_json::to_value(&envelope).unwrap();
+        assert_eq!(
+            markdown_provider_document(&document)["selection_markdown"],
+            json!(&source[..end])
+        );
+
+        let list = "- 테스트\n- 이것은\n- 리스트\n- 만들기 위한\n- 문장들 입니다\n- 123123";
+        let content = json!({"schema_version":1,"replacement_markdown":list,"warnings":[]});
+        assert_eq!(
+            validate_response(&envelope, &content.to_string()).unwrap().proposed_markdown,
+            format!("{list}\n")
+        );
+
+        let changed = json!({
+            "schema_version": 1,
+            "replacement_markdown": list.replace("123123", "123"),
+            "warnings": []
+        });
+        let issues = validate_response(&envelope, &changed.to_string()).unwrap_err();
+        assert_eq!(issues[0].code, "protected_token_changed");
+    }
 }
