@@ -21,6 +21,7 @@ const activeDocumentDiskSourceMock = vi.fn();
 const importThemeMock = vi.fn();
 const hasActiveDocumentExternalChangesMock = vi.fn();
 const reloadActiveDocumentFromDiskMock = vi.fn();
+const revertActiveDocumentToDiskMock = vi.fn();
 const takePendingExternalOpensMock = vi.fn();
 const newDocumentMock = vi.fn();
 const newWindowMock = vi.fn();
@@ -101,6 +102,7 @@ vi.mock('./lib/desktop', () => ({
   importTheme: importThemeMock,
   hasActiveDocumentExternalChanges: hasActiveDocumentExternalChangesMock,
   reloadActiveDocumentFromDisk: reloadActiveDocumentFromDiskMock,
+  revertActiveDocumentToDisk: revertActiveDocumentToDiskMock,
   takePendingExternalOpens: takePendingExternalOpensMock,
   newDocument: newDocumentMock,
   newWindow: newWindowMock,
@@ -1025,6 +1027,15 @@ describe('App recent documents', () => {
     listenMock.mockReset();
     hasActiveDocumentExternalChangesMock.mockReset();
     reloadActiveDocumentFromDiskMock.mockReset();
+    revertActiveDocumentToDiskMock.mockReset();
+    // Fake backends model one native reload; the explicit override reaches it
+    // with the live snapshot it was issued against.
+    revertActiveDocumentToDiskMock.mockImplementation((path: string, snapshot: AppSnapshot) =>
+      reloadActiveDocumentFromDiskMock({
+        path,
+        expectedSource: snapshot.activeDocumentSource ?? '',
+        expectedDirty: snapshot.activeDocumentDirty,
+      }));
     takePendingExternalOpensMock.mockReset();
     takePendingExternalOpensMock.mockResolvedValue([]);
     invokeMock.mockReset();
@@ -6901,6 +6912,129 @@ describe('App recent documents', () => {
       'aria-selected',
       'true',
     );
+  });
+
+  it('reloads from disk over local edits even when the native buffer moved on', async () => {
+    const path = '/tmp/project/meeting-notes.md';
+    let backend = baseSnapshot({
+      activeDocumentVersion: { id: 50, revision: 0 },
+      activeDocumentName: 'meeting-notes.md',
+      activeDocumentPath: path,
+      activeDocumentSource: '# Meeting notes',
+      mode: 'Editor',
+    });
+    bootstrapMock.mockImplementation(async () => backend);
+    hasActiveDocumentExternalChangesMock.mockResolvedValue(true);
+    revertActiveDocumentToDiskMock.mockImplementation(async (_path: string, snapshot: AppSnapshot) => {
+      if (snapshot.activeDocumentVersion?.id !== backend.activeDocumentVersion?.id) {
+        throw new Error('Could not reload document because it changed before the reload completed');
+      }
+      backend = {
+        ...backend,
+        activeDocumentVersion: { id: backend.activeDocumentVersion!.id + 1, revision: 0 },
+        activeDocumentSource: '# Written by another agent',
+        activeDocumentDirty: false,
+      };
+      return backend;
+    });
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    fireEvent.change(sourceEditor, { target: { value: '# My unsaved edits' } });
+    const menu = await openAppMenu();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /^save$/i }));
+    const reload = await screen.findByRole('button', { name: /reload from disk/i });
+
+    // The backend re-activated the same file behind React's back.
+    backend = { ...backend, activeDocumentVersion: { id: 51, revision: 0 } };
+    fireEvent.click(reload);
+
+    await waitFor(() => expect(sourceEditor).toHaveValue('# Written by another agent'));
+    expect(revertActiveDocumentToDiskMock).toHaveBeenCalledTimes(2);
+    expect(revertActiveDocumentToDiskMock).toHaveBeenLastCalledWith(
+      path,
+      expect.objectContaining({ activeDocumentVersion: { id: 51, revision: 0 } }),
+    );
+    expect(screen.queryByRole('button', { name: /reload from disk/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /meeting-notes\.md/i })).not.toHaveTextContent('●');
+  });
+
+  it('confirms before the Reload from Disk command discards unsaved edits', async () => {
+    const path = '/tmp/project/meeting-notes.md';
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: path,
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
+    reloadActiveDocumentFromDiskMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: path,
+        activeDocumentSource: '# Disk version',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    await waitFor(() => expect(menuCommandHandler).toBeTypeOf('function'));
+    fireEvent.change(sourceEditor, { target: { value: '# Unsaved edits' } });
+
+    messageMock.mockResolvedValueOnce('Cancel');
+    await act(async () => {
+      await menuCommandHandler?.({ payload: 'reload-active-document' });
+    });
+    expect(messageMock).toHaveBeenCalledWith(
+      expect.stringMatching(/discard unsaved changes to 'meeting-notes\.md'/i),
+      expect.objectContaining({ kind: 'warning' }),
+    );
+    expect(revertActiveDocumentToDiskMock).not.toHaveBeenCalled();
+    expect(sourceEditor).toHaveValue('# Unsaved edits');
+
+    messageMock.mockResolvedValueOnce('Reload from Disk');
+    await act(async () => {
+      await menuCommandHandler?.({ payload: 'reload-active-document' });
+    });
+    await waitFor(() => expect(sourceEditor).toHaveValue('# Disk version'));
+    expect(revertActiveDocumentToDiskMock).toHaveBeenCalledWith(path, expect.anything());
+  });
+
+  it('keeps the conflict dismissed after Keep local until the disk changes again', async () => {
+    const path = '/tmp/project/meeting-notes.md';
+    let diskSource = '# Agent version 1';
+    hasActiveDocumentExternalChangesMock.mockResolvedValue(true);
+    activeDocumentDiskSourceMock.mockImplementation(async () => diskSource);
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: path,
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    const sourceEditor = await screen.findByLabelText('Source editor');
+    fireEvent.change(sourceEditor, { target: { value: '# My edits' } });
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    fireEvent.click(await screen.findByRole('button', { name: /keep local/i }));
+    await waitFor(() => expect(activeDocumentDiskSourceMock).toHaveBeenCalled());
+    await act(async () => {});
+
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await act(async () => {});
+    expect(screen.queryByRole('button', { name: /keep local/i })).not.toBeInTheDocument();
+    expect(sourceEditor).toHaveValue('# My edits');
+
+    diskSource = '# Agent version 2';
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(await screen.findByRole('button', { name: /keep local/i })).toBeInTheDocument();
   });
 
   it('lets the user keep local edits when external changes are detected', async () => {

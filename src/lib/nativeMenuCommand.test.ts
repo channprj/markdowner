@@ -25,6 +25,7 @@ describe('parseNativeMenuCommand', () => {
     ['open-workspace', { kind: 'openWorkspace' }],
     ['save-active-document', { kind: 'saveActiveDocument' }],
     ['save-active-document-as', { kind: 'saveActiveDocumentAs' }],
+    ['reload-active-document', { kind: 'reloadActiveDocument' }],
     ['close-window', { kind: 'closeWindow' }],
     ['quit-app', { kind: 'quitApp' }],
   ] as const)('parses %s', (command, expected) => {

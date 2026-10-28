@@ -14,6 +14,7 @@ function actions(overrides: Partial<CommandPaletteActions> = {}): CommandPalette
     openWorkspace: vi.fn(),
     save: vi.fn(),
     saveAs: vi.fn(),
+    reloadFromDisk: vi.fn(),
     exportHtml: vi.fn(),
     exportPdf: vi.fn(),
     exportImage: vi.fn(),
@@ -139,6 +140,7 @@ describe('buildCommandPaletteCommands', () => {
       'file.openWorkspace',
       'file.save',
       'file.saveAs',
+      'file.reloadFromDisk',
       'file.exportHtml',
       'file.exportPdf',
       'file.exportImage',
@@ -187,6 +189,25 @@ describe('buildCommandPaletteCommands', () => {
     ]);
   });
 
+  it('offers Reload from Disk only for a document saved on disk', () => {
+    const reloadFromDisk = vi.fn();
+    const build = (hasActiveDocumentPath: boolean) =>
+      buildCommandPaletteCommands({
+        activeDocumentOpen: true,
+        hasActiveDocumentPath,
+        canGoBack: false,
+        canGoForward: false,
+        settings: settings(),
+        actions: actions({ reloadFromDisk }),
+      }).find((command) => command.id === 'file.reloadFromDisk');
+
+    expect(build(false)?.disabled).toBe(true);
+    const command = build(true);
+    expect(command).toMatchObject({ category: 'File', label: 'Reload from Disk', disabled: false });
+    command?.run?.();
+    expect(reloadFromDisk).toHaveBeenCalledTimes(1);
+  });
+
   it('disables document-only commands when no document is open', () => {
     const commands = buildCommandPaletteCommands({
       activeDocumentOpen: false,
@@ -198,6 +219,7 @@ describe('buildCommandPaletteCommands', () => {
 
     expect(commands.find((command) => command.id === 'file.save')?.disabled).toBe(true);
     expect(commands.find((command) => command.id === 'file.saveAs')?.disabled).toBe(true);
+    expect(commands.find((command) => command.id === 'file.reloadFromDisk')?.disabled).toBe(true);
     expect(commands.find((command) => command.id === 'file.exportHtml')?.disabled).toBe(true);
     expect(commands.find((command) => command.id === 'file.exportPdf')?.disabled).toBe(true);
     expect(commands.find((command) => command.id === 'file.exportImage')?.disabled).toBe(true);

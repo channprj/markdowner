@@ -168,6 +168,16 @@ export async function reloadActiveDocumentFromDisk({
   });
 }
 
+/** Explicit "Reload from Disk": discard local edits of this activation in favor of the disk version. */
+export async function revertActiveDocumentToDisk(path: string, snapshot: AppSnapshot) {
+  const version = snapshot.activeDocumentVersion;
+  if (!version) throw new Error('No current document is available. Please reopen the document.');
+  return invoke<AppSnapshot>('revert_active_document_to_disk', {
+    path,
+    expectedVersion: version,
+  });
+}
+
 export async function activeDocumentDiskSource() {
   return invoke<string>('active_document_disk_source');
 }

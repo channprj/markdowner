@@ -130,6 +130,7 @@ import {
   bootstrap,
   hasActiveDocumentExternalChanges,
   reloadActiveDocumentFromDisk,
+  revertActiveDocumentToDisk,
   activeDocumentDiskSource,
   importTheme,
   newDocument,
@@ -697,6 +698,9 @@ export default function App() {
   const externalCompareRequests = useLatestRequestTracker();
   const externalRefreshRequests = useLatestRequestTracker();
   const externalConflictPathsRef = useRef(new Set<string>());
+  // Disk contents the user chose "Keep local" over, by path. The background
+  // refresh stays quiet while the disk still holds exactly that version.
+  const keptLocalDiskSourceByPathRef = useRef(new Map<string, string>());
   const externalOpenDrainRef = useRef<Promise<void> | null>(null);
   const dismissedAiRequestIdsRef = useRef(new Set<string>());
   const externalRefreshInFlightRef = useRef<Promise<void> | null>(null);
@@ -4665,6 +4669,11 @@ export default function App() {
     return true;
   };
 
+  // "Reload from Disk" is an explicit override: the disk version replaces the
+  // local edits that existed when the user asked for it, whether they are only
+  // in the editor, mirrored into the native buffer, or previously kept over a
+  // conflict. Only the document activation is verified, so the reload can
+  // never land on another document. Input typed while it runs is still kept.
   const handleReloadActiveDocument = async () => {
     flushWysiwygDraftNow();
     const requestedSnapshot = snapshotRef.current;
@@ -4674,14 +4683,15 @@ export default function App() {
 
     const intent = editorOpRequests.current();
     const draftAtRequestStart = localDraftRef.current;
+    const isSameDocument = () =>
+      activeTabIdRef.current === activeTabId && snapshotRef.current.activeDocumentPath === path;
     await withBusy(async () => {
       // A refresh or an already-sent mirror may have changed the native buffer
       // before its response reaches React. Settle both, then inspect live state.
       // Do not invalidate the refresh token before it can reconcile its result.
       await externalRefreshInFlightRef.current;
       await draftMirrorInFlightRef.current;
-      if (isEditorOpStale(intent) || activeTabIdRef.current !== activeTabId ||
-          snapshotRef.current.activeDocumentPath !== path) return;
+      if (isEditorOpStale(intent) || !isSameDocument()) return;
       flushWysiwygDraftNow();
       if (localDraftRef.current !== draftAtRequestStart) {
         externalConflictPathsRef.current.add(path);
@@ -4693,19 +4703,21 @@ export default function App() {
       const token = nextEditorOpRequest();
       let next: AppSnapshot;
       try {
-        next = await reloadActiveDocumentFromDisk({
-          path,
-          expectedSource: currentSnapshot.activeDocumentSource ?? '',
-          expectedDirty: currentSnapshot.activeDocumentDirty,
-        });
+        next = await revertActiveDocumentToDisk(path, currentSnapshot);
       } catch (error) {
-        if (isEditorOpStale(token)) return;
-        if (isReloadDocumentPreconditionError(error)) {
+        if (isEditorOpStale(token) || !isSameDocument()) return;
+        if (!isReloadDocumentPreconditionError(error)) throw error;
+        // The native activation moved on without React observing it (a late
+        // refresh or reopen of this same path). Address the live activation
+        // once more, but only while the backend still shows this document.
+        const live = await bootstrap();
+        if (isEditorOpStale(token) || !isSameDocument()) return;
+        if (live.activeDocumentPath !== path) {
           externalConflictPathsRef.current.add(path);
           applyExternalChangeState(externalChangeDetectedState(currentSnapshot.activeDocumentName));
           return;
         }
-        throw error;
+        next = await revertActiveDocumentToDisk(path, live);
       }
       if (isEditorOpStale(token) || activeTabIdRef.current !== activeTabId) {
         if (preserveDraftAfterCommittedReload(next, currentSnapshot, activeTabId)) {
@@ -4728,9 +4740,36 @@ export default function App() {
         return;
       }
       externalConflictPathsRef.current.delete(path);
+      keptLocalDiskSourceByPathRef.current.delete(path);
       applySnapshot(next);
       setTabs((prev) => refreshActiveDocumentTabFromSnapshot({ tabs: prev, activeTabId, snapshot: next }));
     });
+  };
+
+  const handleReloadActiveDocumentCommand = async () => {
+    const current = snapshotRef.current;
+    if (current.activeDocumentSource === null || !current.activeDocumentPath) return;
+    flushWysiwygDraftNow();
+    const activeTab = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+    const hasLocalEdits =
+      current.activeDocumentDirty ||
+      (activeTab !== undefined &&
+        isDocumentTabDirty(activeTab, {
+          activeTabId: activeTabIdRef.current,
+          localDraft: localDraftRef.current,
+        }));
+    if (hasLocalEdits) {
+      const decision = await message(
+        `Discard unsaved changes to '${current.activeDocumentName ?? 'Untitled.md'}' and reload it from disk?`,
+        {
+          title: WINDOW_TITLE,
+          kind: 'warning',
+          buttons: { yes: 'Reload from Disk', no: 'Cancel', cancel: 'Cancel' },
+        },
+      );
+      if (decision !== 'Reload from Disk') return;
+    }
+    await handleReloadActiveDocument();
   };
 
   const refreshActiveDocumentAfterWindowFocus = useEffectEvent(async () => {
@@ -4798,6 +4837,15 @@ export default function App() {
             localDraft: localDraftRef.current,
           })
         ) {
+          const keptDiskSource = keptLocalDiskSourceByPathRef.current.get(activePath);
+          if (keptDiskSource !== undefined) {
+            const diskSource = await activeDocumentDiskSource().catch(() => null);
+            if (!isCurrentRefresh()) return;
+            // The user already chose their edits over this disk version; only
+            // a newer external change deserves another prompt.
+            if (diskSource === keptDiskSource) return;
+            keptLocalDiskSourceByPathRef.current.delete(activePath);
+          }
           showExternalConflict();
           return;
         }
@@ -4897,6 +4945,15 @@ export default function App() {
     const path = snapshotRef.current.activeDocumentPath;
     if (path) {
       externalConflictPathsRef.current.delete(path);
+      // Remember which disk version was dismissed so the once-a-second refresh
+      // does not raise the same conflict again moments later.
+      void activeDocumentDiskSource()
+        .then((diskSource) => {
+          if (snapshotRef.current.activeDocumentPath === path) {
+            keptLocalDiskSourceByPathRef.current.set(path, diskSource);
+          }
+        })
+        .catch(() => {});
     }
     clearExternalChangeState();
   };
@@ -6219,6 +6276,9 @@ export default function App() {
       case 'saveActiveDocumentAs':
         await handleSaveAs();
         return;
+      case 'reloadActiveDocument':
+        await handleReloadActiveDocumentCommand();
+        return;
       case 'closeWindow':
         await handleCloseTabOrWindow();
         return;
@@ -6961,6 +7021,7 @@ export default function App() {
       openWorkspace: () => void handleOpenWorkspace(),
       save: () => void handleSave(),
       saveAs: () => void handleSaveAs(),
+      reloadFromDisk: () => void handleReloadActiveDocumentCommand(),
       exportHtml: () => openDocumentExport('html'),
       exportPdf: () => openDocumentExport('pdf'),
       exportImage: () => openDocumentExport('image'),

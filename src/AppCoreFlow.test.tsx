@@ -17,6 +17,7 @@ const activeDocumentDiskSourceMock = vi.fn();
 const importThemeMock = vi.fn();
 const hasActiveDocumentExternalChangesMock = vi.fn();
 const reloadActiveDocumentFromDiskMock = vi.fn();
+const revertActiveDocumentToDiskMock = vi.fn();
 const takePendingExternalOpensMock = vi.fn();
 const newDocumentMock = vi.fn();
 const openDocumentMock = vi.fn();
@@ -56,6 +57,7 @@ vi.mock('./lib/desktop', () => ({
   importTheme: importThemeMock,
   hasActiveDocumentExternalChanges: hasActiveDocumentExternalChangesMock,
   reloadActiveDocumentFromDisk: reloadActiveDocumentFromDiskMock,
+  revertActiveDocumentToDisk: revertActiveDocumentToDiskMock,
   takePendingExternalOpens: takePendingExternalOpensMock,
   newDocument: newDocumentMock,
   openDocument: openDocumentMock,
@@ -283,6 +285,15 @@ describe('App core Markdown editing flow', () => {
     importThemeMock.mockReset();
     hasActiveDocumentExternalChangesMock.mockReset();
     reloadActiveDocumentFromDiskMock.mockReset();
+    revertActiveDocumentToDiskMock.mockReset();
+    // Fake backends model one native reload; the explicit override reaches it
+    // with the live snapshot it was issued against.
+    revertActiveDocumentToDiskMock.mockImplementation((path: string, snapshot: AppSnapshot) =>
+      reloadActiveDocumentFromDiskMock({
+        path,
+        expectedSource: snapshot.activeDocumentSource ?? '',
+        expectedDirty: snapshot.activeDocumentDirty,
+      }));
     takePendingExternalOpensMock.mockReset();
     takePendingExternalOpensMock.mockResolvedValue([]);
     newDocumentMock.mockReset();

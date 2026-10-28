@@ -52,6 +52,7 @@ const MENU_COMMAND_OPEN_WORKSPACE: &str = "open-workspace";
 const MENU_COMMAND_OPEN_RECENT_DOCUMENT_PREFIX: &str = "open-recent-document:";
 const MENU_COMMAND_SAVE_ACTIVE_DOCUMENT: &str = "save-active-document";
 const MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS: &str = "save-active-document-as";
+const MENU_COMMAND_RELOAD_ACTIVE_DOCUMENT: &str = "reload-active-document";
 const MENU_COMMAND_CLOSE_WINDOW: &str = "close-window";
 const MENU_COMMAND_QUIT_APP: &str = "quit-app";
 const MENU_COMMAND_SET_MODE_WYSIWYG: &str = "mode-wysiwyg";
@@ -222,6 +223,11 @@ const FILE_MENU_COMMANDS: &[MenuCommandDescriptor] = &[
         id: MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS,
         label: "Save As…",
         accelerator: Some("CmdOrCtrl+Shift+S"),
+    },
+    MenuCommandDescriptor {
+        id: MENU_COMMAND_RELOAD_ACTIVE_DOCUMENT,
+        label: "Reload from Disk",
+        accelerator: None,
     },
     MenuCommandDescriptor {
         id: MENU_COMMAND_CLOSE_WINDOW,
@@ -510,6 +516,27 @@ impl DesktopBackend {
                 expected_source,
                 expected_dirty,
             )
+            .map_err(|error| error.to_string())?;
+        self.activate_document();
+        Ok(self.snapshot())
+    }
+
+    /// An explicit "Reload from Disk" chooses the disk version over every
+    /// local edit, so only the activation is verified: the request can never
+    /// replace a different document, but unsynced buffer edits never block it.
+    pub fn revert_active_document_to_disk(
+        &mut self,
+        expected_path: &Path,
+        expected_version: DocumentVersion,
+    ) -> Result<AppSnapshot, String> {
+        let workspace = self.runtime.workspace();
+        if workspace.active_document_path() != Some(expected_path)
+            || self.document_version.id != expected_version.id
+        {
+            return Err(markdowner_core::RELOAD_DOCUMENT_PRECONDITION_ERROR.to_string());
+        }
+        self.runtime
+            .reload_active_document_from_disk()
             .map_err(|error| error.to_string())?;
         self.activate_document();
         Ok(self.snapshot())
@@ -1300,6 +1327,9 @@ fn menu_command_from_id(id: &str) -> Option<String> {
         MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS => {
             Some(MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS.to_string())
         }
+        MENU_COMMAND_RELOAD_ACTIVE_DOCUMENT => {
+            Some(MENU_COMMAND_RELOAD_ACTIVE_DOCUMENT.to_string())
+        }
         MENU_COMMAND_CLOSE_WINDOW => Some(MENU_COMMAND_CLOSE_WINDOW.to_string()),
         MENU_COMMAND_QUIT_APP => Some(MENU_COMMAND_QUIT_APP.to_string()),
         MENU_COMMAND_SET_MODE_WYSIWYG => Some(MENU_COMMAND_SET_MODE_WYSIWYG.to_string()),
@@ -2023,6 +2053,18 @@ fn reload_active_document_from_disk(
 }
 
 #[tauri::command]
+fn revert_active_document_to_disk(
+    window: WebviewWindow,
+    path: String,
+    expected_version: DocumentVersion,
+    state: State<'_, DesktopAppState>,
+) -> Result<AppSnapshot, String> {
+    with_editable_backend(state, window, |backend| {
+        backend.revert_active_document_to_disk(Path::new(&path), expected_version)
+    })
+}
+
+#[tauri::command]
 fn active_document_disk_source(window: WebviewWindow, state: State<'_, DesktopAppState>) -> Result<String, String> {
     with_backend(state, window, DesktopBackend::active_document_disk_source)
 }
@@ -2468,6 +2510,7 @@ pub fn run() {
             write_image_file,
             has_active_document_external_changes,
             reload_active_document_from_disk,
+            revert_active_document_to_disk,
             active_document_disk_source,
             set_mode,
             set_theme,
@@ -3320,6 +3363,7 @@ mod tests {
                 MENU_COMMAND_OPEN_WORKSPACE,
                 MENU_COMMAND_SAVE_ACTIVE_DOCUMENT,
                 MENU_COMMAND_SAVE_ACTIVE_DOCUMENT_AS,
+                super::MENU_COMMAND_RELOAD_ACTIVE_DOCUMENT,
                 MENU_COMMAND_CLOSE_WINDOW,
                 MENU_COMMAND_QUIT_APP,
             ]
@@ -3517,6 +3561,58 @@ mod tests {
         let snapshot = backend.snapshot();
         assert_eq!(snapshot.active_document_source.as_deref(), Some("# Local edits\n"));
         assert!(snapshot.active_document_dirty);
+    }
+
+    #[test]
+    fn explicit_revert_replaces_local_edits_with_the_disk_version() {
+        let temp = tempdir().unwrap();
+        let document_path = temp.path().join("notes.md");
+        fs::write(&document_path, "# Initial\n").unwrap();
+
+        let mut backend = DesktopBackend::new(None);
+        let opened = backend.open_document(&document_path).unwrap();
+        backend.replace_active_document_source("# Local edits\n").unwrap();
+        fs::write(&document_path, "# Agent update\n").unwrap();
+
+        let snapshot = backend
+            .revert_active_document_to_disk(&document_path, opened.active_document_version.unwrap())
+            .unwrap();
+
+        assert_eq!(snapshot.active_document_source.as_deref(), Some("# Agent update\n"));
+        assert_eq!(snapshot.active_document_synced_source.as_deref(), Some("# Agent update\n"));
+        assert!(!snapshot.active_document_dirty);
+        assert_ne!(snapshot.active_document_version, opened.active_document_version);
+        assert!(!backend.has_active_document_external_changes().unwrap());
+    }
+
+    #[test]
+    fn explicit_revert_never_replaces_a_different_activation() {
+        let temp = tempdir().unwrap();
+        let alpha_path = temp.path().join("alpha.md");
+        let beta_path = temp.path().join("beta.md");
+        fs::write(&alpha_path, "# Alpha\n").unwrap();
+        fs::write(&beta_path, "# Beta\n").unwrap();
+
+        let mut backend = DesktopBackend::new(None);
+        let alpha = backend.open_document(&alpha_path).unwrap();
+        backend.open_document(&beta_path).unwrap();
+        let error = backend
+            .revert_active_document_to_disk(&alpha_path, alpha.active_document_version.unwrap())
+            .unwrap_err();
+        assert!(error.contains("changed before the reload completed"));
+
+        // Reactivating the same path is a new activation; the stale request
+        // must not reach it either.
+        backend.open_document(&alpha_path).unwrap();
+        backend.replace_active_document_source("# Alpha edits\n").unwrap();
+        let error = backend
+            .revert_active_document_to_disk(&alpha_path, alpha.active_document_version.unwrap())
+            .unwrap_err();
+        assert!(error.contains("changed before the reload completed"));
+        assert_eq!(
+            backend.snapshot().active_document_source.as_deref(),
+            Some("# Alpha edits\n")
+        );
     }
 
     #[test]

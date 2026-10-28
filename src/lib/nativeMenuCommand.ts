@@ -9,6 +9,7 @@ export type NativeMenuCommand =
   | { kind: 'openWorkspace' }
   | { kind: 'saveActiveDocument' }
   | { kind: 'saveActiveDocumentAs' }
+  | { kind: 'reloadActiveDocument' }
   | { kind: 'closeWindow' }
   | { kind: 'quitApp' }
   | { kind: 'setMode'; mode: EditorMode }
@@ -36,6 +37,8 @@ export function parseNativeMenuCommand(command: string): NativeMenuCommand {
       return { kind: 'saveActiveDocument' };
     case 'save-active-document-as':
       return { kind: 'saveActiveDocumentAs' };
+    case 'reload-active-document':
+      return { kind: 'reloadActiveDocument' };
     case 'close-window':
       return { kind: 'closeWindow' };
     case 'quit-app':

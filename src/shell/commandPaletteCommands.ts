@@ -15,6 +15,7 @@ export type CommandPaletteActions = {
   openWorkspace: () => void;
   save: () => void;
   saveAs: () => void;
+  reloadFromDisk: () => void;
   exportHtml: () => void;
   exportPdf: () => void;
   exportImage: () => void;
@@ -138,6 +139,13 @@ export function buildCommandPaletteCommands(
       shortcut: '⌘⇧S',
       disabled: !activeDocumentOpen,
       run: actions.saveAs,
+    },
+    {
+      id: 'file.reloadFromDisk',
+      category: 'File',
+      label: 'Reload from Disk',
+      disabled: !activeDocumentOpen || !hasActiveDocumentPath,
+      run: actions.reloadFromDisk,
     },
     {
       id: 'file.exportHtml',

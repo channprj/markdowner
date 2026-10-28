@@ -9,8 +9,8 @@ mod workspace;
 pub use document::{Block, Document, Inline, TableAlignment, TableRow};
 pub use markdown::{parse_markdown, serialize_markdown};
 pub use platform::{
-    EditorRuntime, FileDialogOptions, MenuDescriptor, MenuItem, PlatformAdapter, RuntimeError,
-    WindowDescriptor,
+    EditorRuntime, FileDialogOptions, MenuDescriptor, MenuItem, PlatformAdapter,
+    RELOAD_DOCUMENT_PRECONDITION_ERROR, RuntimeError, WindowDescriptor,
 };
 pub use theme::{
     AppliedTheme, CodeBlockStyleKind, CodeToken, CodeTokenKind, StyledCodeBlock, StyledDocument,
