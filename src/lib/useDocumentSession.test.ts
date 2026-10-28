@@ -1,4 +1,5 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, render, renderHook } from '@testing-library/react';
+import { createElement } from 'react';
 import { describe, expect, it } from 'vitest';
 import type { AppSnapshot } from './desktop';
 import { useDocumentSession } from './useDocumentSession';
@@ -41,6 +42,30 @@ describe('document session state', () => {
     act(() => result.current.applySnapshot({ ...latest, mode: 'SplitView' }, true));
     expect(result.current.localDraft).toBe('unsaved');
     expect(result.current.snapshot.mode).toBe('SplitView');
+  });
+
+  it('bails out of writes that leave every field unchanged', () => {
+    // A fresh state object for a no-op write re-renders App's whole tree; with
+    // a pending transition React re-applies such writes on every render.
+    let childRenders = 0;
+    let session!: ReturnType<typeof useDocumentSession>;
+    function Child() {
+      childRenders += 1;
+      return null;
+    }
+    function Host() {
+      session = useDocumentSession(empty);
+      return createElement(Child);
+    }
+    render(createElement(Host));
+    act(() => session.setLocalDraft('draft'));
+    const settled = childRenders;
+    act(() => {
+      session.setLocalDraft('draft');
+      session.setActiveTabId(null);
+    });
+    expect(childRenders).toBe(settled);
+    expect(session.localDraft).toBe('draft');
   });
 
   it('clears the active document atomically while retaining closed-tab history and workspace state', () => {

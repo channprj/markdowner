@@ -81,6 +81,12 @@ export interface AiSelectionPopoverProps {
   services?: AiSelectionServices;
 }
 
+const actionLabel = (action: SelectionAction) => action.label;
+const actionValue = (action: SelectionAction) => action.id;
+const modelLabel = (option: AiModelOption) => `${option.name} · ${option.id}`;
+const modelValue = (option: AiModelOption) => option.id;
+const sameId = (item: { id: string }, value: { id: string }) => item.id === value.id;
+
 const DEFAULT_SERVICES: AiSelectionServices = {
   keyStatus: aiKeyStatus,
   listModels: aiListModels,
@@ -451,9 +457,9 @@ export function AiSelectionPopover({
           <Combobox<SelectionAction>
             items={SELECTION_ACTIONS}
             value={selectedAction}
-            itemToStringLabel={(action) => action.label}
-            itemToStringValue={(action) => action.id}
-            isItemEqualToValue={(item, value) => item.id === value.id}
+            itemToStringLabel={actionLabel}
+            itemToStringValue={actionValue}
+            isItemEqualToValue={sameId}
             autoHighlight
             disabled={Boolean(runningRequestId)}
             onOpenChange={(open) => setOpenPicker(open ? 'mode' : null)}
@@ -569,9 +575,9 @@ export function AiSelectionPopover({
           <Combobox<AiModelOption>
             items={modelOptions}
             value={selectedModel}
-            itemToStringLabel={(option) => `${option.name} · ${option.id}`}
-            itemToStringValue={(option) => option.id}
-            isItemEqualToValue={(item, value) => item.id === value.id}
+            itemToStringLabel={modelLabel}
+            itemToStringValue={modelValue}
+            isItemEqualToValue={sameId}
             autoHighlight
             disabled={catalogLoading || Boolean(runningRequestId)}
             onOpenChange={(open) => setOpenPicker(open ? 'model' : null)}

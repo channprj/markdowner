@@ -15,7 +15,13 @@ interface DocumentSession {
 type SessionPatch = Partial<DocumentSession>;
 
 function sessionReducer(state: DocumentSession, patch: SessionPatch): DocumentSession {
-  return { ...state, ...patch };
+  // Keep identity for no-op writes. React re-applies queued patches on every
+  // render around a pending transition; a fresh object each time keeps App
+  // re-rendering and starves that transition.
+  for (const key of Object.keys(patch) as (keyof DocumentSession)[]) {
+    if (!Object.is(state[key], patch[key])) return { ...state, ...patch };
+  }
+  return state;
 }
 
 /** A field's live ref advances with intent, before React commits its render. */

@@ -1,5 +1,6 @@
 import { useWysiwygDraftSync, useWysiwygContentSync } from './lib/useWysiwygDraftSync';
 import { useDocumentSession } from './lib/useDocumentSession';
+import { useStableEvent } from './lib/useStableEvent';
 import { useDocumentPersistence } from './lib/useDocumentPersistence';
 import { useSessionExit } from './lib/useSessionExit';
 import { invoke } from '@tauri-apps/api/core';
@@ -1518,26 +1519,27 @@ export default function App() {
     );
   };
 
-  const handleSourceEditorViewportChange = useEffectEvent((scrollElement: HTMLElement) => {
+  const handleSourceEditorViewportChange = useStableEvent((scrollElement: HTMLElement) => {
     if (currentMode !== 'SplitView') return;
     syncScrollPosition(scrollElement, splitPreviewScrollRef.current);
   });
 
-  const handleSourceEditorTypewriterChange = useEffectEvent((view: EditorView) => {
+  const handleSourceEditorTypewriterChange = useStableEvent((view: EditorView) => {
     if (!settings.typewriterModeEnabled) return;
     window.requestAnimationFrame(() => centerSourceEditorLine(view));
   });
 
-  // Stable callback refs for the CodeMirror host. The inline arrow forms
-  // would create new identities on every parent render, defeating the
-  // memoised source editor host and forcing CodeMirror to
-  // reconcile on every cursor tick (the visible "text style flicker").
-  const handleSourceEditorChange = useEffectEvent((value: string) => {
+  // Stable callbacks for the CodeMirror host and its memoised extensions.
+  // Inline arrows or useEffectEvent functions get new identities on every
+  // parent render, defeating the memoised source editor host and forcing
+  // CodeMirror to reconfigure on every cursor tick (the visible "text style
+  // flicker") and to report statistics after every App commit.
+  const handleSourceEditorChange = useStableEvent((value: string) => {
     if (sessionExit.lockedRef.current) return;
     localDraftRef.current = value;
     setLocalDraft(value);
   });
-  const handleSourceEditorStatistics = useEffectEvent((stats: unknown) => {
+  const handleSourceEditorStatistics = useStableEvent((stats: unknown) => {
     setCursorPosition((current) => {
       const next = nextCursorPositionFromStatistics(
         current,
@@ -1554,7 +1556,7 @@ export default function App() {
     });
   });
   const [sourceEditorViewToken, setSourceEditorViewToken] = useState(0);
-  const handleSourceEditorCreate = useEffectEvent((view: EditorView) => {
+  const handleSourceEditorCreate = useStableEvent((view: EditorView) => {
     sourceEditorViewRef.current = view;
     // Notify the startup-restore effect that the CodeMirror view is now
     // alive; refs don't trigger renders so we bump a state counter.
@@ -3643,7 +3645,7 @@ export default function App() {
     if (captured) openLocalAgentComposer(captured);
   });
 
-  const openLocalAgentFromAiSelection = useEffectEvent(
+  const openLocalAgentFromAiSelection = useStableEvent(
     (selection: AiSelectionSnapshot) => {
       openLocalAgentComposer(
         localAgentTargetFromAiSelectionSnapshot(selection),
@@ -3799,7 +3801,7 @@ export default function App() {
     },
   );
 
-  const handleSourceAiSelectionChange = useEffectEvent((view: EditorView) => {
+  const handleSourceAiSelectionChange = useStableEvent((view: EditorView) => {
     // Focus/selection transactions may arrive while the composer is open.
     // Its captured target stays immutable until it closes or returns a result.
     if (aiSelectionPromptOpen) return;
@@ -3921,7 +3923,7 @@ export default function App() {
     setAiSelectionPromptOpen(true);
   });
 
-  const handleAiSelectionResult = useEffectEvent(
+  const handleAiSelectionResult = useStableEvent(
     (
       result: AiRunResult,
       selection: AiSelectionSnapshot,
@@ -3997,6 +3999,11 @@ export default function App() {
       );
     },
   );
+
+  const closeAiSelectionPrompt = useStableEvent(() => {
+    setAiSelectionPromptOpen(false);
+    focusActiveEditor();
+  });
 
   const sourceEditorExtensions = useMemo(
     () =>
@@ -7516,10 +7523,7 @@ export default function App() {
           editor={currentMode === 'Wysiwyg' ? editor : null}
           snapshot={aiSelectionSnapshot}
           settings={settings}
-          onClose={() => {
-            setAiSelectionPromptOpen(false);
-            focusActiveEditor();
-          }}
+          onClose={closeAiSelectionPrompt}
           onResult={handleAiSelectionResult}
           onLocalAgent={openLocalAgentFromAiSelection}
         />

@@ -1789,6 +1789,49 @@ describe('App recent documents', () => {
     expect(screen.getByText('beta')).toBeVisible();
   });
 
+  it('keeps the source editor extensions and callbacks stable across App renders', async () => {
+    // Rebuilt extensions make CodeMirror reconfigure and report statistics
+    // after every App commit, which kept App re-rendering while the AI prompt
+    // was open until React threw "Maximum update depth exceeded" (#185).
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'selection.md',
+        activeDocumentPath: '/tmp/project/selection.md',
+        activeDocumentSource: 'alpha beta',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByLabelText('Source editor');
+    const view = createMockSourceEditorView(6, 10);
+    await act(async () => {
+      sourceEditorMockState.lastProps.onCreateEditor(view);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(view.dispatch).toHaveBeenCalled());
+    const { extensions, onCreateEditor } = sourceEditorMockState.lastProps;
+    view.state.selection.main = { anchor: 6, head: 10 };
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'K', metaKey: true, shiftKey: true, bubbles: true, cancelable: true }),
+    );
+    expect(await screen.findByRole('dialog', { name: /prompt selected text/i })).toBeVisible();
+    expect(sourceEditorMockState.lastProps.extensions).toBe(extensions);
+    expect(sourceEditorMockState.lastProps.onCreateEditor).toBe(onCreateEditor);
+
+    // The listener captured before the prompt opened still reads live state:
+    // with the prompt open, a selection change must not replace its target.
+    await act(async () => {
+      view.state.selection.main = { anchor: 0, head: 5 };
+      for (const extension of extensions) {
+        extension?.listener?.({ view, selectionSet: true });
+      }
+    });
+    expect(screen.getByText('beta')).toBeVisible();
+  });
+
   it('opens the exact WYSIWYG selection with Cmd+Shift+K', async () => {
     const source = 'alpha beta';
     const editor = new TiptapEditor({ extensions: [StarterKit, Markdown], content: source, contentType: 'markdown' });
