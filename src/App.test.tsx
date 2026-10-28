@@ -13225,6 +13225,93 @@ describe('App recent documents', () => {
     expect(messageMock).not.toHaveBeenCalled();
   });
 
+  it('closes the window but keeps the app running when Cmd+W closes the only clean untitled tab', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'Untitled.md',
+        activeDocumentPath: null,
+        activeDocumentSource: '',
+        mode: 'Editor',
+      }),
+    );
+    invokeMock.mockImplementation(async (command: string) =>
+      command === 'close_window_keep_app' ? 'hide' : undefined,
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+    await screen.findByRole('tab', { name: /untitled/i });
+
+    fireEvent.keyDown(window, { key: 'w', metaKey: true });
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('close_window_keep_app');
+    });
+    expect(screen.queryByRole('tablist', { name: /open documents/i })).toBeNull();
+    expect(invokeMock).not.toHaveBeenCalledWith('hide_app_or_window');
+    expect(destroyWindowMock).not.toHaveBeenCalled();
+    expect(quitAppMock).not.toHaveBeenCalled();
+    expect(messageMock).not.toHaveBeenCalled();
+  });
+
+  it('asks before closing the window for the only untitled tab with content', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'Untitled.md',
+        activeDocumentPath: null,
+        activeDocumentSource: '',
+        mode: 'Editor',
+      }),
+    );
+    invokeMock.mockImplementation(async (command: string) =>
+      command === 'close_window_keep_app' ? 'hide' : undefined,
+    );
+    messageMock.mockResolvedValueOnce('Cancel').mockResolvedValueOnce("Don't Save");
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+    const editor = await screen.findByRole('textbox', { name: /source editor/i });
+    fireEvent.change(editor, { target: { value: 'Draft idea' } });
+
+    fireEvent.keyDown(window, { key: 'w', metaKey: true });
+    await waitFor(() => expect(messageMock).toHaveBeenCalledTimes(1));
+    expect(invokeMock).not.toHaveBeenCalledWith('close_window_keep_app');
+    expect(screen.getByRole('tab', { name: /untitled/i })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'w', metaKey: true });
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('close_window_keep_app');
+    });
+    expect(messageMock).toHaveBeenCalledTimes(2);
+    expect(saveActiveDocumentAsMock).not.toHaveBeenCalled();
+    expect(quitAppMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the window open when Cmd+W closes the only saved tab', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'meeting-notes.md',
+        activeDocumentPath: '/tmp/project/meeting-notes.md',
+        activeDocumentSource: '# Meeting notes',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+
+    render(<App />);
+    await screen.findByRole('tab', { name: /meeting-notes\.md/i });
+
+    fireEvent.keyDown(window, { key: 'w', metaKey: true });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('tablist', { name: /open documents/i })).toBeNull();
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith('close_window_keep_app');
+  });
+
   it('closes the only dirty tab from Cmd+W without saving when discard is selected', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({

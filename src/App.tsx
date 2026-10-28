@@ -265,6 +265,7 @@ import {
   refreshSwitchedDocumentTabFromSnapshot,
   rememberClosedDocumentTab,
   resolveCloseTabTransition,
+  closesWindowWithLastTab,
   resolveDocumentTabViewState,
   resolveSettingsTabToggle,
   resolveSwitchTabTransition,
@@ -4599,7 +4600,8 @@ export default function App() {
     return resolveCloseDecisionAction(decision);
   };
 
-  const closeOnlyRemainingTab = useEffectEvent(async () => {
+  // Resolves true once the tab is gone (saved, discarded, or clean).
+  const closeOnlyRemainingTab = useEffectEvent(async (): Promise<boolean> => {
     // Pull any pending WYSIWYG edits across the debounce boundary so the
     // dirty check below reflects the user's actual most-recent state.
     const fresh = flushWysiwygDraftNow();
@@ -4614,11 +4616,11 @@ export default function App() {
       rememberClosedTab(closedTab);
       notifyCliWaitClosed(closedTab?.path);
       clearActiveDocumentSurface();
-      return;
+      return true;
     }
 
     if (busy) {
-      return;
+      return false;
     }
 
     const closeIntent = editorOpRequests.current();
@@ -4627,25 +4629,27 @@ export default function App() {
       const closeDecisionAction = await requestCloseDecision();
       // Native opens and navigation can replace the document while the prompt
       // is displayed. Its answer applies only to the tab that requested it.
-      if (isEditorOpStale(closeIntent) || activeTabIdRef.current !== closingTabId) return;
+      if (isEditorOpStale(closeIntent) || activeTabIdRef.current !== closingTabId) return false;
 
       if (closeDecisionAction.kind === 'save') {
+        let closed = false;
         await withBusy(async () => {
           const saved = await saveActiveDocumentForClose();
           if (saved) {
             rememberClosedTab(closedTab);
             notifyCliWaitClosed(closedTab?.path);
             clearActiveDocumentSurface();
+            closed = true;
           }
         });
-        return;
+        return closed;
       }
 
       if (closeDecisionAction.kind === 'discard') {
         rememberClosedTab(closedTab);
         notifyCliWaitClosed(closedTab?.path);
         clearActiveDocumentSurface();
-        return;
+        return true;
       }
 
       if (closeDecisionAction.kind === 'warn') {
@@ -4654,6 +4658,7 @@ export default function App() {
     } catch (error) {
       reportOperationError(error, 'Could not close tab');
     }
+    return false;
   });
 
   const preserveDraftAfterCommittedReload = (
@@ -6784,11 +6789,20 @@ export default function App() {
   //   app on macOS instead of leaving Markdowner frontmost with no window. The
   //   app stays in the dock; the Rust `Reopen` handler re-shows the window when
   //   the user clicks the dock icon. Non-macOS platforms hide the window.
-  // - 1+ tabs: close the active tab. The final tab leaves the window open on
-  //   the empty document surface after any required dirty confirmation.
+  // - Only one untitled tab (Zed-style): close it — after the usual save
+  //   prompt if it has content — and then close the window. Markdowner keeps
+  //   running; `close_window_keep_app` hides the last window instead of
+  //   quitting.
+  // - Otherwise: close the active tab. The final saved tab leaves the window
+  //   open on the empty document surface after any required dirty confirmation.
   const handleCloseTabOrWindow = useEffectEvent(async () => {
     if (tabs.length === 0) {
       await invoke('hide_app_or_window');
+      return;
+    }
+
+    if (closesWindowWithLastTab(tabs) && activeTabId === tabs[0].id) {
+      if (await closeOnlyRemainingTab()) await closeWindowKeepingApp();
       return;
     }
 
@@ -6797,6 +6811,15 @@ export default function App() {
       await handleCloseTab(targetId);
     }
   });
+
+  const closeWindowKeepingApp = async () => {
+    try {
+      const disposition = await invoke<'destroy' | 'hide'>('close_window_keep_app');
+      if (disposition === 'destroy') await handleWindowCloseCommand();
+    } catch (error) {
+      reportOperationError(error, 'Could not close the window');
+    }
+  };
 
   const handleQuitCommand = async () => {
     let prevented = false;

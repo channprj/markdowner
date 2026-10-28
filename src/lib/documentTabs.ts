@@ -625,6 +625,14 @@ export function upsertDocumentTabFromSnapshot(
   });
 }
 
+/**
+ * Zed-style ⌘W: a window holding only one untitled (never saved) document
+ * closes together with that document instead of leaving an empty surface.
+ */
+export function closesWindowWithLastTab(tabs: readonly DocumentTab[]): boolean {
+  return tabs.length === 1 && tabs[0].kind === 'document' && tabs[0].path === null;
+}
+
 export function resolveCloseTabTransition(
   input: ResolveCloseTabTransitionInput,
 ): CloseTabTransition {

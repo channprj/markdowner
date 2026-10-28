@@ -27,6 +27,7 @@ import {
   refreshSwitchedDocumentTabFromSnapshot,
   rememberClosedDocumentTab,
   resolveCloseTabTransition,
+  closesWindowWithLastTab,
   resolveDocumentTabViewState,
   resolveSettingsTabToggle,
   resolveSwitchTabTransition,
@@ -943,6 +944,21 @@ describe('upsertDocumentTabFromSnapshot', () => {
         generateId: () => 'next-tab',
       }),
     );
+  });
+});
+
+describe('closesWindowWithLastTab', () => {
+  it('closes the window only for a lone untitled document', () => {
+    const untitled = documentTab({ id: 'untitled', path: null });
+    const saved = documentTab({ id: 'saved', path: '/tmp/a.md' });
+
+    expect(closesWindowWithLastTab([untitled])).toBe(true);
+    expect(closesWindowWithLastTab([saved])).toBe(false);
+    expect(closesWindowWithLastTab([untitled, saved])).toBe(false);
+    expect(closesWindowWithLastTab([])).toBe(false);
+    expect(
+      closesWindowWithLastTab([{ ...untitled, kind: 'settings' }]),
+    ).toBe(false);
   });
 });
 

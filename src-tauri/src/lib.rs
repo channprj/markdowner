@@ -1340,16 +1340,33 @@ fn menu_command_from_id(id: &str) -> Option<String> {
 }
 
 fn emit_menu_command<R: Runtime>(app: &AppHandle<R>, command: String) {
-    let focused_window = app
-        .webview_windows()
-        .into_values()
+    let windows = app.webview_windows();
+    let focused_window = windows
+        .values()
         .find(|window| window.is_focused().unwrap_or(false));
 
     if let Some(window) = focused_window {
         let _ = window.emit(MENU_COMMAND_EVENT, command);
-    } else {
-        let _ = app.emit(MENU_COMMAND_EVENT, command);
+        return;
     }
+    // After ⌘W closed the last window the app stays active with no visible
+    // window. A command such as New or Open must not run in that hidden
+    // window; present it first, the way Zed opens a window for ⌘N.
+    let any_visible = windows
+        .values()
+        .any(|window| window.is_visible().unwrap_or(false));
+    if !any_visible && menu_command_presents_window(&command) {
+        focus_main_window(app);
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.emit(MENU_COMMAND_EVENT, command);
+            return;
+        }
+    }
+    let _ = app.emit(MENU_COMMAND_EVENT, command);
+}
+
+fn menu_command_presents_window(command: &str) -> bool {
+    !matches!(command, MENU_COMMAND_CLOSE_WINDOW | MENU_COMMAND_QUIT_APP)
 }
 
 fn sync_app_menu<R: Runtime>(app: &AppHandle<R>, backend: &DesktopBackend) {
@@ -2375,6 +2392,43 @@ fn hide_app_or_window(window: tauri::WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
+/// What closing a window without quitting does (Zed-style ⌘W on the last,
+/// untitled tab). The app keeps running either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum WindowCloseDisposition {
+    /// Another window remains, so this secondary window's session can close.
+    Destroy,
+    /// The main window, or the only window: hide it so the process — and the
+    /// dock/menu bar — stays alive. A dock click or a menu command shows it.
+    Hide,
+}
+
+fn window_close_disposition(label: &str, other_windows: usize) -> WindowCloseDisposition {
+    if label != "main" && other_windows > 0 {
+        WindowCloseDisposition::Destroy
+    } else {
+        WindowCloseDisposition::Hide
+    }
+}
+
+#[tauri::command]
+fn close_window_keep_app(
+    window: tauri::WebviewWindow,
+) -> tauri::Result<WindowCloseDisposition> {
+    let other_windows = window
+        .app_handle()
+        .webview_windows()
+        .keys()
+        .filter(|label| label.as_str() != window.label())
+        .count();
+    let disposition = window_close_disposition(window.label(), other_windows);
+    if disposition == WindowCloseDisposition::Hide {
+        window.hide()?;
+    }
+    Ok(disposition)
+}
+
 /// Bring the main window forward and activate the app over whatever was in
 /// front (e.g. the terminal a `mdner …` command was typed into).
 ///
@@ -2541,6 +2595,7 @@ pub fn run() {
             quit_app,
             session_flush::complete_session_flush,
             hide_app_or_window,
+            close_window_keep_app,
             terminal::terminal_start,
             terminal::terminal_write,
             terminal::terminal_resize,
@@ -2680,6 +2735,7 @@ mod tests {
         path_value_contains_dir, privileged_cli_binary_install_command, read_image_data_uri,
         resolve_cli_open_paths, resolve_cli_path, shell_config_path_for_shell,
         top_level_menu_sections, uninstall_cli_binary_at, uninstall_ctrl_g_launcher_block,
+        WindowCloseDisposition, menu_command_presents_window, window_close_disposition,
     };
 
     #[test]
@@ -3091,6 +3147,28 @@ mod tests {
         // Missing files keep their literal path instead of erroring.
         let missing = temp.path().join("missing.md");
         assert_eq!(super::cli_wait_key(&missing), missing.to_string_lossy());
+    }
+
+    #[test]
+    fn closing_the_last_window_hides_it_instead_of_quitting() {
+        assert_eq!(window_close_disposition("main", 0), WindowCloseDisposition::Hide);
+        assert_eq!(window_close_disposition("main", 2), WindowCloseDisposition::Hide);
+        assert_eq!(
+            window_close_disposition("markdownerWindow1", 0),
+            WindowCloseDisposition::Hide
+        );
+        assert_eq!(
+            window_close_disposition("markdownerWindow1", 1),
+            WindowCloseDisposition::Destroy
+        );
+    }
+
+    #[test]
+    fn menu_commands_without_a_visible_window_present_one_except_close_and_quit() {
+        assert!(menu_command_presents_window(MENU_COMMAND_NEW_DOCUMENT));
+        assert!(menu_command_presents_window(MENU_COMMAND_OPEN_DOCUMENT));
+        assert!(!menu_command_presents_window(MENU_COMMAND_CLOSE_WINDOW));
+        assert!(!menu_command_presents_window(MENU_COMMAND_QUIT_APP));
     }
 
     #[test]
