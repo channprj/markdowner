@@ -106,7 +106,7 @@ describe('AI prompt update loop', () => {
             onClick={() => {
               // Draft-mirror sync result still rendering in a transition...
               startTransition(() => session.setSnapshot((current) => current));
-              // ...when Cmd+Shift+K flushes the WYSIWYG draft and opens the prompt.
+              // ...when Cmd+Shift+I flushes the WYSIWYG draft and opens the prompt.
               session.setLocalDraft(session.localDraftRef.current);
               setPromptOpen(true);
             }}

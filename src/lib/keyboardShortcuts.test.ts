@@ -272,6 +272,15 @@ describe('resolveShellShortcutAction', () => {
     ).toEqual({ kind: 'none' });
   });
 
+  it('lets a saved override keep a key that a newer default also uses', () => {
+    // Focus Mode rebound to ⌘⇧I before ⌘⇧I became the AI default.
+    const bindings = resolveShellBindings({ 'view.focusMode': 'mod+shift+i' });
+
+    expect(
+      resolveShellShortcutAction(shortcutEvent({ key: 'I', metaKey: true, shiftKey: true }), context, bindings),
+    ).toEqual({ kind: 'toggleFocusMode' });
+  });
+
   it('routes Explorer shortcut to show or toggle based on the current sidebar panel', () => {
     expect(
       resolveShellShortcutAction(shortcutEvent({ key: 'e', metaKey: true, shiftKey: true }), {

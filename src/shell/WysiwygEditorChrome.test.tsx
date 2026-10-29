@@ -85,8 +85,8 @@ describe('WysiwygEditorChrome', () => {
         editor={editor}
         enabled
         skillNames={new Set(['goal', 'git-commit'])}
-        aiShortcut="⌘⇧K"
-        aiAriaKeyShortcuts="Meta+Shift+K Control+Shift+K"
+        aiShortcut="⌘⇧I"
+        aiAriaKeyShortcuts="Meta+Shift+I Control+Shift+I"
       />,
     );
 
@@ -96,10 +96,10 @@ describe('WysiwygEditorChrome', () => {
     expect(screen.getByTestId('skill-token-menu')).toHaveAttribute('data-enabled', 'true');
     expect(screen.getByTestId('skill-token-menu')).toHaveAttribute('data-skill-count', '2');
     expect(screen.getByTestId('selection-toolbar')).toHaveAttribute('data-enabled', 'true');
-    expect(screen.getByTestId('selection-toolbar')).toHaveAttribute('data-ai-shortcut', '⌘⇧K');
+    expect(screen.getByTestId('selection-toolbar')).toHaveAttribute('data-ai-shortcut', '⌘⇧I');
     expect(screen.getByTestId('selection-toolbar')).toHaveAttribute(
       'data-ai-aria-keyshortcuts',
-      'Meta+Shift+K Control+Shift+K',
+      'Meta+Shift+I Control+Shift+I',
     );
     expect(screen.getByTestId('link-popup')).toHaveAttribute('data-enabled', 'true');
     expect(screen.getByTestId('table-toolbar')).toHaveAttribute('data-enabled', 'true');

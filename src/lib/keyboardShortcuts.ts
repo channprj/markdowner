@@ -1,6 +1,7 @@
 import type { EditorMode } from './desktop';
 import {
   DEFAULT_SHELL_BINDINGS,
+  bindingsEqual,
   type KeyBinding,
   type ShellBindings,
   type ShellCommandId,
@@ -237,12 +238,29 @@ export function resolveFindShortcutAction(
   return null;
 }
 
+/**
+ * A command still on its default yields that key to a command the user
+ * explicitly rebound to it, so a newer default (⌘⇧I for AI, ⌘⇧C for
+ * Document Stats) never steals a shortcut saved before it existed.
+ */
+function yieldsToOverride(commandId: ShellCommandId, bindings: ShellBindings): boolean {
+  const binding = bindings[commandId];
+  if (!bindingsEqual(binding, DEFAULT_SHELL_BINDINGS[commandId])) return false;
+  return (Object.keys(bindings) as ShellCommandId[]).some(
+    (other) =>
+      other !== commandId &&
+      bindingsEqual(bindings[other], binding) &&
+      !bindingsEqual(bindings[other], DEFAULT_SHELL_BINDINGS[other]),
+  );
+}
+
 export function resolveShellShortcutAction(
   event: ShortcutEvent,
   context: ShellShortcutContext,
   bindings: ShellBindings = DEFAULT_SHELL_BINDINGS,
 ): ShellShortcutAction {
-  const matches = (commandId: ShellCommandId) => matchesBinding(event, bindings[commandId]);
+  const matches = (commandId: ShellCommandId) =>
+    matchesBinding(event, bindings[commandId]) && !yieldsToOverride(commandId, bindings);
 
   if (matches('file.newDocument') || matches('file.newTab')) {
     return { kind: 'newDocument' };

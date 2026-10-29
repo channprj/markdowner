@@ -172,19 +172,19 @@ describe('SelectionToolbar', () => {
       <SelectionToolbar
         editor={editor}
         onAiSelection={vi.fn()}
-        aiShortcut="⌘⇧K"
-        aiAriaKeyShortcuts="Meta+Shift+K Control+Shift+K"
+        aiShortcut="⌘⇧I"
+        aiAriaKeyShortcuts="Meta+Shift+I Control+Shift+I"
       />,
     );
     act(() => {
       editor.emit('selectionUpdate');
     });
 
-    const button = await screen.findByRole('button', { name: 'AI actions (⌘⇧K)' });
-    expect(button).toHaveAttribute('title', 'AI actions (⌘⇧K)');
+    const button = await screen.findByRole('button', { name: 'AI actions (⌘⇧I)' });
+    expect(button).toHaveAttribute('title', 'AI actions (⌘⇧I)');
     expect(button).toHaveAttribute(
       'aria-keyshortcuts',
-      'Meta+Shift+K Control+Shift+K',
+      'Meta+Shift+I Control+Shift+I',
     );
   });
 
