@@ -29,6 +29,7 @@ import { isAllowedLinkHref } from '@/components/wysiwyg/linkEditing';
 import { MarkdownLinkInputRule } from '@/components/wysiwyg/markdownLinkInputRule';
 import { PreventTableHoverSelection } from '@/components/wysiwyg/preventTableHoverSelection';
 import { TableArrowNavigation } from '@/components/wysiwyg/tableArrowNavigation';
+import { ShellShortcutPassthrough } from '@/components/wysiwyg/shellShortcutPassthrough';
 import { publishEditorEvent, subscribeEditorEvent } from '@/lib/editorEvents';
 import { imeLog } from '@/lib/imeDebug';
 import { EditorView } from '@uiw/react-codemirror';
@@ -352,6 +353,7 @@ import {
 } from './lib/linkOpener';
 import * as visitHistory from './lib/navigationHistory';
 import {
+  matchesBinding,
   matchesShortcut,
   resolveEditorFontSizeShortcut,
   resolveFindShortcutAction,
@@ -615,6 +617,9 @@ export default function App() {
     [settings.keybindingOverrides],
   );
   const aiSelectionBinding = shellBindings['ai.runSelection'];
+  // Read by the memoised WYSIWYG extensions, which must not consume this key.
+  const aiSelectionBindingRef = useRef(aiSelectionBinding);
+  aiSelectionBindingRef.current = aiSelectionBinding;
   const aiSelectionShortcut = formatKeyBinding(aiSelectionBinding);
   const aiSelectionAriaKeyShortcuts = formatAriaKeyShortcuts(aiSelectionBinding);
   const [aiSelectionSnapshot, setAiSelectionSnapshot] =
@@ -1818,6 +1823,11 @@ export default function App() {
       MarkdownLinkInputRule,
       WysiwygFindHighlight,
       WysiwygSkillHighlight,
+      // TipTap's Italic matches ⌘⇧I (Mod-I); leave the AI shortcut to the
+      // window listener so it opens the prompt instead.
+      ShellShortcutPassthrough.configure({
+        matches: (event) => matchesBinding(event, aiSelectionBindingRef.current),
+      }),
       Markdown.configure({ markedOptions: GFM_MARKED_OPTIONS }),
     ],
     [],

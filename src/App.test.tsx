@@ -314,6 +314,14 @@ const sourceEditorMockState = vi.hoisted(() => ({
   lastProps: null as any,
 }));
 
+/** The matcher App gives ShellShortcutPassthrough, reading the live AI binding. */
+function wysiwygShortcutPassthrough() {
+  const extension = (tiptapMockState.lastOptions.extensions as Array<{ name: string; options: { matches: (event: KeyboardEvent) => boolean } }>)
+    .find((candidate) => candidate.name === 'shellShortcutPassthrough');
+  if (!extension) throw new Error('ShellShortcutPassthrough is not registered');
+  return (init: KeyboardEventInit) => extension.options.matches(new KeyboardEvent('keydown', init));
+}
+
 const sourceSkillHighlightMock = vi.hoisted(() => ({
   extension: '__skill_highlight__',
   create: vi.fn(() => '__skill_highlight__'),
@@ -1867,6 +1875,33 @@ describe('App recent documents', () => {
     ).toBeVisible();
     expect(screen.getByText('beta')).toBeVisible();
     editor.destroy();
+  });
+
+  it('keeps the WYSIWYG keymaps off the AI shortcut', async () => {
+    // TipTap's Italic matches Cmd+Shift+I, so the editor must hand the AI
+    // shortcut to the window listener instead of formatting the text.
+    bootstrapMock.mockResolvedValue(baseSnapshot({ activeDocumentSource: 'alpha', mode: 'Wysiwyg' }));
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByTestId('mock-tiptap-editor');
+    const matches = wysiwygShortcutPassthrough();
+    expect(matches({ key: 'I', metaKey: true, shiftKey: true })).toBe(true);
+    expect(matches({ key: 'i', metaKey: true })).toBe(false);
+  });
+
+  it('keeps the WYSIWYG keymaps off a rebound AI shortcut', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot({ activeDocumentSource: 'alpha', mode: 'Wysiwyg' }));
+    invokeMock.mockImplementation(async (command: string) =>
+      command === 'load_settings' ? { keybindingOverrides: { 'ai.runSelection': 'mod+shift+l' } } : undefined,
+    );
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByTestId('mock-tiptap-editor');
+    const matches = wysiwygShortcutPassthrough();
+    await waitFor(() => expect(matches({ key: 'L', metaKey: true, shiftKey: true })).toBe(true));
+    expect(matches({ key: 'I', metaKey: true, shiftKey: true })).toBe(false);
   });
 
   it('honours a selected-text AI rebind and stops handling Cmd+Shift+I', async () => {

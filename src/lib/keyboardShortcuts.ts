@@ -141,7 +141,7 @@ export function matchesShortcut(
 }
 
 /** Like `matchesShortcut`, but driven by a (possibly user-overridden) binding. */
-function matchesBinding(event: ShortcutEvent, binding: KeyBinding): boolean {
+export function matchesBinding(event: ShortcutEvent, binding: KeyBinding): boolean {
   if (event.defaultPrevented || !usesCommandModifier(event)) {
     return false;
   }
