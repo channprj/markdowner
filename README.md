@@ -64,17 +64,19 @@ The installer downloads the latest matching `.dmg` asset, mounts it, copies `Mar
 
 Useful shortcuts:
 
-| Action                 | Shortcut      |
-| ---------------------- | ------------- |
-| Quick Open             | `Cmd+P`       |
-| Command Palette        | `Cmd+Shift+P` |
-| Find in Current File   | `Cmd+F`       |
-| Search in Workspace    | `Cmd+Shift+F` |
-| Toggle Sidebar         | `Cmd+Shift+B` |
-| Toggle Outline         | `Cmd+Shift+D` |
-| Toggle Focus Mode      | `Cmd+Shift+J` |
-| Toggle Typewriter Mode | `Cmd+Shift+Y` |
-| Toggle Word Wrap       | `Option+Z`    |
+| Action                         | Shortcut      |
+| ------------------------------ | ------------- |
+| Quick Open                     | `Cmd+P`       |
+| Command Palette                | `Cmd+Shift+P` |
+| Find in Current File           | `Cmd+F`       |
+| Search in Workspace            | `Cmd+Shift+F` |
+| Toggle Sidebar                 | `Cmd+Shift+B` |
+| Toggle Outline                 | `Cmd+Shift+D` |
+| Toggle Focus Mode              | `Cmd+Shift+J` |
+| Toggle Typewriter Mode         | `Cmd+Shift+Y` |
+| Toggle Word Wrap               | `Option+Z`    |
+| AI Prompt on Selection         | `Cmd+Shift+I` |
+| Delete Line (block in WYSIWYG) | `Cmd+Shift+K` |
 
 ## Footnotes
 
@@ -93,7 +95,7 @@ To author a reference in WYSIWYG, type `[^label]` followed by a space. Start a p
 
 ## AI tools
 
-Connect your OpenRouter key in **Settings → AI Feature**. Select a task and model for PRD improvement, summaries, translation, or custom instructions. Select text and use `Cmd+Shift+K` for an inline prompt in the source or WYSIWYG editor.
+Connect your OpenRouter key in **Settings → AI Feature**. Select a task and model for PRD improvement, summaries, translation, or custom instructions. Select text and use `Cmd+Shift+I` for an inline prompt in the source or WYSIWYG editor.
 
 - In WYSIWYG, type `@@` at the start of a paragraph or after whitespace to open the local agent composer. A single `@` remains ordinary text. You can also use **Run local agent** in the command palette.
 - Floating WYSIWYG controls open above or below the active text. Larger panels scroll within the available space; selections spanning most of the screen keep their active end visible.

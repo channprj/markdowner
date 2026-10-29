@@ -82,6 +82,8 @@ curl -fsSL https://raw.githubusercontent.com/channprj/markdowner/main/install.sh
 | Focus Mode 토글 | `Cmd+Shift+J` |
 | Typewriter Mode 토글 | `Cmd+Shift+Y` |
 | 줄 바꿈 토글 | `Option+Z` |
+| 선택 영역 AI 프롬프트 | `Cmd+Shift+I` |
+| 줄 삭제 (WYSIWYG에서는 블록) | `Cmd+Shift+K` |
 
 ## 각주
 
@@ -100,7 +102,7 @@ WYSIWYG에서 `[^label]` 뒤에 공백을 입력하면 참조로 변환됩니다
 
 ## AI 기능
 
-**Settings → AI Feature**에서 OpenRouter 키를 연결한 뒤 PRD 개선, 요약, 번역, 사용자 프롬프트에 사용할 모델을 선택합니다. 소스 에디터나 WYSIWYG에서 텍스트를 선택하고 `Cmd+Shift+K`를 누르면 인라인 프롬프트를 실행할 수 있습니다.
+**Settings → AI Feature**에서 OpenRouter 키를 연결한 뒤 PRD 개선, 요약, 번역, 사용자 프롬프트에 사용할 모델을 선택합니다. 소스 에디터나 WYSIWYG에서 텍스트를 선택하고 `Cmd+Shift+I`를 누르면 인라인 프롬프트를 실행할 수 있습니다.
 
 - WYSIWYG에서 문단 시작이나 공백 뒤에 `@@`를 입력하면 로컬 에이전트 창이 열립니다. `@` 하나는 일반 텍스트로 입력됩니다. 명령 팔레트의 **Run local agent**로도 열 수 있습니다.
 - WYSIWYG 팝오버는 작성 중인 내용의 위나 아래에 표시합니다. 공간이 부족하면 팝오버 내부를 스크롤하며, 선택 영역이 화면 대부분을 차지하면 커서가 있는 쪽을 보이게 유지합니다.
