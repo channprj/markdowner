@@ -28,6 +28,7 @@ import { ImeDebugOverlay } from '@/components/wysiwyg/ImeDebugOverlay';
 import { MarkdownLinkInputRule } from '@/components/wysiwyg/markdownLinkInputRule';
 import { PreventTableHoverSelection } from '@/components/wysiwyg/preventTableHoverSelection';
 import { TableArrowNavigation } from '@/components/wysiwyg/tableArrowNavigation';
+import { DeleteLineShortcut } from '@/components/wysiwyg/deleteLineShortcut';
 import { WysiwygEditorChrome } from '@/shell/WysiwygEditorChrome';
 import {
   shouldSuppressDuplicateImeTextInput,
@@ -64,6 +65,7 @@ function Playground() {
       TaskList,
       TaskItem.configure({ nested: true }),
       MarkdownLinkInputRule,
+      DeleteLineShortcut,
       Markdown.configure({ markedOptions: GFM_MARKED_OPTIONS }),
     ],
     content:

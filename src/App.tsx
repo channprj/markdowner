@@ -30,6 +30,7 @@ import { MarkdownLinkInputRule } from '@/components/wysiwyg/markdownLinkInputRul
 import { PreventTableHoverSelection } from '@/components/wysiwyg/preventTableHoverSelection';
 import { TableArrowNavigation } from '@/components/wysiwyg/tableArrowNavigation';
 import { ShellShortcutPassthrough } from '@/components/wysiwyg/shellShortcutPassthrough';
+import { DeleteLineShortcut } from '@/components/wysiwyg/deleteLineShortcut';
 import { publishEditorEvent, subscribeEditorEvent } from '@/lib/editorEvents';
 import { imeLog } from '@/lib/imeDebug';
 import { EditorView } from '@uiw/react-codemirror';
@@ -1823,6 +1824,8 @@ export default function App() {
       MarkdownLinkInputRule,
       WysiwygFindHighlight,
       WysiwygSkillHighlight,
+      // ⌘⇧K deletes the current block, matching the Source editor and Zed.
+      DeleteLineShortcut,
       // TipTap's Italic matches ⌘⇧I (Mod-I); leave the AI shortcut to the
       // window listener so it opens the prompt instead.
       ShellShortcutPassthrough.configure({

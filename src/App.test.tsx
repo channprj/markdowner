@@ -1890,6 +1890,16 @@ describe('App recent documents', () => {
     expect(matches({ key: 'i', metaKey: true })).toBe(false);
   });
 
+  it('registers Cmd+Shift+K block deletion in WYSIWYG', async () => {
+    bootstrapMock.mockResolvedValue(baseSnapshot({ activeDocumentSource: 'alpha', mode: 'Wysiwyg' }));
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByTestId('mock-tiptap-editor');
+    const names = (tiptapMockState.lastOptions.extensions as Array<{ name: string }>).map((extension) => extension.name);
+    expect(names).toContain('deleteLineShortcut');
+  });
+
   it('keeps the WYSIWYG keymaps off a rebound AI shortcut', async () => {
     bootstrapMock.mockResolvedValue(baseSnapshot({ activeDocumentSource: 'alpha', mode: 'Wysiwyg' }));
     invokeMock.mockImplementation(async (command: string) =>
