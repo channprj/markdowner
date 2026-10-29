@@ -51,14 +51,38 @@ describe('keymap descriptors', () => {
     expect(DEFAULT_SHELL_BINDINGS['view.toggleAiFeature']).toEqual({ key: 'a', shift: true });
   });
 
-  it('binds selected-text AI to command-shift-k by default', () => {
-    expect(DEFAULT_SHELL_BINDINGS['ai.runSelection']).toEqual({ key: 'k', shift: true });
+  it('binds selected-text AI to command-shift-i by default', () => {
+    expect(DEFAULT_SHELL_BINDINGS['ai.runSelection']).toEqual({ key: 'i', shift: true });
     expect(KEYMAP_ROWS).toContainEqual({
       id: 'ai.runSelection',
       commandId: 'ai.runSelection',
       label: 'Run AI on Selection',
       section: 'AI',
     });
+  });
+});
+
+describe('Delete line and its neighbours', () => {
+  it('reserves command-shift-k for Delete line and moves Document Stats to command-shift-c', () => {
+    expect(KEYMAP_ROWS).toContainEqual(
+      expect.objectContaining({ id: 'fixed.deleteLine', fixedKeys: '⌘⇧K', fixedBinding: { key: 'k', shift: true } }),
+    );
+    expect(DEFAULT_SHELL_BINDINGS['view.documentStats']).toEqual({ key: 'c', shift: true });
+    expect(findKeymapConflict('ai.runSelection', { key: 'k', shift: true }, undefined)).toEqual({
+      kind: 'fixed',
+      label: 'Delete line',
+    });
+  });
+
+  it('keeps the default when a saved override collides with a fixed editor shortcut', () => {
+    const bindings = resolveShellBindings({
+      'ai.runSelection': 'mod+shift+k',
+      'view.focusMode': 'mod+f',
+      'file.newDocument': 'mod+shift+n',
+    });
+    expect(bindings['ai.runSelection']).toEqual({ key: 'i', shift: true });
+    expect(bindings['view.focusMode']).toEqual(DEFAULT_SHELL_BINDINGS['view.focusMode']);
+    expect(bindings['file.newDocument']).toEqual({ key: 'n', shift: true });
   });
 });
 

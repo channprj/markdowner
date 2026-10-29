@@ -246,7 +246,9 @@ describe('resolveShellShortcutAction', () => {
     [{ key: 'T', metaKey: true, shiftKey: true }, { kind: 'reopenClosedTab' }],
     [{ key: 'J', metaKey: true, shiftKey: true }, { kind: 'toggleFocusMode' }],
     [{ key: 'm', metaKey: true, shiftKey: true }, { kind: 'toggleTableViewMode' }],
-    [{ key: 'K', metaKey: true, shiftKey: true }, { kind: 'runAiOnSelection' }],
+    [{ key: 'I', metaKey: true, shiftKey: true }, { kind: 'runAiOnSelection' }],
+    // ⌘⇧K is Delete line inside the editors, not a shell shortcut.
+    [{ key: 'K', metaKey: true, shiftKey: true }, { kind: 'none' }],
   ] as const)('resolves shell shortcut %o', (event, expected) => {
     expect(resolveShellShortcutAction(shortcutEvent(event), context)).toEqual(expected);
   });
@@ -263,7 +265,7 @@ describe('resolveShellShortcutAction', () => {
     ).toEqual({ kind: 'runAiOnSelection' });
     expect(
       resolveShellShortcutAction(
-        shortcutEvent({ key: 'K', metaKey: true, shiftKey: true }),
+        shortcutEvent({ key: 'I', metaKey: true, shiftKey: true }),
         context,
         bindings,
       ),
@@ -298,13 +300,13 @@ describe('resolveShellShortcutAction', () => {
 
   it('gates document stats on an active document', () => {
     expect(
-      resolveShellShortcutAction(shortcutEvent({ key: 'i', metaKey: true, shiftKey: true }), {
+      resolveShellShortcutAction(shortcutEvent({ key: 'c', metaKey: true, shiftKey: true }), {
         ...context,
         activeDocumentOpen: true,
       }),
     ).toEqual({ kind: 'toggleDocumentStats' });
     expect(
-      resolveShellShortcutAction(shortcutEvent({ key: 'i', metaKey: true, shiftKey: true }), {
+      resolveShellShortcutAction(shortcutEvent({ key: 'c', metaKey: true, shiftKey: true }), {
         ...context,
         activeDocumentOpen: false,
       }),

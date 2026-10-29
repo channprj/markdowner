@@ -59,10 +59,10 @@ export const DEFAULT_SHELL_BINDINGS: ShellBindings = {
   'app.quit': { key: 'q' },
   'app.openSettings': { key: ',' },
   'help.toggleShortcuts': { key: '/' },
-  'ai.runSelection': { key: 'k', shift: true },
+  'ai.runSelection': { key: 'i', shift: true },
   'view.quickOpen': { key: 'p' },
   'view.commandPalette': { key: 'p', shift: true },
-  'view.documentStats': { key: 'i', shift: true },
+  'view.documentStats': { key: 'c', shift: true },
   'view.toggleSidebar': { key: 'b', shift: true },
   'view.toggleAiFeature': { key: 'a', shift: true },
   'view.showExplorerPanel': { key: 'e', shift: true },
@@ -129,6 +129,7 @@ export const KEYMAP_ROWS: KeymapRow[] = [
   { id: 'view.toggleAiFeature', commandId: 'view.toggleAiFeature', label: 'Toggle AI Feature', section: 'Sidebar' },
   { id: 'view.showExplorerPanel', commandId: 'view.showExplorerPanel', label: 'Show Explorer panel', section: 'Sidebar' },
   { id: 'view.openOutlinePanel', commandId: 'view.openOutlinePanel', label: 'Toggle Outline', section: 'Sidebar' },
+  { id: 'fixed.deleteLine', label: 'Delete line', section: 'Editing', fixedKeys: '⌘⇧K', fixedBinding: { key: 'k', shift: true } },
   { id: 'fixed.turnInto', label: 'Change block format (Turn into)', section: 'Editing (WYSIWYG)', fixedKeys: '⌘/', fixedBinding: { key: '/' } },
   { id: 'fixed.editLink', label: 'Insert or edit link', section: 'Editing (WYSIWYG)', fixedKeys: '⌘K', fixedBinding: { key: 'k' } },
   { id: 'fixed.slashMenu', label: 'Insert block (at line start)', section: 'Editing (WYSIWYG)', fixedKeys: '/' },
@@ -198,7 +199,12 @@ export function formatAriaKeyShortcuts(binding: KeyBinding): string {
   return `${chord('Meta')} ${chord('Control')}`;
 }
 
-/** Effective bindings = defaults overlaid with the persisted overrides. */
+/**
+ * Effective bindings = defaults overlaid with the persisted overrides. An
+ * override that collides with a fixed editor shortcut (for example a saved
+ * `mod+shift+k` from before ⌘⇧K became Delete line) keeps its default, since
+ * the editor would consume the keys first.
+ */
 export function resolveShellBindings(
   overrides: Record<string, string> | undefined,
 ): ShellBindings {
@@ -207,7 +213,7 @@ export function resolveShellBindings(
   for (const [commandId, descriptor] of Object.entries(overrides)) {
     if (!(commandId in bindings)) continue;
     const parsed = parseKeyBinding(descriptor);
-    if (parsed) {
+    if (parsed && !KEYMAP_ROWS.some((row) => bindingsEqual(row.fixedBinding ?? null, parsed))) {
       bindings[commandId as ShellCommandId] = parsed;
     }
   }

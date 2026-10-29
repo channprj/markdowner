@@ -252,7 +252,7 @@ describe('buildCommandPaletteCommands', () => {
 
     const command = commands.find((candidate) => candidate.id === 'ai.runSelection');
     expect(command?.disabled).toBe(false);
-    expect(command?.shortcut).toBe('⌘⇧K');
+    expect(command?.shortcut).toBe('⌘⇧I');
     command?.run?.();
     expect(runAiOnSelection).toHaveBeenCalledTimes(1);
   });
@@ -270,6 +270,21 @@ describe('buildCommandPaletteCommands', () => {
     });
 
     expect(commands.find((command) => command.id === 'ai.runSelection')?.shortcut).toBe('⌘⇧L');
+  });
+
+  it('shows the effective Document Stats shortcut', () => {
+    const build = (keybindingOverrides?: Record<string, string>) =>
+      buildCommandPaletteCommands({
+        activeDocumentOpen: true,
+        hasActiveSelection: true,
+        canGoBack: true,
+        canGoForward: true,
+        settings: settings(keybindingOverrides ? { keybindingOverrides } : {}),
+        actions: actions(),
+      }).find((command) => command.id === 'app.documentStats')?.shortcut;
+
+    expect(build()).toBe('⌘⇧C');
+    expect(build({ 'view.documentStats': 'mod+shift+u' })).toBe('⌘⇧U');
   });
 
   it('runs a local agent for any open document, including a collapsed caret', () => {

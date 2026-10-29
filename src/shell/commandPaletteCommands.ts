@@ -98,9 +98,9 @@ export function buildCommandPaletteCommands(
       : updateAvailable && latestUpdateVersion
         ? `Update to Latest Version (v${latestUpdateVersion})`
         : 'Update to Latest Version';
-  const aiSelectionShortcut = formatKeyBinding(
-    resolveShellBindings(settings.keybindingOverrides)['ai.runSelection'],
-  );
+  const shellBindings = resolveShellBindings(settings.keybindingOverrides);
+  const aiSelectionShortcut = formatKeyBinding(shellBindings['ai.runSelection']);
+  const documentStatsShortcut = formatKeyBinding(shellBindings['view.documentStats']);
 
   return [
     {
@@ -442,7 +442,7 @@ export function buildCommandPaletteCommands(
       id: 'app.documentStats',
       category: 'Preferences',
       label: 'Open Document Stats',
-      shortcut: '⌘⇧I',
+      shortcut: documentStatsShortcut,
       disabled: !activeDocumentOpen,
       run: actions.openDocumentStats,
     },

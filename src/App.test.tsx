@@ -1738,7 +1738,7 @@ describe('App recent documents', () => {
     editor.destroy();
   });
 
-  it('opens the exact Source selection with Cmd+Shift+K and prevents editor-native behavior', async () => {
+  it('opens the exact Source selection with Cmd+Shift+I and prevents editor-native behavior', async () => {
     const source = 'alpha beta';
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
@@ -1761,7 +1761,7 @@ describe('App recent documents', () => {
     view.state.selection.main = { anchor: 6, head: 10 };
 
     const event = new KeyboardEvent('keydown', {
-      key: 'K',
+      key: 'I',
       metaKey: true,
       shiftKey: true,
       bubbles: true,
@@ -1815,7 +1815,7 @@ describe('App recent documents', () => {
     view.state.selection.main = { anchor: 6, head: 10 };
 
     window.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'K', metaKey: true, shiftKey: true, bubbles: true, cancelable: true }),
+      new KeyboardEvent('keydown', { key: 'I', metaKey: true, shiftKey: true, bubbles: true, cancelable: true }),
     );
     expect(await screen.findByRole('dialog', { name: /prompt selected text/i })).toBeVisible();
     expect(sourceEditorMockState.lastProps.extensions).toBe(extensions);
@@ -1832,7 +1832,7 @@ describe('App recent documents', () => {
     expect(screen.getByText('beta')).toBeVisible();
   });
 
-  it('opens the exact WYSIWYG selection with Cmd+Shift+K', async () => {
+  it('opens the exact WYSIWYG selection with Cmd+Shift+I', async () => {
     const source = 'alpha beta';
     const editor = new TiptapEditor({ extensions: [StarterKit, Markdown], content: source, contentType: 'markdown' });
     tiptapMockState.editor = editor;
@@ -1853,7 +1853,7 @@ describe('App recent documents', () => {
     });
 
     const event = new KeyboardEvent('keydown', {
-      key: 'K',
+      key: 'I',
       metaKey: true,
       shiftKey: true,
       bubbles: true,
@@ -1869,7 +1869,7 @@ describe('App recent documents', () => {
     editor.destroy();
   });
 
-  it('honours a selected-text AI rebind and stops handling Cmd+Shift+K', async () => {
+  it('honours a selected-text AI rebind and stops handling Cmd+Shift+I', async () => {
     const source = 'alpha beta';
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {
@@ -1903,7 +1903,7 @@ describe('App recent documents', () => {
     view.state.selection.main = { anchor: 6, head: 10 };
 
     const oldDefault = new KeyboardEvent('keydown', {
-      key: 'K',
+      key: 'I',
       metaKey: true,
       shiftKey: true,
       bubbles: true,
@@ -3832,7 +3832,7 @@ describe('App recent documents', () => {
     ).toBeInTheDocument();
   });
 
-  it('opens the Document Stats dialog with Cmd+Shift+I and shows derived document counts', async () => {
+  it('opens the Document Stats dialog with Cmd+Shift+C and shows derived document counts', async () => {
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'meeting-notes.md',
@@ -3862,7 +3862,7 @@ describe('App recent documents', () => {
 
     await screen.findAllByText(/^meeting-notes\.md$/);
 
-    fireEvent.keyDown(window, { key: 'I', metaKey: true, shiftKey: true });
+    fireEvent.keyDown(window, { key: 'C', metaKey: true, shiftKey: true });
 
     const dialog = await screen.findByRole('dialog', { name: /document stats/i });
 
