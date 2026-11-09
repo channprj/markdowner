@@ -125,9 +125,43 @@ describe('LinkPopup', () => {
     expect(url).not.toHaveFocus();
     expect(
       screen.getAllByRole('button').map(button => button.getAttribute('aria-label')),
-    ).toEqual(['Open link', 'Copy URL', 'Remove link']);
+    ).toEqual(['Open link', 'Copy URL', 'Edit link', 'Remove link']);
     expect(screen.getByRole('toolbar', { name: 'Link actions' })).toBeInTheDocument();
     expect(editor.state.selection).toMatchObject({ from: 1, to: 5 });
+  });
+
+  it('opens the full edit form for a link edit request', async () => {
+    editor.commands.setTextSelection(3);
+    render(<LinkPopup editor={editor} enabled />);
+    act(() => publishEditorEvent('link:edit-request', {}));
+
+    await screen.findByRole('dialog', { name: 'Edit link' });
+    expect(screen.getByRole('textbox', { name: 'Link text' })).toHaveValue('docs');
+    expect(screen.getByRole('textbox', { name: 'Link URL' })).toHaveValue(
+      'https://old.example',
+    );
+    expect(screen.getByRole('button', { name: 'Remove link' })).toBeInTheDocument();
+  });
+
+  it('edits the link text and URL together from the card', async () => {
+    await openInspection();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit link' }));
+    await screen.findByRole('dialog', { name: 'Edit link' });
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Link text' }), {
+      target: { value: 'guide' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Link URL' }), {
+      target: { value: 'https://new.example/guide' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    expect(linkAt(editor)).toEqual({
+      text: 'guide',
+      href: 'https://new.example/guide',
+    });
+    expect(editor.getText()).toBe('guide tail');
+    expect(screen.queryByTestId('link-popup')).toBeNull();
   });
 
   it('announces itself so the formatting toolbar yields to the link card', async () => {

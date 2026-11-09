@@ -13,7 +13,14 @@ import type {
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { Editor } from '@tiptap/react';
-import { Check, Copy, CornerDownLeft, ExternalLink, Unlink } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  CornerDownLeft,
+  ExternalLink,
+  Pencil,
+  Unlink,
+} from 'lucide-react';
 
 import { publishEditorEvent, subscribeEditorEvent } from '@/lib/editorEvents';
 
@@ -64,20 +71,35 @@ type LinkPopupState =
       anchor: AnchorRect;
       error: string | null;
     }
+  | {
+      /** Full form for an existing link: both its text and destination. */
+      mode: 'editing';
+      target: LinkTarget;
+      anchor: AnchorRect;
+      error: string | null;
+    }
   | { mode: 'invalid-create'; anchor: AnchorRect; error: string };
 
 const POPUP_GUTTER_PX = 8;
 const VIEWPORT_MARGIN_PX = 8;
 
 function targetForState(state: LinkPopupState): LinkTarget | null {
-  if (state.mode === 'viewing' || state.mode === 'creating') {
+  if (
+    state.mode === 'viewing' ||
+    state.mode === 'creating' ||
+    state.mode === 'editing'
+  ) {
     return state.target;
   }
   return null;
 }
 
 function isEditingUrl(state: LinkPopupState): boolean {
-  return state.mode === 'creating' || (state.mode === 'viewing' && state.editing);
+  return (
+    state.mode === 'creating' ||
+    state.mode === 'editing' ||
+    (state.mode === 'viewing' && state.editing)
+  );
 }
 
 function measureAnchor(
@@ -108,9 +130,11 @@ function mutationError(reason: 'empty-url' | 'invalid-url' | 'stale-target') {
  * Explicit WYSIWYG link UI.
  *
  * Ordinary link clicks open a compact card styled like the formatting
- * toolbar: the URL field above Open / Copy / Remove. Clicking the field or
- * pressing ArrowUp edits the URL. New links use the full form. Drafts live in
- * React state and the document changes exactly once, on Save/Apply or Remove.
+ * toolbar: the URL field above Open / Copy / Edit / Remove. Clicking the field
+ * or pressing ArrowUp edits the URL in place, while Edit (or Cmd+K) opens the
+ * full form for both the link text and destination. New links use that form.
+ * Drafts live in React state and the document changes exactly once, on
+ * Save/Apply or Remove.
  */
 export function LinkPopup({ editor, enabled = true }: Props) {
   const [state, setState] = useState<LinkPopupState>({ mode: 'closed' });
@@ -145,7 +169,7 @@ export function LinkPopup({ editor, enabled = true }: Props) {
       setPlacement('above');
       setState(
         target.kind === 'existing'
-          ? { mode: 'viewing', target, anchor, status: null, editing: true, error: null }
+          ? { mode: 'editing', target, anchor, error: null }
           : { mode: 'creating', target, anchor, error: null },
       );
     },
@@ -423,9 +447,23 @@ export function LinkPopup({ editor, enabled = true }: Props) {
     }
   }
 
+  function startFullEditing() {
+    if (state.mode !== 'viewing') return;
+    setDisplayText(state.target.displayText);
+    setHref(state.target.href);
+    setState({
+      mode: 'editing',
+      target: state.target,
+      anchor: state.anchor,
+      error: null,
+    });
+  }
+
   const setUrlError = (error: string | null) => {
     setState(current =>
-      current.mode === 'creating' || current.mode === 'viewing'
+      current.mode === 'creating' ||
+      current.mode === 'editing' ||
+      current.mode === 'viewing'
         ? { ...current, error }
         : current,
     );
@@ -440,11 +478,16 @@ export function LinkPopup({ editor, enabled = true }: Props) {
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (!editor || (state.mode !== 'creating' && state.mode !== 'viewing')) {
+    if (
+      !editor ||
+      (state.mode !== 'creating' &&
+        state.mode !== 'editing' &&
+        state.mode !== 'viewing')
+    ) {
       return;
     }
 
-    // The compact card edits only the URL; the link text stays as written.
+    // The compact card edits only the URL; the full form edits both fields.
     const draft =
       state.mode === 'viewing'
         ? { displayText: state.target.displayText, href }
@@ -505,7 +548,12 @@ export function LinkPopup({ editor, enabled = true }: Props) {
       clamp.dx,
   };
 
-  const dialogLabel = state.mode === 'viewing' ? 'Link details' : 'Add link';
+  const dialogLabel =
+    state.mode === 'viewing'
+      ? 'Link details'
+      : state.mode === 'editing'
+        ? 'Edit link'
+        : 'Add link';
 
   return createPortal(
     <div
@@ -581,6 +629,10 @@ export function LinkPopup({ editor, enabled = true }: Props) {
               )}
               Copy
             </LinkPopupButton>
+            <LinkPopupButton label="Edit link" onClick={startFullEditing}>
+              <Pencil aria-hidden className="size-4" />
+              Edit
+            </LinkPopupButton>
             <span aria-hidden className="selection-toolbar-separator" />
             <LinkPopupButton label="Remove link" danger onClick={handleRemove}>
               <Unlink aria-hidden className="size-4" />
@@ -611,7 +663,11 @@ export function LinkPopup({ editor, enabled = true }: Props) {
       ) : (
         <form className="link-popup-form" onSubmit={handleSubmit}>
           <label className="link-popup-field">
-            <span>Display text (optional)</span>
+            <span>
+              {state.mode === 'editing'
+                ? 'Link text'
+                : 'Display text (optional)'}
+            </span>
             <input
               type="text"
               autoComplete="off"
@@ -650,6 +706,12 @@ export function LinkPopup({ editor, enabled = true }: Props) {
             >
               Cancel
             </button>
+            {state.mode === 'editing' ? (
+              <LinkPopupButton label="Remove link" danger onClick={handleRemove}>
+                <Unlink aria-hidden className="size-4" />
+                Remove
+              </LinkPopupButton>
+            ) : null}
           </div>
         </form>
       )}
