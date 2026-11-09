@@ -63,6 +63,8 @@ type BuildCommandPaletteCommandsInput = {
   /** A workspace/project root folder is open. */
   hasWorkspaceRoot?: boolean;
   hasActiveSelection?: boolean;
+  /** AI editing exists only on the WYSIWYG surface. */
+  aiEditingAvailable?: boolean;
   terminalOpen?: boolean;
   updateAvailable?: boolean;
   updateChecking?: boolean;
@@ -83,6 +85,7 @@ export function buildCommandPaletteCommands(
     hasActiveDocumentPath = false,
     hasWorkspaceRoot = false,
     hasActiveSelection = false,
+    aiEditingAvailable = true,
     terminalOpen = false,
     updateAvailable = false,
     updateChecking = false,
@@ -203,13 +206,15 @@ export function buildCommandPaletteCommands(
       shortcut: '⌘⇧B',
       run: actions.toggleSidebar,
     },
-    {
-      id: 'view.toggleAiFeature',
-      category: 'View',
-      label: 'Toggle AI Feature',
-      shortcut: '⌘⇧A',
-      run: actions.toggleAiFeature,
-    },
+    ...(aiEditingAvailable
+      ? [{
+          id: 'view.toggleAiFeature',
+          category: 'View',
+          label: 'Toggle AI Feature',
+          shortcut: '⌘⇧A',
+          run: actions.toggleAiFeature,
+        }]
+      : []),
     {
       id: 'view.showExplorer',
       category: 'View',
@@ -263,21 +268,25 @@ export function buildCommandPaletteCommands(
       shortcut: option.shortcutSymbol,
       run: () => actions.setMode(option.mode),
     })),
-    {
-      id: 'ai.runSelection',
-      category: 'AI',
-      label: 'AI: Run on Selection…',
-      shortcut: aiSelectionShortcut,
-      disabled: !activeDocumentOpen || !hasActiveSelection,
-      run: actions.runAiOnSelection,
-    },
-    {
-      id: 'ai.runLocalAgent',
-      category: 'AI',
-      label: 'Run local agent',
-      disabled: !activeDocumentOpen,
-      run: actions.runLocalAgent,
-    },
+    ...(aiEditingAvailable
+      ? [
+          {
+            id: 'ai.runSelection',
+            category: 'AI',
+            label: 'AI: Run on Selection…',
+            shortcut: aiSelectionShortcut,
+            disabled: !activeDocumentOpen || !hasActiveSelection,
+            run: actions.runAiOnSelection,
+          },
+          {
+            id: 'ai.runLocalAgent',
+            category: 'AI',
+            label: 'Run local agent',
+            disabled: !activeDocumentOpen,
+            run: actions.runLocalAgent,
+          },
+        ]
+      : []),
     {
       id: 'navigation.back',
       category: 'Navigation',

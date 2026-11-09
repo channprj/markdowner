@@ -308,6 +308,22 @@ describe('buildCommandPaletteCommands', () => {
     expect(runLocalAgent).toHaveBeenCalledTimes(1);
   });
 
+  it('omits every AI command when the WYSIWYG surface is not active', () => {
+    const ids = buildCommandPaletteCommands({
+      activeDocumentOpen: true,
+      hasActiveSelection: true,
+      aiEditingAvailable: false,
+      canGoBack: true,
+      canGoForward: true,
+      settings: settings(),
+      actions: actions(),
+    }).map((command) => command.id);
+
+    expect(ids).not.toContain('view.toggleAiFeature');
+    expect(ids).not.toContain('ai.runSelection');
+    expect(ids).not.toContain('ai.runLocalAgent');
+  });
+
   it('disables workspace HTML and PDF export without a workspace root', () => {
     const commands = buildCommandPaletteCommands({
       activeDocumentOpen: true,

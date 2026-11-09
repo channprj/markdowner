@@ -69,7 +69,6 @@ import { isEligibleLocalAgentMentionKey } from '@/features/ai/localAgents/mentio
 import {
   applySourceLocalAgentResult,
   applyWysiwygLocalAgentResult,
-  captureSourceLocalAgentTarget,
   captureWysiwygLocalAgentTarget,
   localAgentTargetFromAiSelectionSnapshot,
   type LocalAgentTargetSnapshot,
@@ -96,7 +95,6 @@ import {
   canApplySelectionResult,
   applySourceSelectionReplacement,
   applyWysiwygSelectionReplacement,
-  captureSourceSelection,
   captureWysiwygEditorSelection,
   selectionReplacementFromResult,
   type AiSelectionSnapshot,
@@ -648,10 +646,6 @@ export default function App() {
   const openLocalAgentComposerRef = useRef<
     (selection: { from: number; to: number }) => void
   >(() => undefined);
-  const [aiSelectionAnchor, setAiSelectionAnchor] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
   const [systemThemeKind, setSystemThemeKind] = useState<
     Exclude<ThemeKind, 'CustomCss'>
   >(() => resolveOsTheme());
@@ -1331,6 +1325,10 @@ export default function App() {
   });
 
   const handleOpenAiPanel = useEffectEvent(() => {
+    if (currentMode !== 'Wysiwyg') {
+      announceShell('AI Feature is available in WYSIWYG mode only');
+      return;
+    }
     applySidebarPanelState('ai', 'toggle');
   });
 
@@ -1709,6 +1707,12 @@ export default function App() {
   }, [isResizingSidebar, sidebarWidth]);
 
   const currentMode = snapshot.mode;
+
+  // Leaving WYSIWYG hides the AI Feature panel: source editing has no AI surface.
+  useEffect(() => {
+    if (currentMode === 'Wysiwyg') return;
+    setSidebarPanel((panel) => (panel === 'ai' ? 'files' : panel));
+  }, [currentMode]);
 
   // Keep the active document path mirrored in a ref so handlers captured
   // inside stable editorProps closures can resolve relative markdown links.
@@ -3526,11 +3530,13 @@ export default function App() {
 
   useEffect(() => {
     const pendingRerun = pendingLocalAgentRerunRef.current;
-    if (pendingRerun?.sourceDocumentId === activeTabId) {
+    if (
+      pendingRerun?.sourceDocumentId === activeTabId &&
+      currentMode === 'Wysiwyg'
+    ) {
       pendingLocalAgentRerunRef.current = null;
       setAiSelectionSnapshot(null);
       setAiSelectionPromptOpen(false);
-      setAiSelectionAnchor(null);
       setLocalAgentSnapshot(pendingRerun.snapshot);
       setLocalAgentPreferredAgent(pendingRerun.request.agent);
       setLocalAgentInitialInstruction(pendingRerun.request.instruction);
@@ -3544,7 +3550,6 @@ export default function App() {
     pendingLocalAgentRerunRef.current = null;
     setAiSelectionSnapshot(null);
     setAiSelectionPromptOpen(false);
-    setAiSelectionAnchor(null);
     setLocalAgentSnapshot(null);
     setLocalAgentComposerOpen(false);
     setLocalAgentPreferredAgent(null);
@@ -3564,7 +3569,6 @@ export default function App() {
     ) => {
       setAiSelectionSnapshot(null);
       setAiSelectionPromptOpen(false);
-      setAiSelectionAnchor(null);
       setLocalAgentSnapshot(captured);
       setLocalAgentPreferredAgent(preferredAgent);
       setLocalAgentInitialInstruction(initialInstruction);
@@ -3632,30 +3636,16 @@ export default function App() {
   openLocalAgentComposerRef.current = captureAndOpenWysiwygLocalAgent;
 
   const openLocalAgentForCurrentTarget = useEffectEvent(() => {
-    if (currentMode === 'Wysiwyg') {
-      const selection = editorInstanceRef.current?.state.selection;
-      if (!selection) return;
-      captureAndOpenWysiwygLocalAgent({
-        from: selection.from,
-        to: selection.to,
-      });
+    if (currentMode !== 'Wysiwyg') {
+      announceShell('AI editing is available in WYSIWYG mode only');
       return;
     }
-
-    const view = sourceEditorViewRef.current;
-    const activeDocumentTab = tabsRef.current.find(
-      (tab) =>
-        tab.id === activeTabIdRef.current && tab.kind === 'document',
-    );
-    if (!view || !activeDocumentTab) return;
-    const selection = view.state.selection.main;
-    const captured = captureSourceLocalAgentTarget({
-      source: localDraftRef.current,
-      anchor: selection.anchor,
-      head: selection.head,
-      documentId: activeDocumentTab.id,
+    const selection = editorInstanceRef.current?.state.selection;
+    if (!selection) return;
+    captureAndOpenWysiwygLocalAgent({
+      from: selection.from,
+      to: selection.to,
     });
-    if (captured) openLocalAgentComposer(captured);
   });
 
   const openLocalAgentFromAiSelection = useStableEvent(
@@ -3814,49 +3804,6 @@ export default function App() {
     },
   );
 
-  const handleSourceAiSelectionChange = useStableEvent((view: EditorView) => {
-    // Focus/selection transactions may arrive while the composer is open.
-    // Its captured target stays immutable until it closes or returns a result.
-    if (aiSelectionPromptOpen) return;
-    const activeDocumentTab = tabsRef.current.find(
-      (tab) =>
-        tab.id === activeTabIdRef.current && tab.kind === 'document',
-    );
-    const selection = view.state.selection.main;
-    const captured = activeDocumentTab
-      ? captureSourceSelection(
-          localDraftRef.current,
-          selection.anchor,
-          selection.head,
-          activeDocumentTab.id,
-        )
-      : null;
-    if (!captured) {
-      if (!aiSelectionPromptOpen) {
-        setAiSelectionSnapshot(null);
-        setAiSelectionAnchor(null);
-      }
-      return;
-    }
-
-    let anchor: { top: number; left: number } | null = null;
-    try {
-      const coordinates = view.coordsAtPos(selection.head);
-      if (coordinates) {
-        anchor = {
-          top: coordinates.bottom + 8,
-          left: coordinates.left,
-        };
-      }
-    } catch {
-      // A selection transaction may arrive while CodeMirror is remeasuring.
-      // Keep the snapshot; the command palette can still open the prompt.
-    }
-    setAiSelectionSnapshot(captured);
-    setAiSelectionAnchor(anchor);
-    setAiSelectionPromptOpen(false);
-  });
-
   const handleWysiwygAiSelection = useEffectEvent(
     (selection: { from: number; to: number }) => {
       if (aiSelectionPromptOpen) return;
@@ -3891,49 +3838,25 @@ export default function App() {
         return;
       }
       setAiSelectionSnapshot(captured);
-      setAiSelectionAnchor(null);
       setAiSelectionPromptOpen(true);
     },
   );
 
   const openAiForCurrentSelection = useEffectEvent(() => {
+    if (currentMode !== 'Wysiwyg') {
+      announceShell('AI editing is available in WYSIWYG mode only');
+      return;
+    }
     if (aiSelectionPromptOpen) return;
-    if (currentMode === 'Wysiwyg') {
-      const selection = editor?.state.selection;
-      if (!selection || selection.from === selection.to) {
-        announceShell('Select text before running an AI prompt');
-        return;
-      }
-      handleWysiwygAiSelection({
-        from: selection.from,
-        to: selection.to,
-      });
-      return;
-    }
-
-    const view = sourceEditorViewRef.current;
-    const activeDocumentTab = tabsRef.current.find(
-      (tab) =>
-        tab.id === activeTabIdRef.current && tab.kind === 'document',
-    );
-    if (!view || !activeDocumentTab) {
+    const selection = editor?.state.selection;
+    if (!selection || selection.from === selection.to) {
       announceShell('Select text before running an AI prompt');
       return;
     }
-    const selection = view.state.selection.main;
-    const captured = captureSourceSelection(
-      localDraftRef.current,
-      selection.anchor,
-      selection.head,
-      activeDocumentTab.id,
-    );
-    if (!captured) {
-      announceShell('Select text before running an AI prompt');
-      return;
-    }
-    setAiSelectionSnapshot(captured);
-    setAiSelectionAnchor(null);
-    setAiSelectionPromptOpen(true);
+    handleWysiwygAiSelection({
+      from: selection.from,
+      to: selection.to,
+    });
   });
 
   const handleAiSelectionResult = useStableEvent(
@@ -3995,7 +3918,6 @@ export default function App() {
           }
           setAiSelectionSnapshot(null);
           setAiSelectionPromptOpen(false);
-          setAiSelectionAnchor(null);
           announceShell('AI replacement applied to the selected text');
           focusActiveEditor();
           return;
@@ -4003,7 +3925,6 @@ export default function App() {
       }
 
       setAiSelectionPromptOpen(false);
-      setAiSelectionAnchor(null);
       activateAiReview(result, request);
       announceShell(
         result.result
@@ -4027,7 +3948,6 @@ export default function App() {
         skillNames: skillTokenNames,
         onViewportChange: handleSourceEditorViewportChange,
         onTypewriterChange: handleSourceEditorTypewriterChange,
-        onSelectionChange: handleSourceAiSelectionChange,
       }).concat(
         settings.highlightSkillTokens
           ? [createSourceSkillHighlightExtension(skillTokenNames)]
@@ -4036,7 +3956,6 @@ export default function App() {
     [
       handleSourceEditorTypewriterChange,
       handleSourceEditorViewportChange,
-      handleSourceAiSelectionChange,
       settings.editorLineWrap,
       settings.focusModeEnabled,
       settings.highlightSkillTokens,
@@ -6020,6 +5939,10 @@ export default function App() {
   );
 
   const handleRerunAiReview = useEffectEvent(async (review: AiReview) => {
+    if (review.origin.kind === 'localAgent' && currentMode !== 'Wysiwyg') {
+      announceShell('AI editing is available in WYSIWYG mode only');
+      return;
+    }
     const sourceTab = tabsRef.current.find(
       (tab) =>
         tab.id === review.sourceDocumentId && tab.kind === 'document',
@@ -6049,6 +5972,10 @@ export default function App() {
         return;
       }
       announceShell('Local agent request reopened with its captured target');
+      return;
+    }
+    if (currentMode !== 'Wysiwyg') {
+      announceShell('AI Feature is available in WYSIWYG mode only');
       return;
     }
     applySidebarPanelState('ai', 'show');
@@ -7048,12 +6975,12 @@ export default function App() {
   const paletteCommands = buildCommandPaletteCommands({
     activeDocumentOpen,
     hasActiveSelection:
-      currentMode === 'Wysiwyg'
-        ? Boolean(
-            editor &&
-              editor.state.selection.from !== editor.state.selection.to,
-          )
-        : aiSelectionSnapshot?.surface === 'source',
+      currentMode === 'Wysiwyg' &&
+      Boolean(
+        editor &&
+          editor.state.selection.from !== editor.state.selection.to,
+      ),
+    aiEditingAvailable: currentMode === 'Wysiwyg',
     hasActiveDocumentPath: snapshot.activeDocumentPath != null,
     hasWorkspaceRoot: snapshot.rootDir != null,
     terminalOpen: isTerminalOpen,
@@ -7229,7 +7156,7 @@ export default function App() {
           onOpenSettings={() => void toggleSettingsTab()}
           onOpenSearch={handleToggleSearchPanel}
           onOpenOutline={handleOpenOutlinePanel}
-          onOpenAi={handleOpenAiPanel}
+          onOpenAi={currentMode === 'Wysiwyg' ? handleOpenAiPanel : undefined}
           onToggleSidebar={handleOpenFilesPanel}
           isSidebarOpen={isSidebarOpen && sidebarPanel === 'files'}
           isSettingsOpen={isSettingsTabActive}
@@ -7511,32 +7438,6 @@ export default function App() {
       </div>
       </div>
       </div>
-      {aiSelectionSnapshot?.surface === 'source' &&
-      aiSelectionAnchor &&
-      !aiSelectionPromptOpen &&
-      activeTab?.kind === 'document' ? (
-        <button
-          type="button"
-          aria-label={`AI prompt selected text (${aiSelectionShortcut})`}
-          aria-keyshortcuts={aiSelectionAriaKeyShortcuts}
-          title={`Run a custom AI prompt on this selection (${aiSelectionShortcut})`}
-          className="fixed z-[70] inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-popover px-2.5 text-xs font-medium text-popover-foreground shadow-lg hover:bg-accent"
-          style={{
-            top: Math.max(
-              8,
-              Math.min(window.innerHeight - 48, aiSelectionAnchor.top),
-            ),
-            left: Math.max(
-              8,
-              Math.min(window.innerWidth - 88, aiSelectionAnchor.left),
-            ),
-          }}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => setAiSelectionPromptOpen(true)}
-        >
-          AI prompt
-        </button>
-      ) : null}
       {aiSelectionSnapshot && aiSelectionPromptOpen ? (
         <AiSelectionPopover
           editor={currentMode === 'Wysiwyg' ? editor : null}

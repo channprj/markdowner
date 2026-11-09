@@ -102,8 +102,10 @@ WYSIWYG에서 `[^label]` 뒤에 공백을 입력하면 참조로 변환됩니다
 
 ## AI 기능
 
-**Settings → AI Feature**에서 OpenRouter 키를 연결한 뒤 PRD 개선, 요약, 번역, 사용자 프롬프트에 사용할 모델을 선택합니다. 소스 에디터나 WYSIWYG에서 텍스트를 선택하고 `Cmd+Shift+I`를 누르면 인라인 프롬프트를 실행할 수 있습니다.
+**Settings → AI Feature**에서 OpenRouter 키를 연결한 뒤 PRD 개선, 요약, 번역, 사용자 프롬프트에 사용할 모델을 선택합니다. WYSIWYG에서 텍스트를 선택하고 `Cmd+Shift+I`를 누르면 인라인 프롬프트를 실행할 수 있습니다.
 
+- AI 편집과 **AI Feature** 패널은 WYSIWYG 모드에서만 제공합니다. Editor와 Split View에서는 AI 프롬프트, AI 액션, 로컬 에이전트, AI Feature 사이드바가 나타나지 않으며 관련 단축키도 선택 영역을 바꾸지 않습니다.
+- 선택 영역 액션은 Improve, Fix spelling & grammar, Rewrite, Shorten, Expand, Make list, Make table, Translate to Korean, Translate to English를 제공합니다.
 - WYSIWYG에서 문단 시작이나 공백 뒤에 `@@`를 입력하면 로컬 에이전트 창이 열립니다. `@` 하나는 일반 텍스트로 입력됩니다. 명령 팔레트의 **Run local agent**로도 열 수 있습니다.
 - WYSIWYG 팝오버는 작성 중인 내용의 위나 아래에 표시합니다. 공간이 부족하면 팝오버 내부를 스크롤하며, 선택 영역이 화면 대부분을 차지하면 커서가 있는 쪽을 보이게 유지합니다.
 - 모든 AI 기능은 **GLM 5.3 Flash**(`z-ai/glm-5.3-flash`)를 기본으로 사용합니다. **Models & Task Defaults → Primary model**에서 공통 모델을 바꾸고, 각 기능은 **Use primary model**을 유지하거나 별도 모델을 선택할 수 있습니다. PRD 인터뷰는 PRD 기본 모델을, 인라인 수정은 사용자 프롬프트 기본 모델을 사용합니다. 설정은 앱을 다시 열어도 유지합니다. 업데이트 시 기존 Solar 공통 기본값은 GLM 5.3 Flash로 전환하며, 다른 공통 모델과 기능별로 따로 선택한 모델은 보존합니다.

@@ -75,18 +75,20 @@ export function ActivityBar({
         >
           <ListTree className="w-5 h-5" />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn('w-8 h-8 rounded-md', isAiOpen ? activeClass : inactiveClass)}
-          title="AI Feature (Cmd+Shift+A)"
-          aria-label="AI Feature (Cmd+Shift+A)"
-          aria-keyshortcuts="Meta+Shift+A Control+Shift+A"
-          aria-pressed={Boolean(isAiOpen)}
-          onClick={onOpenAi}
-        >
-          <Sparkles className="w-5 h-5" />
-        </Button>
+        {onOpenAi ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn('w-8 h-8 rounded-md', isAiOpen ? activeClass : inactiveClass)}
+            title="AI Feature (Cmd+Shift+A)"
+            aria-label="AI Feature (Cmd+Shift+A)"
+            aria-keyshortcuts="Meta+Shift+A Control+Shift+A"
+            aria-pressed={Boolean(isAiOpen)}
+            onClick={onOpenAi}
+          >
+            <Sparkles className="w-5 h-5" />
+          </Button>
+        ) : null}
       </div>
       <div className="mt-auto flex flex-col gap-2 w-full px-2 mb-0.5">
         <Button

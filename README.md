@@ -95,8 +95,10 @@ To author a reference in WYSIWYG, type `[^label]` followed by a space. Start a p
 
 ## AI tools
 
-Connect your OpenRouter key in **Settings → AI Feature**. Select a task and model for PRD improvement, summaries, translation, or custom instructions. Select text and use `Cmd+Shift+I` for an inline prompt in the source or WYSIWYG editor.
+Connect your OpenRouter key in **Settings → AI Feature**. Select a task and model for PRD improvement, summaries, translation, or custom instructions. Select text in WYSIWYG and use `Cmd+Shift+I` for an inline prompt.
 
+- AI editing and the **AI Feature** panel are available in WYSIWYG mode only. Editor and Split View expose no AI prompt, AI actions, local agent, or AI Feature sidebar, and their shortcuts leave the selection unchanged.
+- Selected-text actions include Improve, Fix spelling & grammar, Rewrite, Shorten, Expand, Make list, Make table, and Translate to Korean or English.
 - In WYSIWYG, type `@@` at the start of a paragraph or after whitespace to open the local agent composer. A single `@` remains ordinary text. You can also use **Run local agent** in the command palette.
 - Floating WYSIWYG controls open above or below the active text. Larger panels scroll within the available space; selections spanning most of the screen keep their active end visible.
 - All AI tasks default to **GLM 5.3 Flash** (`z-ai/glm-5.3-flash`). Under **Models & Task Defaults**, choose a **Primary model** for all tasks. Leave a task on **Use primary model** or select its own override. PRD interviews use the PRD default; inline edits use the custom prompt default. These choices persist across restarts. Upgrading replaces the previous Solar primary default with GLM 5.3 Flash while preserving other primary choices and explicit task overrides.

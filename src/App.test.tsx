@@ -1481,7 +1481,7 @@ describe('App recent documents', () => {
       activeDocumentName: 'requirements.md',
       activeDocumentPath: '/tmp/project/requirements.md',
       activeDocumentSource: source,
-      mode: 'Editor',
+      mode: 'Wysiwyg',
     });
     bootstrapMock.mockResolvedValue(sourceSnapshot);
     openDocumentMock.mockResolvedValue(sourceSnapshot);
@@ -1521,7 +1521,7 @@ describe('App recent documents', () => {
         activeDocumentPath: null,
         activeDocumentSource: '',
         activeDocumentDirty: true,
-        mode: 'Editor',
+        mode: 'Wysiwyg',
       }),
     );
     replaceActiveDocumentSourceMock.mockResolvedValue(
@@ -1530,7 +1530,7 @@ describe('App recent documents', () => {
         activeDocumentPath: null,
         activeDocumentSource: proposed,
         activeDocumentDirty: true,
-        mode: 'Editor',
+        mode: 'Wysiwyg',
       }),
     );
 
@@ -1580,9 +1580,7 @@ describe('App recent documents', () => {
       );
     expect(sourceTab).toBeDefined();
     fireEvent.click(sourceTab!);
-    const sourceEditor = await screen.findByRole('textbox', {
-      name: /source editor/i,
-    });
+    const sourceEditor = await screen.findByLabelText('Source editor');
     await waitFor(() => expect(sourceEditor).toHaveValue(source));
   });
 
@@ -1746,7 +1744,7 @@ describe('App recent documents', () => {
     editor.destroy();
   });
 
-  it('opens the exact Source selection with Cmd+Shift+I and prevents editor-native behavior', async () => {
+  it('leaves Editor-mode selections without an AI editing surface', async () => {
     const source = 'alpha beta';
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
@@ -1778,29 +1776,27 @@ describe('App recent documents', () => {
     window.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(true);
-    expect(
-      await screen.findByRole('dialog', { name: /prompt selected text/i }),
-    ).toBeVisible();
-    expect(screen.getByText('beta')).toBeVisible();
-    // A CodeMirror selection transaction must not replace the captured target
-    // or unmount an inline AI composer while it is hidden.
-    fireEvent.click(screen.getByRole('button', { name: 'Hide AI prompt' }));
+    expect(screen.queryByRole('dialog', { name: /prompt selected text/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /AI prompt selected text/i })).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId('shell-live-region')).toHaveTextContent(
+        'AI editing is available in WYSIWYG mode only',
+      ),
+    );
+    // A CodeMirror selection change must not introduce an AI surface either.
     await act(async () => {
       view.state.selection.main = { anchor: 0, head: 5 };
       for (const extension of sourceEditorMockState.lastProps.extensions) {
         extension?.listener?.({ view, selectionSet: true });
       }
     });
-    expect(screen.getByRole('button', { name: 'Show AI prompt' })).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Show AI prompt' }));
-    expect(screen.getByRole('dialog', { name: /prompt selected text/i })).toBeVisible();
-    expect(screen.getByText('beta')).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: /prompt selected text/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /AI prompt selected text/i })).toBeNull();
   });
 
   it('keeps the source editor extensions and callbacks stable across App renders', async () => {
     // Rebuilt extensions make CodeMirror reconfigure and report statistics
-    // after every App commit, which kept App re-rendering while the AI prompt
-    // was open until React threw "Maximum update depth exceeded" (#185).
+    // after every App commit, which once caused React error #185.
     bootstrapMock.mockResolvedValue(
       baseSnapshot({
         activeDocumentName: 'selection.md',
@@ -1825,19 +1821,17 @@ describe('App recent documents', () => {
     window.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'I', metaKey: true, shiftKey: true, bubbles: true, cancelable: true }),
     );
-    expect(await screen.findByRole('dialog', { name: /prompt selected text/i })).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: /prompt selected text/i })).toBeNull();
     expect(sourceEditorMockState.lastProps.extensions).toBe(extensions);
     expect(sourceEditorMockState.lastProps.onCreateEditor).toBe(onCreateEditor);
 
-    // The listener captured before the prompt opened still reads live state:
-    // with the prompt open, a selection change must not replace its target.
     await act(async () => {
       view.state.selection.main = { anchor: 0, head: 5 };
       for (const extension of extensions) {
         extension?.listener?.({ view, selectionSet: true });
       }
     });
-    expect(screen.getByText('beta')).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: /prompt selected text/i })).toBeNull();
   });
 
   it('opens the exact WYSIWYG selection with Cmd+Shift+I', async () => {
@@ -1914,7 +1908,7 @@ describe('App recent documents', () => {
     expect(matches({ key: 'I', metaKey: true, shiftKey: true })).toBe(false);
   });
 
-  it('honours a selected-text AI rebind and stops handling Cmd+Shift+I', async () => {
+  it('keeps a rebound selected-text AI shortcut inert in Editor mode', async () => {
     const source = 'alpha beta';
     invokeMock.mockImplementation(async (command: string) => {
       if (command === 'load_settings') {
@@ -1968,10 +1962,13 @@ describe('App recent documents', () => {
     window.dispatchEvent(rebound);
 
     expect(rebound.defaultPrevented).toBe(true);
-    expect(
-      await screen.findByRole('dialog', { name: /prompt selected text/i }),
-    ).toBeVisible();
-    expect(screen.getByText('beta')).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: /prompt selected text/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /AI prompt selected text/i })).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId('shell-live-region')).toHaveTextContent(
+        'AI editing is available in WYSIWYG mode only',
+      ),
+    );
   });
 
   it('keeps AI actions on OpenRouter and hands the captured selection to local agents', async () => {
@@ -2324,46 +2321,6 @@ describe('App recent documents', () => {
     expect(screen.queryByRole('button', { name: 'Remove @codex' })).toBeNull();
   });
 
-  it('captures a Source selection from the Command Palette for a local agent', async () => {
-    const source = 'alpha beta';
-    bootstrapMock.mockResolvedValue(
-      baseSnapshot({
-        activeDocumentName: 'source.md',
-        activeDocumentPath: '/tmp/project/source.md',
-        activeDocumentSource: source,
-        mode: 'Editor',
-      }),
-    );
-
-    const { default: App } = await import('./App');
-    render(<App />);
-    await screen.findByLabelText('Source editor');
-    const view = createMockSourceEditorView(6, 10);
-    await act(async () => {
-      sourceEditorMockState.lastProps.onCreateEditor(view);
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      expect(view.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ selection: { anchor: 0, head: 0 } }),
-      );
-    });
-    view.state.selection.main = { anchor: 6, head: 10 };
-    view.dispatch.mockImplementation(() => undefined);
-
-    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
-    const palette = await screen.findByRole('dialog', { name: /command palette/i });
-    fireEvent.click(
-      await within(palette).findByRole('option', { name: /run local agent/i }),
-    );
-
-    expect(
-      await screen.findByRole('dialog', { name: /run a local agent/i }),
-    ).toBeVisible();
-    expect(screen.getByRole('combobox', { name: 'Result destination' })).toHaveValue(
-      'selection',
-    );
-  });
 
   it('clears an open local agent mention when the editor mode changes', async () => {
     const source = 'hello ';
@@ -2635,267 +2592,8 @@ describe('App recent documents', () => {
     expect(replaceActiveDocumentSourceMock).not.toHaveBeenCalled();
   });
 
-  it('opens Review when the Source selection moves while a local agent run is pending', async () => {
-    const source = 'alpha beta';
-    let resolveRun: ((result: {
-      schemaVersion: 1;
-      requestId: string;
-      documentId: string;
-      agent: 'codex';
-      target: 'selection';
-      markdown: string;
-      summary: string;
-      warnings: string[];
-    }) => void) | undefined;
-    bootstrapMock.mockResolvedValue(
-      baseSnapshot({
-        activeDocumentName: 'local-selection-drift.md',
-        activeDocumentPath: '/tmp/project/local-selection-drift.md',
-        activeDocumentSource: source,
-        mode: 'Editor',
-      }),
-    );
-    localAgentRunMock.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveRun = (result) => resolve(result);
-        }),
-    );
 
-    const { default: App } = await import('./App');
-    render(<App />);
-    await screen.findByLabelText('Source editor');
-    const view = createMockSourceEditorView(6, 10);
-    await act(async () => {
-      sourceEditorMockState.lastProps.onCreateEditor(view);
-      await Promise.resolve();
-    });
-    await waitFor(() =>
-      expect(view.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ selection: { anchor: 0, head: 0 } }),
-      ),
-    );
-    view.state.selection.main = { anchor: 6, head: 10 };
-    view.dispatch.mockClear();
 
-    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
-    const palette = await screen.findByRole('dialog', { name: /command palette/i });
-    const runLocalAgent = await within(palette).findByRole('option', {
-      name: /run local agent/i,
-    });
-    view.state.selection.main = { anchor: 6, head: 10 };
-    fireEvent.click(runLocalAgent);
-    const codexOption = await screen.findByRole('option', { name: /@codex.*Codex/i });
-    await waitFor(() => expect(codexOption).toBeEnabled());
-    fireEvent.click(codexOption);
-    fireEvent.change(screen.getByLabelText('Instruction'), {
-      target: { value: 'Capitalize the selection' },
-    });
-    fireEvent.click(
-      screen.getByRole('switch', { name: 'Allow local agent processing' }),
-    );
-    const run = screen.getByRole('button', { name: 'Run @codex' });
-    await waitFor(() => expect(run).toBeEnabled());
-    fireEvent.click(run);
-    await waitFor(() => expect(localAgentRunMock).toHaveBeenCalledTimes(1));
-    const request = localAgentRunMock.mock.calls[0][0];
-    expect(request).toMatchObject({
-      agent: 'codex',
-      target: 'selection',
-      source,
-      selection: { start: 6, end: 10 },
-    });
-
-    view.state.selection.main = { anchor: 0, head: 0 };
-    await act(async () => {
-      resolveRun?.({
-        schemaVersion: 1,
-        requestId: request.requestId,
-        documentId: request.documentId,
-        agent: 'codex',
-        target: 'selection',
-        markdown: 'BETA',
-        summary: 'Capitalized the selection.',
-        warnings: [],
-      });
-      await Promise.resolve();
-    });
-
-    expect(await screen.findByTestId('ai-review-tab')).toBeVisible();
-    expect(screen.getByText('+ BETA')).toBeVisible();
-    expect(view.dispatch).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        changes: expect.objectContaining({ insert: 'BETA' }),
-      }),
-    );
-    expect(screen.getByLabelText('Source editor')).toHaveValue(source);
-    expect(replaceActiveDocumentSourceMock).not.toHaveBeenCalled();
-  });
-
-  it('opens a stale local agent selection as Review without redirecting it to the current caret', async () => {
-    const source = 'alpha beta';
-    let resolveRun: ((result: {
-      schemaVersion: 1;
-      requestId: string;
-      documentId: string;
-      agent: 'codex';
-      target: 'selection';
-      markdown: string;
-      summary: string;
-      warnings: string[];
-    }) => void) | undefined;
-    localAgentRunMock.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveRun = (result) => resolve(result);
-        }),
-    );
-    bootstrapMock.mockResolvedValue(
-      baseSnapshot({
-        activeDocumentName: 'local-stale.md',
-        activeDocumentPath: '/tmp/project/local-stale.md',
-        activeDocumentSource: source,
-        mode: 'Editor',
-      }),
-    );
-
-    const { default: App } = await import('./App');
-    render(<App />);
-    const sourceEditor = await screen.findByLabelText('Source editor');
-    const view = createMockSourceEditorView(6, 10);
-    await act(async () => {
-      sourceEditorMockState.lastProps.onCreateEditor(view);
-      await Promise.resolve();
-    });
-    await waitFor(() =>
-      expect(view.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ selection: { anchor: 0, head: 0 } }),
-      ),
-    );
-    view.state.selection.main = { anchor: 6, head: 10 };
-    view.dispatch.mockClear();
-    view.dispatch.mockImplementation(() => undefined);
-
-    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
-    const palette = await screen.findByRole('dialog', { name: /command palette/i });
-    fireEvent.click(
-      await within(palette).findByRole('option', { name: /run local agent/i }),
-    );
-    const codexOption = await screen.findByRole('option', { name: /@codex.*Codex/i });
-    await waitFor(() => expect(codexOption).toBeEnabled());
-    fireEvent.click(codexOption);
-    fireEvent.change(screen.getByLabelText('Instruction'), {
-      target: { value: 'Capitalize the selection' },
-    });
-    fireEvent.click(
-      screen.getByRole('switch', { name: 'Allow local agent processing' }),
-    );
-    const run = screen.getByRole('button', { name: 'Run @codex' });
-    await waitFor(() => expect(run).toBeEnabled());
-    fireEvent.click(run);
-    await waitFor(() => expect(localAgentRunMock).toHaveBeenCalledTimes(1));
-    const request = localAgentRunMock.mock.calls[0][0];
-
-    fireEvent.change(sourceEditor, { target: { value: 'alpha changed' } });
-    view.state.selection.main = { anchor: 0, head: 0 };
-    await act(async () => {
-      resolveRun?.({
-        schemaVersion: 1,
-        requestId: request.requestId,
-        documentId: request.documentId,
-        agent: 'codex',
-        target: 'selection',
-        markdown: 'BETA',
-        summary: 'Capitalized the selection.',
-        warnings: [],
-      });
-      await Promise.resolve();
-    });
-
-    expect(await screen.findByTestId('ai-review-tab')).toBeVisible();
-    expect(screen.getByText('Codex')).toBeVisible();
-    expect(screen.getByText('+ BETA')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Apply all' })).toBeDisabled();
-    expect(view.dispatch).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        changes: expect.objectContaining({ insert: 'BETA' }),
-      }),
-    );
-    expect(replaceActiveDocumentSourceMock).not.toHaveBeenCalled();
-    expect(aiHistoryPageMock).not.toHaveBeenCalled();
-    expect(aiRenderSelectedOperationsMock).not.toHaveBeenCalled();
-    expect(aiDiscardResultMock).not.toHaveBeenCalled();
-  });
-
-  it('applies a non-ASCII Source selection through the captured CodeMirror range', async () => {
-    const source = '가나다 beta';
-    bootstrapMock.mockResolvedValue(
-      baseSnapshot({
-        activeDocumentName: 'local-source.md',
-        activeDocumentPath: '/tmp/project/local-source.md',
-        activeDocumentSource: source,
-        mode: 'Editor',
-      }),
-    );
-    localAgentRunMock.mockImplementation(async (request) => ({
-      schemaVersion: 1,
-      requestId: request.requestId,
-      documentId: request.documentId,
-      agent: request.agent,
-      target: request.target,
-      markdown: 'BETA',
-      summary: 'Capitalized the selection.',
-      warnings: [],
-    }));
-
-    const { default: App } = await import('./App');
-    render(<App />);
-    await screen.findByLabelText('Source editor');
-    const view = createMockSourceEditorView(4, 8);
-    await act(async () => {
-      sourceEditorMockState.lastProps.onCreateEditor(view);
-      await Promise.resolve();
-    });
-    await waitFor(() =>
-      expect(view.dispatch).toHaveBeenCalledWith(
-        expect.objectContaining({ selection: { anchor: 0, head: 0 } }),
-      ),
-    );
-    view.state.selection.main = { anchor: 4, head: 8 };
-    view.dispatch.mockClear();
-    view.dispatch.mockImplementation(() => undefined);
-
-    fireEvent.keyDown(window, { key: 'P', metaKey: true, shiftKey: true });
-    const palette = await screen.findByRole('dialog', { name: /command palette/i });
-    fireEvent.click(
-      await within(palette).findByRole('option', { name: /run local agent/i }),
-    );
-    const codexOption = await screen.findByRole('option', { name: /@codex.*Codex/i });
-    await waitFor(() => expect(codexOption).toBeEnabled());
-    fireEvent.click(codexOption);
-    fireEvent.change(screen.getByLabelText('Instruction'), {
-      target: { value: 'Capitalize the selection' },
-    });
-    fireEvent.click(
-      screen.getByRole('switch', { name: 'Allow local agent processing' }),
-    );
-    const run = screen.getByRole('button', { name: 'Run @codex' });
-    await waitFor(() => expect(run).toBeEnabled());
-    fireEvent.click(run);
-
-    await waitFor(() =>
-      expect(screen.getByLabelText('Source editor')).toHaveValue('가나다 BETA'),
-    );
-    expect(view.dispatch).toHaveBeenCalledWith({
-      changes: { from: 4, to: 8, insert: 'BETA' },
-      selection: { anchor: 8 },
-      scrollIntoView: true,
-    });
-    expect(screen.queryByTestId('ai-review-tab')).not.toBeInTheDocument();
-    expect(replaceActiveDocumentSourceMock).not.toHaveBeenCalled();
-    expect(aiRenderSelectedOperationsMock).not.toHaveBeenCalled();
-    expect(aiDiscardResultMock).not.toHaveBeenCalled();
-  });
 
   it('opens document results in local Review and reruns with the same agent prompt and target', async () => {
     const source = '# Before\n';
@@ -10261,6 +9959,36 @@ describe('App recent documents', () => {
 
     fireEvent.keyDown(window, { key: 'A', metaKey: true, shiftKey: true });
     await waitFor(() => expect(sidebar).toHaveClass('invisible'));
+  });
+
+  it('offers no AI Feature or AI editing in Editor mode', async () => {
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'notes.md',
+        activeDocumentPath: '/tmp/project/notes.md',
+        activeDocumentSource: 'alpha beta',
+        mode: 'Editor',
+      }),
+    );
+
+    const { default: App } = await import('./App');
+    render(<App />);
+    await screen.findByLabelText('Source editor');
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'AI Feature (Cmd+Shift+A)' }),
+      ).toBeNull(),
+    );
+
+    fireEvent.keyDown(window, { key: 'A', metaKey: true, shiftKey: true });
+
+    expect(screen.queryByRole('complementary', { name: 'AI Feature' })).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByTestId('shell-live-region')).toHaveTextContent(
+        'AI Feature is available in WYSIWYG mode only',
+      ),
+    );
   });
 
   it('announces mode changes through a hidden polite live region', async () => {
