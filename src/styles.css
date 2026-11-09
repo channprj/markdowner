@@ -1529,6 +1529,24 @@ section[data-minimap='on'] .editor-pane-preview {
   border-bottom: 1px solid var(--border);
 }
 .mermaid-diagram-canvas {
+  /* Pele paints its SVG with CSS variables, so diagrams follow the app theme
+     without re-rendering when the user switches light/dark. */
+  --pele-bg: var(--background);
+  --pele-fg: var(--foreground);
+  --pele-fg-on-light: var(--foreground);
+  --pele-fg-on-dark: var(--background);
+  --pele-muted: var(--muted-foreground);
+  --pele-line: color-mix(in oklab, var(--foreground) 80%, transparent);
+  --pele-surface: var(--muted);
+  --pele-surface-alt: var(--secondary);
+  --pele-border: var(--border);
+  --pele-accent: var(--primary);
+  --pele-critical: var(--destructive);
+  --pele-error: var(--destructive);
+  --pele-font: var(--font-sans);
+  --pele-font-mono: var(--font-mono);
+  --pele-radius: 0.375rem;
+
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1556,9 +1574,6 @@ section[data-minimap='on'] .editor-pane-preview {
   font-size: 0.8125rem;
   line-height: 1.4;
   text-align: center;
-}
-.mermaid-diagram-status[data-state='error'] {
-  color: var(--destructive);
 }
 .mermaid-source-shell {
   background: color-mix(in oklab, var(--muted) 72%, var(--background));

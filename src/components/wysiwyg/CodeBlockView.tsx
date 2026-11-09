@@ -14,8 +14,7 @@ import {
   type NodeViewProps,
 } from '@tiptap/react';
 import { Check, Copy } from 'lucide-react';
-
-import { renderMermaidDiagramSvg } from './mermaidRenderer';
+import type { Mounted } from 'pele';
 
 // Curated set kept short on purpose — these are the languages bundled in the
 // common subset of highlight.js / lowlight, plus the handful most users will
@@ -61,44 +60,30 @@ const POPUP_GAP = 4;
 // needed for `aria-controls`/`aria-activedescendant` to resolve to *this* code
 // block's popup when multiple code blocks are visible on screen at once.
 let LANGUAGE_PICKER_ID_SEQ = 0;
-let MERMAID_RENDER_ID_SEQ = 0;
-
-type MermaidRenderState =
-  | { status: 'empty' }
-  | { status: 'loading' }
-  | { status: 'rendered'; svg: string }
-  | { status: 'error'; message: string };
 
 function MermaidDiagram({ source }: { source: string }) {
-  const renderId = useMemo(
-    () => `markdowner-mermaid-${++MERMAID_RENDER_ID_SEQ}`,
-    [],
-  );
-  const [renderState, setRenderState] = useState<MermaidRenderState>({ status: 'empty' });
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const trimmed = source.trim();
 
+  // Pele is loaded on demand so its diagram engine stays out of the initial
+  // bundle. Mounting (rather than rendering an SVG string) gives us resize
+  // handling, zoom controls, and inline error reporting for free.
   useEffect(() => {
-    const trimmed = source.trim();
-    if (!trimmed) {
-      setRenderState({ status: 'empty' });
-      return;
-    }
+    const container = canvasRef.current;
+    if (!container || !trimmed) return;
 
-    let cancelled = false;
-    setRenderState({ status: 'loading' });
-    renderMermaidDiagramSvg(renderId, trimmed)
-      .then(({ svg }) => {
-        if (!cancelled) setRenderState({ status: 'rendered', svg });
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : 'Invalid Mermaid diagram';
-        setRenderState({ status: 'error', message });
-      });
+    let disposed = false;
+    let diagram: Mounted | undefined;
+    void import('pele').then(({ mount }) => {
+      if (disposed) return;
+      diagram = mount(container, trimmed, { zoom: 'auto' });
+    });
 
     return () => {
-      cancelled = true;
+      disposed = true;
+      diagram?.destroy();
     };
-  }, [renderId, source]);
+  }, [trimmed]);
 
   return (
     <div className="mermaid-diagram-panel" contentEditable={false}>
@@ -107,23 +92,15 @@ function MermaidDiagram({ source }: { source: string }) {
         role="img"
         aria-label="Rendered Mermaid diagram"
       >
-        {renderState.status === 'rendered' ? (
+        {trimmed ? (
           <div
+            ref={canvasRef}
             className="mermaid-diagram-svg"
             data-testid="mermaid-diagram-svg"
-            dangerouslySetInnerHTML={{ __html: renderState.svg }}
           />
         ) : (
-          <div
-            className="mermaid-diagram-status"
-            data-state={renderState.status}
-            aria-live="polite"
-          >
-            {renderState.status === 'error'
-              ? renderState.message
-              : renderState.status === 'loading'
-                ? 'Rendering diagram...'
-                : 'Empty diagram'}
+          <div className="mermaid-diagram-status" data-state="empty">
+            Empty diagram
           </div>
         )}
       </div>

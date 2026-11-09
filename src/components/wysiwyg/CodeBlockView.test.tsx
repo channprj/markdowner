@@ -5,10 +5,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodeBlockView } from './CodeBlockView';
 
 const mocks = vi.hoisted(() => ({
-  renderMermaidDiagramSvg: vi.fn(async () => ({
-    svg: '<svg data-testid="mock-mermaid-svg" viewBox="0 0 120 80"><text>Rendered flow</text></svg>',
-    bindFunctions: undefined,
-  })),
+  mount: vi.fn((element: HTMLElement) => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('data-testid', 'mock-mermaid-svg');
+    svg.setAttribute('viewBox', '0 0 120 80');
+    element.append(svg);
+    return {
+      update: vi.fn(),
+      refresh: vi.fn(),
+      destroy: vi.fn(),
+    };
+  }),
 }));
 
 type NodeViewContentDoubleProps = HTMLAttributes<HTMLElement> & {
@@ -39,8 +46,8 @@ vi.mock('@tiptap/react', () => ({
   ),
 }));
 
-vi.mock('./mermaidRenderer', () => ({
-  renderMermaidDiagramSvg: mocks.renderMermaidDiagramSvg,
+vi.mock('pele', () => ({
+  mount: mocks.mount,
 }));
 
 type ChainStub = {
@@ -105,7 +112,7 @@ function renderView({
 describe('CodeBlockView language picker', () => {
   afterEach(() => {
     cleanup();
-    mocks.renderMermaidDiagramSvg.mockClear();
+    mocks.mount.mockClear();
   });
 
   it('lets ordinary code content inherit white-space from its pre', () => {
@@ -276,10 +283,11 @@ describe('CodeBlockView language picker', () => {
       await screen.findByRole('img', { name: /rendered mermaid diagram/i }),
     ).toBeInTheDocument();
     expect(await screen.findByTestId('mermaid-diagram-svg')).toBeInTheDocument();
-    expect(screen.getByTestId('mock-mermaid-svg')).toBeInTheDocument();
-    expect(mocks.renderMermaidDiagramSvg).toHaveBeenCalledWith(
-      expect.stringMatching(/^markdowner-mermaid-\d+$/),
+    expect(await screen.findByTestId('mock-mermaid-svg')).toBeInTheDocument();
+    expect(mocks.mount).toHaveBeenCalledWith(
+      screen.getByTestId('mermaid-diagram-svg'),
       'flowchart TD\n  A[Draft] --> B[Preview]',
+      { zoom: 'auto' },
     );
     expect(screen.getByText('Mermaid')).toBeInTheDocument();
     expect(screen.getByText(/mermaid source/i)).toBeInTheDocument();
