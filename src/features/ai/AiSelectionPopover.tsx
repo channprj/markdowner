@@ -308,7 +308,7 @@ export function AiSelectionPopover({
       selection: target.byteRange,
       task: 'custom',
       model: selectedModel.id,
-      targetLanguage: null,
+      targetLanguage: selectedAction.targetLanguage,
       instruction,
       zdrOnly: requestZdrOnly,
       maxOutputTokens: outputTokenLimitForTask('custom', target.selectedText, selectedModel),

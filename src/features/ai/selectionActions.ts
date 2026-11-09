@@ -2,11 +2,14 @@ import type { AiSelectionFormat } from './types';
 
 export type SelectionActionId =
   | 'improve'
+  | 'fix'
   | 'rewrite'
   | 'shorten'
   | 'expand'
   | 'make_list'
   | 'make_table'
+  | 'translate_ko'
+  | 'translate_en'
   | 'custom';
 
 export interface SelectionAction {
@@ -20,6 +23,8 @@ export interface SelectionAction {
    * requests become real lists, tables, or headings.
    */
   format: AiSelectionFormat;
+  /** Set for translation actions so the provider receives an explicit target. */
+  targetLanguage: string | null;
 }
 
 export const SELECTION_ACTIONS: readonly SelectionAction[] = [
@@ -30,6 +35,16 @@ export const SELECTION_ACTIONS: readonly SelectionAction[] = [
     instruction:
       'Improve clarity, grammar, flow, and readability while preserving meaning, facts, language, links, and useful Markdown structure.',
     format: 'text',
+    targetLanguage: null,
+  },
+  {
+    id: 'fix',
+    label: 'Fix spelling & grammar',
+    description: 'Correct spelling, grammar, and typos only.',
+    instruction:
+      'Correct spelling, grammar, punctuation, and obvious typos only. Keep the meaning, wording, tone, language, links, and Markdown structure unchanged.',
+    format: 'text',
+    targetLanguage: null,
   },
   {
     id: 'rewrite',
@@ -38,6 +53,7 @@ export const SELECTION_ACTIONS: readonly SelectionAction[] = [
     instruction:
       'Rewrite substantially while preserving intent, supported facts, language, links, and Markdown semantics.',
     format: 'markdown',
+    targetLanguage: null,
   },
   {
     id: 'shorten',
@@ -46,6 +62,7 @@ export const SELECTION_ACTIONS: readonly SelectionAction[] = [
     instruction:
       'Make the selection concise without dropping essential facts, decisions, constraints, or links.',
     format: 'text',
+    targetLanguage: null,
   },
   {
     id: 'expand',
@@ -54,6 +71,7 @@ export const SELECTION_ACTIONS: readonly SelectionAction[] = [
     instruction:
       'Add useful explanation from the selection and surrounding document context without inventing facts or commitments.',
     format: 'markdown',
+    targetLanguage: null,
   },
   {
     id: 'make_list',
@@ -62,6 +80,7 @@ export const SELECTION_ACTIONS: readonly SelectionAction[] = [
     instruction:
       'Return the selection as one Markdown bullet list ("- " items), one item per distinct point, preserving the language and supported facts. Return no surrounding explanation.',
     format: 'markdown',
+    targetLanguage: null,
   },
   {
     id: 'make_table',
@@ -70,6 +89,25 @@ export const SELECTION_ACTIONS: readonly SelectionAction[] = [
     instruction:
       'Return exactly one valid GFM table with neutral headers and only facts supported by the selection. Leave missing source fields empty. Return no surrounding explanation.',
     format: 'markdown',
+    targetLanguage: null,
+  },
+  {
+    id: 'translate_ko',
+    label: 'Translate to Korean',
+    description: 'Translate the selection into Korean.',
+    instruction:
+      'Translate the selected text into Korean. Preserve meaning, tone, terminology, proper nouns, links, and Markdown structure. Return only the translation.',
+    format: 'text',
+    targetLanguage: 'ko',
+  },
+  {
+    id: 'translate_en',
+    label: 'Translate to English',
+    description: 'Translate the selection into English.',
+    instruction:
+      'Translate the selected text into English. Preserve meaning, tone, terminology, proper nouns, links, and Markdown structure. Return only the translation.',
+    format: 'text',
+    targetLanguage: 'en',
   },
   {
     id: 'custom',
@@ -77,6 +115,7 @@ export const SELECTION_ACTIONS: readonly SelectionAction[] = [
     description: 'Follow your prompt, including Markdown formatting requests.',
     instruction: null,
     format: 'markdown',
+    targetLanguage: null,
   },
 ];
 

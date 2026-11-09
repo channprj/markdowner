@@ -386,6 +386,62 @@ describe('AiSelectionPopover', () => {
     expect(onResult).toHaveBeenCalledTimes(1);
   });
 
+  it('runs a translation quick action with its target language', async () => {
+    const snapshot = captureSourceSelection('alpha beta', 6, 10, 'doc-1');
+    if (!snapshot) throw new Error('selection required');
+    const run = vi.fn(async (request) => ({
+      requestId: request.requestId,
+      documentId: request.documentId,
+      task: request.task,
+      model: request.model,
+      generationId: null,
+      result: null,
+      validationIssues: [],
+      rawDiagnostic: null,
+      usage: null,
+      retryAfterSeconds: null,
+    }));
+
+    render(
+      <AiSelectionPopover
+        snapshot={snapshot}
+        settings={{ ...DEFAULT_SETTINGS, aiCloudDisclosureAccepted: true }}
+        onClose={vi.fn()}
+        onResult={vi.fn()}
+        services={{
+          keyStatus: vi.fn(async () => ({ configured: true, maskedLabel: 'sk-or-…test' })),
+          listModels: vi.fn(async () => [
+            {
+              id: DEFAULT_SETTINGS.aiPrimaryModel,
+              name: 'Default model',
+              description: null,
+              contextLength: 131_072,
+              inputModalities: ['text'],
+              outputModalities: ['text'],
+              supportedParameters: ['structured_outputs'],
+              pricing: { prompt: 0.0000001, completion: 0.0000001, updatedAt: '' },
+            },
+          ]),
+          run,
+          cancel: vi.fn(async () => true),
+        }}
+      />,
+    );
+
+    await chooseOption('Mode', /Translate to Korean/);
+    const runButton = screen.getByRole('button', { name: 'Run on selection' });
+    await waitFor(() => expect(runButton).toBeEnabled());
+    fireEvent.click(runButton);
+
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(run.mock.calls[0][0]).toMatchObject({
+      task: 'custom',
+      targetLanguage: 'ko',
+      selectionFormat: 'text',
+    });
+    expect(run.mock.calls[0][0].instruction).toContain('into Korean');
+  });
+
   it('keeps Shift+Enter for multiline input and ignores IME Enter events', async () => {
     const snapshot = captureSourceSelection('alpha beta', 6, 10, 'doc-1');
     if (!snapshot) throw new Error('selection required');

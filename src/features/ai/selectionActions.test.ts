@@ -9,11 +9,14 @@ describe('selection actions', () => {
   it('provides deterministic actions and custom instructions', () => {
     expect(SELECTION_ACTIONS.map((action) => action.id)).toEqual([
       'improve',
+      'fix',
       'rewrite',
       'shorten',
       'expand',
       'make_list',
       'make_table',
+      'translate_ko',
+      'translate_en',
       'custom',
     ]);
     expect(resolveSelectionInstruction('custom', '  Keep the links  ')).toBe(
@@ -37,5 +40,18 @@ describe('selection actions', () => {
       custom: 'markdown',
     });
     expect(resolveSelectionInstruction('make_list', '')).toContain('Markdown bullet list');
+  });
+
+  it('corrects spelling without translating and translates with an explicit target', () => {
+    const fix = SELECTION_ACTIONS.find((action) => action.id === 'fix');
+    const korean = SELECTION_ACTIONS.find((action) => action.id === 'translate_ko');
+    const english = SELECTION_ACTIONS.find((action) => action.id === 'translate_en');
+
+    expect(fix).toMatchObject({ format: 'text', targetLanguage: null });
+    expect(fix?.instruction).toContain('Keep the meaning, wording, tone, language');
+    expect(korean).toMatchObject({ format: 'text', targetLanguage: 'ko' });
+    expect(english).toMatchObject({ format: 'text', targetLanguage: 'en' });
+    expect(korean?.instruction).toContain('into Korean');
+    expect(english?.instruction).toContain('into English');
   });
 });
