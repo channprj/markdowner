@@ -84,6 +84,10 @@ curl -fsSL https://raw.githubusercontent.com/channprj/markdowner/main/install.sh
 | 줄 바꿈 토글 | `Option+Z` |
 | 선택 영역 AI 프롬프트 | `Cmd+Shift+I` |
 | 줄 삭제 (WYSIWYG에서는 블록) | `Cmd+Shift+K` |
+| 링크 삽입·편집 | `Cmd+K` |
+| 블록 형식 바꾸기 (Turn into) | `Cmd+/` |
+
+WYSIWYG에서 텍스트를 선택한 뒤 `Cmd+/` → **Link**를 고르거나 `Cmd+K`를 눌러 하이퍼링크를 걸 수 있습니다. URL 입력창에 즉시 포커스가 들어가고, 적용 후에도 에디터 포커스가 유지되어 이어서 입력할 수 있습니다.
 
 ## 각주
 

@@ -77,6 +77,10 @@ Useful shortcuts:
 | Toggle Word Wrap               | `Option+Z`    |
 | AI Prompt on Selection         | `Cmd+Shift+I` |
 | Delete Line (block in WYSIWYG) | `Cmd+Shift+K` |
+| Insert or edit link            | `Cmd+K`       |
+| Turn into (block format)       | `Cmd+/`       |
+
+In WYSIWYG, select text and press `Cmd+/` → **Link**, or press `Cmd+K`, to add a hyperlink. The URL field takes focus immediately, and the editor keeps focus after Apply so you can continue typing.
 
 ## Footnotes
 
