@@ -190,6 +190,10 @@ export async function setTheme(themeKind: ThemeKind) {
   return invoke<AppSnapshot>('set_theme', { themeKind });
 }
 
+export async function setDevtoolsOpen(open: boolean): Promise<void> {
+  await invoke('set_devtools_open', { open });
+}
+
 export async function importTheme(path: string) {
   return invoke<AppSnapshot>('import_theme', { path });
 }

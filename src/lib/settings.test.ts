@@ -37,6 +37,25 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,
 }));
 
+describe('developer mode setting', () => {
+  it('defaults off and normalizes malformed stored values', async () => {
+    expect(DEFAULT_SETTINGS.developerMode).toBe(false);
+
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValueOnce({
+      aiModelDefaultsVersion: 1,
+      developerMode: 'true',
+    });
+    await expect(loadSettings()).resolves.toMatchObject({ developerMode: false });
+
+    invokeMock.mockResolvedValueOnce({
+      aiModelDefaultsVersion: 1,
+      developerMode: true,
+    });
+    await expect(loadSettings()).resolves.toMatchObject({ developerMode: true });
+  });
+});
+
 describe('always-on GFM', () => {
   it('does not expose a persisted dialect preference', () => {
     expect(DEFAULT_SETTINGS).not.toHaveProperty('gfmEnabled');

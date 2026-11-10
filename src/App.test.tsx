@@ -115,6 +115,7 @@ vi.mock('./lib/desktop', () => ({
   saveActiveDocumentAs: saveActiveDocumentAsMock,
   setMode: setModeMock,
   setTheme: setThemeMock,
+  setDevtoolsOpen: vi.fn().mockResolvedValue(undefined),
   openDroppedPath: openDroppedPathMock,
   importImageAsset: importImageAssetMock,
   completeCliWait: completeCliWaitMock,

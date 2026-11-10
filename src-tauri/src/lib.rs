@@ -2149,6 +2149,15 @@ fn load_settings(
 }
 
 #[tauri::command]
+fn set_devtools_open(window: WebviewWindow, open: bool) {
+    if open {
+        window.open_devtools();
+    } else {
+        window.close_devtools();
+    }
+}
+
+#[tauri::command]
 fn save_settings(
     settings: markdowner_core::settings::Settings,
     app_handle: tauri::AppHandle,
@@ -2571,6 +2580,7 @@ pub fn run() {
             import_theme,
             load_settings,
             save_settings,
+            set_devtools_open,
             default_handler::default_md_handler_status,
             default_handler::set_default_md_handler,
             install_cli_launcher,

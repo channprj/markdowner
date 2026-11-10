@@ -106,6 +106,8 @@ export interface Settings extends InlineStyleColorSettings {
   pdfPaperWidthMm: number;
   pdfPaperHeightMm: number;
   diagnosticsEnabled: boolean;
+  /** Opens web devtools and loads React Grab (Opt+C element picker). */
+  developerMode: boolean;
   showMinimap: boolean;
   tableDensity: 'compact' | 'normal';
   tableViewMode: 'normal' | 'inline';
@@ -269,6 +271,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pdfPaperWidthMm: DEFAULT_PDF_PAPER.paperWidthMm,
   pdfPaperHeightMm: DEFAULT_PDF_PAPER.paperHeightMm,
   diagnosticsEnabled: true,
+  developerMode: false,
   showMinimap: true,
   tableDensity: 'compact',
   tableViewMode: 'normal',
@@ -467,6 +470,9 @@ function normalizeSettings(value: Partial<Settings> | null | undefined): {
   const merged = { ...DEFAULT_SETTINGS, ...(value ?? {}) };
   if (typeof merged.autoSave !== 'boolean') {
     merged.autoSave = DEFAULT_SETTINGS.autoSave;
+  }
+  if (typeof merged.developerMode !== 'boolean') {
+    merged.developerMode = DEFAULT_SETTINGS.developerMode;
   }
   merged.aiModelDefaultsVersion = storedAiModelDefaultsVersion;
   merged.editorFontSize = normalizeEditorFontSize(merged.editorFontSize);

@@ -21,7 +21,7 @@ regex = "1"
 base64 = "0.22"
 futures-util = "0.3"
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "stream", "rustls"] }
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = ["protocol-asset", "devtools"] }
 tauri-plugin-cli = "2.4.1"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2.4.2"

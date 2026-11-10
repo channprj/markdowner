@@ -9,6 +9,7 @@ import { SettingsPanel } from './SettingsPanel';
 const diagnosticsStatusMock = vi.hoisted(() => vi.fn());
 const openDiagnosticsLogMock = vi.hoisted(() => vi.fn());
 const openExternalUrlInNewWindowMock = vi.hoisted(() => vi.fn());
+const setDevtoolsOpenMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/settings', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/settings')>();
@@ -32,6 +33,7 @@ vi.mock('@/lib/settings', async (importOriginal) => {
 
 vi.mock('@/lib/desktop', () => ({
   openExternalUrlInNewWindow: openExternalUrlInNewWindowMock,
+  setDevtoolsOpen: setDevtoolsOpenMock,
   aiKeyStatus: vi.fn().mockResolvedValue({
     configured: false,
     maskedLabel: null,
@@ -75,6 +77,8 @@ describe('SettingsPanel update section', () => {
     openDiagnosticsLogMock.mockResolvedValue(undefined);
     openExternalUrlInNewWindowMock.mockReset();
     openExternalUrlInNewWindowMock.mockResolvedValue(undefined);
+    setDevtoolsOpenMock.mockReset();
+    setDevtoolsOpenMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => cleanup());
@@ -281,6 +285,35 @@ describe('SettingsPanel update section', () => {
     expect(onSettingsChange).toHaveBeenCalledWith(
       expect.objectContaining({ terminalStartLocation: 'workspace' }),
     );
+  });
+
+  it('gates Developer Mode and reopens DevTools from Settings', () => {
+    const onSettingsChange = vi.fn();
+    renderPanel({
+      settings: { ...DEFAULT_SETTINGS, developerMode: true },
+      onSettingsChange,
+    });
+
+    expect(screen.getByTestId('settings-developer-section')).toBeInTheDocument();
+    const toggle = screen.getByRole('switch', { name: 'Developer Mode' });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText(/Press Opt\+C, then click an element/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /open devtools/i }));
+    expect(setDevtoolsOpenMock).toHaveBeenCalledWith(true);
+
+    fireEvent.click(toggle);
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({ developerMode: false }),
+    );
+  });
+
+  it('hides the DevTools button while Developer Mode is off', () => {
+    renderPanel();
+
+    expect(
+      screen.queryByRole('button', { name: /open devtools/i }),
+    ).toBeNull();
   });
 
   it('places AI and OpenRouter immediately below terminal preferences', () => {

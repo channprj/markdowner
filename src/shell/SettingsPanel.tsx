@@ -56,7 +56,7 @@ import {
   type CtrlGLauncherStatus,
   type Settings,
 } from '@/lib/settings';
-import { openExternalUrlInNewWindow } from '@/lib/desktop';
+import { openExternalUrlInNewWindow, setDevtoolsOpen } from '@/lib/desktop';
 import type { UpdateInfo } from '@/lib/updateCheck';
 import type { InlineStyleTone } from '@/lib/inlineStylePalette';
 import { OpenRouterSettings } from '@/features/ai/OpenRouterSettings';
@@ -396,6 +396,14 @@ export function SettingsPanel({
 
   const handleOpenFeedback = () => {
     void openExternalUrlInNewWindow(FEEDBACK_URL);
+  };
+
+  const handleOpenDevTools = async () => {
+    try {
+      await setDevtoolsOpen(true);
+    } catch (error) {
+      console.error('Failed to open DevTools:', error);
+    }
   };
 
   const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
@@ -1351,6 +1359,45 @@ export function SettingsPanel({
                 </option>
               ))}
             </select>
+          </div>
+
+          <Separator />
+          <div data-testid="settings-developer-section" className={sectionGroupClass}>
+            <h4 className="text-sm font-medium leading-none">Developer</h4>
+
+            <div className={switchFieldClass}>
+              <Label htmlFor="developer-mode" className="flex flex-col items-start gap-1 text-left">
+                <span>Developer Mode</span>
+                <span className="text-xs font-normal leading-relaxed text-muted-foreground">
+                  Opens the web inspector and enables React Grab. Press Opt+C, then click an
+                  element to copy its component and source context.
+                </span>
+              </Label>
+              <Switch
+                id="developer-mode"
+                aria-label="Developer Mode"
+                checked={settings.developerMode}
+                onCheckedChange={(checked) => handleSettingChange('developerMode', checked)}
+              />
+            </div>
+
+            {settings.developerMode ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleOpenDevTools()}
+                  title="Open the web inspector"
+                >
+                  <Terminal className="size-3.5" aria-hidden="true" />
+                  Open DevTools
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  React Grab: Opt+C, then click a UI element.
+                </span>
+              </div>
+            ) : null}
           </div>
 
           <div data-testid="settings-diagnostics-section" className={sectionGroupClass}>

@@ -58,6 +58,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import { applyDeveloperMode } from '@/lib/developerTools';
 import type { UpdateInfo } from '@/lib/updateCheck';
 import { AiReviewTab } from '@/features/ai/AiReviewTab';
 import { FootnoteExtensions } from '@/components/wysiwyg/footnoteExtension';
@@ -1707,6 +1708,10 @@ export default function App() {
   }, [isResizingSidebar, sidebarWidth]);
 
   const currentMode = snapshot.mode;
+
+  useEffect(() => {
+    void applyDeveloperMode(settings.developerMode);
+  }, [settings.developerMode]);
 
   // Leaving WYSIWYG hides the AI Feature panel: source editing has no AI surface.
   useEffect(() => {

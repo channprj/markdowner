@@ -250,6 +250,9 @@ pub struct Settings {
     pub pdf_paper_width_mm: f64,
     pub pdf_paper_height_mm: f64,
     pub diagnostics_enabled: bool,
+    /// Enables the web inspector and React Grab in developer builds.
+    #[serde(deserialize_with = "deserialize_bool_or_false")]
+    pub developer_mode: bool,
     pub show_minimap: bool,
     pub table_density: String,
     pub table_view_mode: String,
@@ -337,6 +340,7 @@ impl Default for Settings {
             pdf_paper_width_mm: 210.0,
             pdf_paper_height_mm: 297.0,
             diagnostics_enabled: true,
+            developer_mode: false,
             show_minimap: true,
             table_density: "compact".to_string(),
             table_view_mode: "normal".to_string(),
@@ -375,6 +379,20 @@ impl Default for Settings {
 #[cfg(test)]
 mod tests {
     use super::Settings;
+
+    #[test]
+    fn developer_mode_defaults_off_and_round_trips() {
+        let legacy: Settings = serde_json::from_str("{}").expect("legacy settings parse");
+        assert!(!legacy.developer_mode);
+
+        let parsed: Settings = serde_json::from_str(r#"{"developerMode":true}"#)
+            .expect("developer mode settings parse");
+        assert!(parsed.developer_mode);
+        assert_eq!(
+            serde_json::to_value(&parsed).expect("settings serialize")["developerMode"],
+            true
+        );
+    }
 
     #[test]
     fn legacy_pdf_paper_settings_default_orientation_and_custom_dimensions() {
