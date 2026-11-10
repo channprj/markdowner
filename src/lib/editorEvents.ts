@@ -17,6 +17,12 @@ export type EditorOverlayEvent =
 interface LinkEditRequest {
   /** Source range replaced only after the user applies the form. */
   replaceRange?: { from: number; to: number };
+  /**
+   * Selection captured when the request was made (the floating toolbar, the
+   * Turn-into menu, or Cmd+K). It keeps the dragged text stable even when the
+   * editor selection changes while the form opens.
+   */
+  selectionRange?: { from: number; to: number };
   /** Optional initial label, used by entry points such as the slash menu. */
   initialDisplayText?: string;
 }

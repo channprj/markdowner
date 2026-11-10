@@ -389,7 +389,8 @@ describe('SlashCommandMenu', () => {
     expect(screen.queryByRole('menuitem', { name: /^table$/i })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: /divider/i })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: /image/i })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: /link/i })).toBeNull();
+    // Link converts the selected text, so it belongs in Turn-into.
+    expect(screen.getByRole('menuitem', { name: /^link/i })).toBeInTheDocument();
   });
 
   it('converts without deleting the selection in Turn-into mode', async () => {
@@ -415,6 +416,28 @@ describe('SlashCommandMenu', () => {
 
     expect(chain.setNode).toHaveBeenCalledWith('heading', { level: 1 });
     expect(chain.deleteRange).not.toHaveBeenCalled();
+  });
+
+  it('opens the link form with the dragged range in Turn-into mode', async () => {
+    const editor = createSlashEditor();
+    editor.state.selection = { from: 2, to: 10, empty: false, $from: { depth: 1, start: () => 1 } };
+    editor.state.doc.nodesBetween = vi.fn();
+    const requested = vi.fn();
+    const unsubscribe = subscribeEditorEvent('link:edit-request', requested);
+
+    render(<SlashCommandMenu editor={editor} />);
+    await act(async () => {});
+
+    act(() => {
+      publishEditorEvent('slash:open-at-cursor', { mode: 'convert' });
+    });
+
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^link/i }));
+
+    expect(requested).toHaveBeenCalledWith({
+      selectionRange: { from: 2, to: 10 },
+    });
+    unsubscribe();
   });
 
   it('filters the Turn-into list from its own input without touching the document', async () => {

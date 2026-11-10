@@ -1335,6 +1335,16 @@ section[data-mode='Wysiwyg'] {
   gap: 4px;
   min-width: 0;
 }
+.link-popup-preview {
+  overflow: hidden;
+  padding: 3px 8px 1px;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .link-popup-url-row {
   display: flex;
   align-items: center;

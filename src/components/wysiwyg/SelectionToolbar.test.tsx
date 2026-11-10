@@ -231,7 +231,9 @@ describe('SelectionToolbar', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Link' }));
 
     expect(requested).toHaveBeenCalledOnce();
-    expect(requested).toHaveBeenCalledWith({});
+    expect(requested).toHaveBeenCalledWith({
+      selectionRange: { from: 2, to: 6 },
+    });
     expect(editor.commandSpies.setLink).not.toHaveBeenCalled();
     expect(editor.commandSpies.insertContent).not.toHaveBeenCalled();
     expect(editor.commandSpies.unsetLink).not.toHaveBeenCalled();

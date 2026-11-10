@@ -203,6 +203,7 @@ const SLASH_ITEMS: SlashItem[] = [
     keywords: ['link', 'url', 'hyperlink', 'anchor', '링크', '주소'],
     icon: LinkIcon,
     kind: 'link',
+    convertible: true,
   },
 ];
 
@@ -708,12 +709,16 @@ export function SlashCommandMenu({
   const runItem = (item: SlashItem | undefined) => {
     if (!item || !editor || !menu.open) return;
     if (item.kind === 'link') {
-      const { from, to } = menu;
+      const { from, to, mode } = menu;
       setMenu({ open: false });
-      publishEditorEvent('link:edit-request', {
-        replaceRange: { from, to },
-        initialDisplayText: '',
-      });
+      // Insert mode replaces the typed `/link` query. Turn-into mode keeps the
+      // selection exactly as dragged and hands its range to the link form.
+      publishEditorEvent(
+        'link:edit-request',
+        mode === 'convert'
+          ? { selectionRange: { from, to } }
+          : { replaceRange: { from, to }, initialDisplayText: '' },
+      );
       return;
     }
     if (item.kind === 'skill-token' && item.token) {

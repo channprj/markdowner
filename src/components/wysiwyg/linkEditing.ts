@@ -21,6 +21,8 @@ export type LinkCaptureResult =
 
 export type LinkCaptureOptions = {
   replaceRange?: { from: number; to: number };
+  /** Range captured by the requesting toolbar or menu, independent of the live selection. */
+  selectionRange?: { from: number; to: number };
   initialDisplayText?: string;
 };
 
@@ -36,22 +38,23 @@ export function captureLinkTarget(
   options?: LinkCaptureOptions,
 ): LinkCaptureResult {
   const { doc, selection } = editor.state;
+  const capturedRange = options?.selectionRange ?? {
+    from: selection.from,
+    to: selection.to,
+  };
 
   if (!options?.replaceRange) {
-    const existing = captureExistingLinkTarget(editor, selection.from);
+    const existing = captureExistingLinkTarget(editor, capturedRange.from);
     if (
       existing &&
-      selection.from >= existing.from &&
-      selection.to <= existing.to
+      capturedRange.from >= existing.from &&
+      capturedRange.to <= existing.to
     ) {
       return { ok: true, target: existing };
     }
   }
 
-  const range = options?.replaceRange ?? {
-    from: selection.from,
-    to: selection.to,
-  };
+  const range = options?.replaceRange ?? capturedRange;
 
   if (
     range.from < 0 ||

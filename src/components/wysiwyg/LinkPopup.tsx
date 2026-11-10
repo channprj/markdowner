@@ -147,10 +147,25 @@ export function LinkPopup({ editor, enabled = true }: Props) {
 
   const close = useCallback(() => setState({ mode: 'closed' }), []);
 
+  // Unmounting the focused form moves focus to the document body. Restore the
+  // editor after React commits that removal so the next keystroke continues
+  // writing. Tiptap's focus command also sets the selection.
+  const finishWithFocus = useCallback(
+    (cursor: number | null) => {
+      close();
+      if (cursor === null) return;
+      window.setTimeout(() => {
+        if (!editor || editor.isDestroyed) return;
+        editor.commands.focus(cursor);
+        editor.view.focus();
+      }, 0);
+    },
+    [close, editor],
+  );
+
   const closeAndFocusTarget = () => {
     const target = targetForState(state);
-    close();
-    if (editor && target) editor.commands.focus(target.to);
+    finishWithFocus(target ? target.to : null);
   };
 
   useEffect(
@@ -196,6 +211,7 @@ export function LinkPopup({ editor, enabled = true }: Props) {
       payload => {
         const captured = captureLinkTarget(editor, {
           replaceRange: payload.replaceRange,
+          selectionRange: payload.selectionRange,
           initialDisplayText: payload.initialDisplayText,
         });
         if (!captured.ok) {
@@ -297,14 +313,13 @@ export function LinkPopup({ editor, enabled = true }: Props) {
   }, [editor, enabled, state.mode]);
 
   const editing = isEditingUrl(state);
-  useEffect(() => {
+  // Focus before paint: a requestAnimationFrame here let the first keystrokes
+  // reach the editor, replacing the selected text and closing the form.
+  useLayoutEffect(() => {
     if (!editing) return;
-    const frame = requestAnimationFrame(() => {
-      if (document.activeElement === urlInputRef.current) return;
-      urlInputRef.current?.focus();
-      urlInputRef.current?.select();
-    });
-    return () => cancelAnimationFrame(frame);
+    if (document.activeElement === urlInputRef.current) return;
+    urlInputRef.current?.focus();
+    urlInputRef.current?.select();
   }, [editing, state.mode === 'closed' ? null : targetForState(state)]);
 
   // While the card is only showing a link, focus stays in the editor. ArrowUp
@@ -473,7 +488,8 @@ export function LinkPopup({ editor, enabled = true }: Props) {
     const target = targetForState(state);
     if (!editor || !target) return;
     const result = removeLinkTarget(editor, target);
-    if (result.ok || result.reason === 'stale-target') close();
+    if (result.ok) finishWithFocus(result.cursor);
+    else if (result.reason === 'stale-target') close();
   };
 
   const handleSubmit = (event: FormEvent) => {
@@ -494,7 +510,7 @@ export function LinkPopup({ editor, enabled = true }: Props) {
         : { displayText, href };
     const result = applyLinkDraft(editor, state.target, draft);
     if (result.ok) {
-      close();
+      finishWithFocus(result.cursor);
       return;
     }
     if (result.reason === 'stale-target') {
@@ -569,6 +585,11 @@ export function LinkPopup({ editor, enabled = true }: Props) {
     >
       {state.mode === 'viewing' ? (
         <div className="link-popup-compact">
+          {state.target.displayText ? (
+            <div className="link-popup-preview" aria-hidden="true">
+              {state.target.displayText}
+            </div>
+          ) : null}
           <form className="link-popup-url-row" onSubmit={handleSubmit}>
             <input
               ref={urlInputRef}

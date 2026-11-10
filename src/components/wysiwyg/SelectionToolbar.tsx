@@ -53,7 +53,7 @@ export function SelectionToolbar({
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<Position>({ top: 0, left: 0 });
   const toolbarRef = useRef<HTMLDivElement | null>(null);
-  const aiSelectionRef = useRef<{ from: number; to: number } | null>(null);
+  const selectionRef = useRef<{ from: number; to: number } | null>(null);
   const linkPopupOpenRef = useRef(false);
 
   const computePosition = useCallback((): Position | null => {
@@ -100,7 +100,7 @@ export function SelectionToolbar({
 
     if (!Number.isFinite(top) || !Number.isFinite(left)) return null;
 
-    aiSelectionRef.current = { from, to };
+    selectionRef.current = { from, to };
 
     return {
       top: top - TOOLBAR_OFFSET_PX,
@@ -109,7 +109,7 @@ export function SelectionToolbar({
   }, [editor]);
 
   useEffect(() => {
-    aiSelectionRef.current = null;
+    selectionRef.current = null;
   }, [editor, enabled]);
 
   // Track active selection. We listen to both ProseMirror updates and native
@@ -209,11 +209,15 @@ export function SelectionToolbar({
     }
   };
 
-  // Opening the form is intent-only. LinkPopup captures the selection and the
-  // document remains byte-for-byte unchanged until the user presses Apply.
+  // Opening the form is intent-only. The toolbar hands over the range it was
+  // rendered for so a focus or selection change while the form mounts cannot
+  // replace the dragged text. The document stays unchanged until Apply.
   const editLink = () => {
     if (!editor) return;
-    publishEditorEvent('link:edit-request', {});
+    const selection = selectionRef.current;
+    publishEditorEvent('link:edit-request', {
+      selectionRange: selection ?? undefined,
+    });
   };
 
   if (!enabled || !visible) return null;
@@ -283,7 +287,7 @@ export function SelectionToolbar({
             ariaKeyShortcuts={aiAriaKeyShortcuts}
             active={false}
             onClick={() => {
-              const selection = aiSelectionRef.current;
+              const selection = selectionRef.current;
               if (selection) onAiSelection(selection);
             }}
           >

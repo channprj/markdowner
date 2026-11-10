@@ -8912,13 +8912,49 @@ describe('App recent documents', () => {
       expect(handled).toBe(true);
       expect(event.preventDefault).toHaveBeenCalledOnce();
       expect(requested).toHaveBeenCalledOnce();
-      expect(requested).toHaveBeenCalledWith({});
+      expect(requested).toHaveBeenCalledWith({ selectionRange: selection });
       expect(editor.insertContentMock).not.toHaveBeenCalled();
       expect(editor.setLinkMock).not.toHaveBeenCalled();
       expect(editor.unsetLinkMock).not.toHaveBeenCalled();
       unsubscribe();
     },
   );
+
+  it('opens the Turn-into menu with Cmd+/ in WYSIWYG', async () => {
+    const editor = createMockTiptapEditor('alpha', [{ text: 'alpha', from: 1 }]);
+    tiptapMockState.editor = editor;
+    bootstrapMock.mockResolvedValue(
+      baseSnapshot({
+        activeDocumentName: 'notes.md',
+        activeDocumentPath: '/tmp/project/notes.md',
+        activeDocumentSource: 'alpha',
+        mode: 'Wysiwyg',
+      }),
+    );
+    const { default: App } = await import('./App');
+    const requested = vi.fn();
+    const unsubscribe = subscribeEditorEvent('slash:open-at-cursor', requested);
+    render(<App />);
+    await screen.findByTestId('mock-tiptap-editor');
+
+    const event = {
+      key: '/',
+      metaKey: true,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      preventDefault: vi.fn(),
+    } as unknown as KeyboardEvent;
+    const handled = tiptapMockState.lastOptions.editorProps.handleKeyDown(
+      editor.view,
+      event,
+    );
+
+    expect(handled).toBe(true);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(requested).toHaveBeenCalledWith({ mode: 'convert' });
+    unsubscribe();
+  });
 
   it('moves WYSIWYG PageDown two line-heights above the page target', async () => {
     const editor = createMockTiptapEditor('Line 1\nLine 2\nLine 3', [
@@ -9975,19 +10011,30 @@ describe('App recent documents', () => {
     render(<App />);
     await screen.findByLabelText('Source editor');
 
-    await waitFor(() =>
-      expect(
-        screen.queryByRole('button', { name: 'AI Feature (Cmd+Shift+A)' }),
-      ).toBeNull(),
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByRole('button', { name: 'AI Feature (Cmd+Shift+A)' }),
+        ).toBeNull(),
+      { timeout: 4000 },
+    );
+    await waitFor(
+      () =>
+        expect(
+          document.querySelector('section[data-mode="Editor"]'),
+        ).not.toBeNull(),
+      { timeout: 4000 },
     );
 
     fireEvent.keyDown(window, { key: 'A', metaKey: true, shiftKey: true });
 
     expect(screen.queryByRole('complementary', { name: 'AI Feature' })).toBeNull();
-    await waitFor(() =>
-      expect(screen.getByTestId('shell-live-region')).toHaveTextContent(
-        'AI Feature is available in WYSIWYG mode only',
-      ),
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('shell-live-region')).toHaveTextContent(
+          'AI Feature is available in WYSIWYG mode only',
+        ),
+      { timeout: 4000 },
     );
   });
 

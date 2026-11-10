@@ -78,6 +78,26 @@ describe('WYSIWYG link target capture', () => {
     expect(editor.getHTML()).toBe(before);
   });
 
+  it('captures the range supplied by the requesting toolbar', () => {
+    const editor = buildEditor('<p>Read docs now</p>');
+    editor.commands.setTextSelection(1);
+
+    expect(
+      captureLinkTarget(editor, {
+        selectionRange: { from: 6, to: 10 },
+      }),
+    ).toMatchObject({
+      ok: true,
+      target: {
+        kind: 'create',
+        from: 6,
+        to: 10,
+        sourceText: 'docs',
+        displayText: 'docs',
+      },
+    });
+  });
+
   it('captures a collapsed caret without inserting placeholder content', () => {
     const editor = buildEditor('<p>Before after</p>');
     editor.commands.setTextSelection(8);

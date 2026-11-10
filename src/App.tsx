@@ -1922,7 +1922,12 @@ export default function App() {
           const ed = editorInstanceRef.current;
           if (ed) {
             event.preventDefault();
-            publishEditorEvent('link:edit-request', {});
+            publishEditorEvent('link:edit-request', {
+              selectionRange: {
+                from: ed.state.selection.from,
+                to: ed.state.selection.to,
+              },
+            });
             return true;
           }
         }

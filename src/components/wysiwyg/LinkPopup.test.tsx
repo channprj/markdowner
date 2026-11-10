@@ -116,6 +116,38 @@ describe('LinkPopup', () => {
     expect(editor.getHTML()).toBe(before);
   });
 
+  it('focuses the URL field before the next keystroke and keeps the dragged range', async () => {
+    replaceContent('<p>Read docs now</p>', 6);
+    render(<LinkPopup editor={editor} enabled />);
+    act(() =>
+      publishEditorEvent('link:edit-request', {
+        selectionRange: { from: 6, to: 10 },
+      }),
+    );
+
+    const url = screen.getByRole('textbox', { name: 'Link URL' });
+    expect(url).toHaveFocus();
+    fireEvent.change(url, { target: { value: 'https://example.com' } });
+    fireEvent.submit(url.closest('form')!);
+    await flushPopupFrame();
+
+    expect(linkAt(editor)).toEqual({
+      text: 'docs',
+      href: 'https://example.com',
+    });
+    expect(screen.queryByTestId('link-popup')).toBeNull();
+    expect(editor.view.hasFocus()).toBe(true);
+    expect(editor.state.selection.from).toBe(10);
+  });
+
+  it('shows the linked text in the compact card', async () => {
+    await openInspection();
+
+    expect(
+      screen.getByTestId('link-popup').querySelector('.link-popup-preview'),
+    ).toHaveTextContent('docs');
+  });
+
   it('opens an inspection card only from an explicit event', async () => {
     await openInspection();
 
