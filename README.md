@@ -126,6 +126,10 @@ To verify inline translation of a synthetic list with 200 protected Markdown tok
 MARKDOWNER_LIVE_AI_MODEL=upstage/solar-pro4 cargo test -p markdowner-desktop configured_provider_translates_dense_inline_markdown_with_local_structure -- --ignored --nocapture
 ```
 
+## Developer mode
+
+Turn on **Settings → Developer → Developer Mode** to open the web inspector and enable [React Grab](https://react-grab.com). With the mode on, press `Opt+C` and click a UI element to copy its React component and source location. The React Grab overlay is loaded only while developer mode is on, and developer mode is off by default. Use **Open DevTools** in the same section to reopen the inspector after closing it.
+
 ## CLI Integration
 
 Markdowner can install a small `mdner` launcher so command-line tools can open files or folders in the desktop app:

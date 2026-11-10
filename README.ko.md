@@ -123,6 +123,10 @@ WYSIWYG에서 `[^label]` 뒤에 공백을 입력하면 참조로 변환됩니다
 
 클라우드 사용에 동의하면 문서 내용이 OpenRouter와 선택한 모델 제공자에게 전송됩니다. 키는 macOS Keychain에 보관하고 기존 ZDR 설정을 유지합니다. 일반 테스트는 모의 서버를 사용합니다. 실제 계정으로 합성 문서 검증을 실행하려면 [영문 README의 명령](./README.md#ai-tools)을 사용하세요. API 사용 요금이 발생합니다.
 
+## 개발자 모드
+
+**Settings → Developer → Developer Mode**를 켜면 웹 인스펙터가 열리고 [React Grab](https://react-grab.com)이 활성화됩니다. 개발자 모드가 켜진 상태에서 `Opt+C`를 누르고 UI 요소를 클릭하면 React 컴포넌트와 소스 위치를 복사할 수 있습니다. React Grab 오버레이는 개발자 모드가 켜져 있을 때만 로드되며, 개발자 모드는 기본적으로 꺼져 있습니다. 인스펙터를 닫은 뒤에는 같은 섹션의 **Open DevTools**로 다시 열 수 있습니다.
+
 ## CLI 연동
 
 Markdowner는 데스크톱 앱에서 파일이나 폴더를 열 수 있는 작은 `mdner` 실행 명령을 설치할 수 있습니다.
