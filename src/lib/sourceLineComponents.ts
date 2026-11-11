@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { createElement, isValidElement } from 'react';
 import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
 
@@ -44,6 +44,11 @@ interface SourceLineMarkdownComponentsOptions {
    * self-contained `data:` URIs.
    */
   resolveImageSrc?: ImageSrcResolver;
+  /**
+   * When set, a ```mermaid fence becomes that SVG instead of a code block.
+   * Return null to keep the source. The live preview leaves this unset.
+   */
+  renderMermaidDiagram?: (source: string) => string | null;
 }
 
 function sourcePositionAttributes(node: MarkdownSourceNode | undefined) {
@@ -137,16 +142,73 @@ function renderHastNodes(nodes: unknown[], keyPrefix: string): ReactNode[] {
   });
 }
 
+const MERMAID_LANGUAGE_RE = /(?:^|\s)language-mermaid(?:\s|$)/i;
+
+function plainText(children: unknown): string | null {
+  if (typeof children === 'string') return children;
+  if (typeof children === 'number') return String(children);
+  if (!Array.isArray(children)) return null;
+  let text = '';
+  for (const child of children) {
+    if (typeof child !== 'string' && typeof child !== 'number') return null;
+    text += child;
+  }
+  return text;
+}
+
+/** Source of a fenced ```mermaid block, before the code component highlights it. */
+function mermaidDiagramSource(children: unknown): string | null {
+  const nodes = Array.isArray(children) ? children : [children];
+  for (const node of nodes) {
+    if (!isValidElement(node)) continue;
+    const props = node.props as { className?: unknown; children?: unknown };
+    const className = typeof props.className === 'string' ? props.className : '';
+    if (!MERMAID_LANGUAGE_RE.test(className)) continue;
+    const text = plainText(props.children);
+    if (text !== null) return text.replace(/\n$/, '');
+  }
+  return null;
+}
+
 // Mirror the WYSIWYG code block: `.code-block-view > pre > code.hljs` with
 // lowlight token spans, so the `data-cb-theme` palettes color the split-view
 // preview exactly like the editor surface.
-function PreviewPreComponent(props: MarkdownSourceLineProps) {
-  const { node, ...elementProps } = props as MarkdownSourceLineProps & Record<string, unknown>;
-  return createElement(
-    'div',
-    { className: 'code-block-view', ...sourcePositionAttributes(node) },
-    createElement('pre', elementProps),
-  );
+function createPreviewPreComponent(
+  renderMermaidDiagram?: (source: string) => string | null,
+) {
+  return function PreviewPreComponent(props: MarkdownSourceLineProps) {
+    const { node, ...elementProps } = props as MarkdownSourceLineProps & Record<string, unknown>;
+    if (renderMermaidDiagram) {
+      const source = mermaidDiagramSource(elementProps.children);
+      const svg = source === null ? null : renderMermaidDiagram(source);
+      if (svg) {
+        return createElement(
+          'figure',
+          {
+            className: 'mermaid-export',
+            ...sourcePositionAttributes(node),
+          },
+          createElement(
+            'div',
+            {
+              className: 'mermaid-diagram-canvas',
+              role: 'img',
+              'aria-label': 'Rendered Mermaid diagram',
+            },
+            createElement('div', {
+              className: 'mermaid-diagram-svg',
+              dangerouslySetInnerHTML: { __html: svg },
+            }),
+          ),
+        );
+      }
+    }
+    return createElement(
+      'div',
+      { className: 'code-block-view', ...sourcePositionAttributes(node) },
+      createElement('pre', elementProps),
+    );
+  };
 }
 
 function PreviewCodeComponent(props: MarkdownSourceLineProps) {
@@ -188,7 +250,7 @@ export function createSourceLineMarkdownComponents(
     p: createSourceLineComponent('p'),
     li: createSourceLineComponent('li'),
     blockquote: createSourceLineComponent('blockquote'),
-    pre: PreviewPreComponent,
+    pre: createPreviewPreComponent(options.renderMermaidDiagram),
     code: PreviewCodeComponent,
     table: createSourceLineComponent('table'),
     tr: createSourceLineComponent('tr'),

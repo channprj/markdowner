@@ -464,21 +464,50 @@ type ImageSrcResolver = (
   activeDocumentPath: string | null | undefined,
 ) => string | undefined;
 
+const MERMAID_FENCE_RE = /(^|\n)[ \t]{0,3}(?:`{3,}|~{3,})[ \t]*mermaid\b/i;
+
 export function renderMarkdownToHtml(
   source: string,
   activeDocumentPath: string | null,
   resolveImageSrc?: ImageSrcResolver,
+  renderMermaidDiagram?: (source: string) => string | null,
 ): string {
   return renderToStaticMarkup(
     createElement(
       ReactMarkdown,
       {
         remarkPlugins: GFM_REMARK_PLUGINS,
-        components: createSourceLineMarkdownComponents({ activeDocumentPath, resolveImageSrc }),
+        components: createSourceLineMarkdownComponents({
+          activeDocumentPath,
+          resolveImageSrc,
+          renderMermaidDiagram,
+        }),
       },
       source,
     ),
   );
+}
+
+/**
+ * Pele stays out of the initial bundle, same as the editor. Callers that have
+ * no mermaid fence skip the import. A diagram Pele cannot draw stays source.
+ */
+async function mermaidDiagramRenderer(
+  source: string,
+): Promise<((diagram: string) => string | null) | undefined> {
+  if (!MERMAID_FENCE_RE.test(source)) return undefined;
+  const { render } = await import('pele');
+  let index = 0;
+  return (diagram: string) => {
+    const idPrefix = `export-mermaid-${index++}-`;
+    const trimmed = diagram.trim();
+    if (!trimmed) return null;
+    try {
+      return render(trimmed, { idPrefix }).svg;
+    } catch {
+      return null;
+    }
+  };
 }
 
 const HTTP_URL_RE = /^https?:\/\//i;
@@ -751,7 +780,13 @@ export async function buildExportHtml(options: ExportHtmlOptions): Promise<strin
     activeDocumentPath,
     embedImages,
   );
-  const body = renderMarkdownToHtml(exportSource, activeDocumentPath, resolveImageSrc);
+  const renderMermaidDiagram = await mermaidDiagramRenderer(exportSource);
+  const body = renderMarkdownToHtml(
+    exportSource,
+    activeDocumentPath,
+    resolveImageSrc,
+    renderMermaidDiagram,
+  );
   const css = collectDocumentCss(doc);
   // For PDF the renderer paginates into paper-sized slices and applies the page
   // margins itself, so the body just fills the page width and keeps media in bounds.
@@ -816,6 +851,24 @@ img, svg, video { max-width: 100%; height: auto; }`
   color: ${style.kbdTextColor};
   background: ${style.kbdBackgroundColor};
   border: 1px solid color-mix(in srgb, ${style.kbdTextColor} 35%, transparent);
+}
+.markdowner-export .mermaid-export { margin: 1em 0; }
+.markdowner-export .mermaid-export .mermaid-diagram-canvas {
+  --pele-bg: var(--background);
+  --pele-fg: var(--foreground);
+  --pele-fg-on-light: var(--foreground);
+  --pele-fg-on-dark: var(--background);
+  --pele-muted: var(--muted-foreground);
+  --pele-line: color-mix(in srgb, var(--foreground) 80%, transparent);
+  --pele-surface: var(--muted);
+  --pele-surface-alt: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --pele-border: var(--border);
+  --pele-accent: var(--foreground);
+  --pele-font: ${resolveExportFontStack(style.fontFamily)};
+  --pele-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --pele-radius: 4px;
+  min-height: 0;
+  overflow: visible;
 }`;
   const exportCss = `${css}
 html, body { margin: 0; color: ${style.textColor}; background: ${style.backgroundColor}; }

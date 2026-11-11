@@ -37,6 +37,12 @@ describe('exportBaseName', () => {
 });
 
 describe('renderMarkdownToHtml', () => {
+  it('leaves mermaid fences as code unless an exporter renders them', () => {
+    const html = renderMarkdownToHtml('```mermaid\nflowchart LR\nA-->B\n```\n', null);
+    expect(html).toContain('language-mermaid');
+    expect(html).not.toContain('class="pele');
+  });
+
   it('exports named and numeric footnotes with repeat-reference backlinks', () => {
     const html = renderMarkdownToHtml('Text[^report] again[^report] and numeric[^1].\n\n[^report]: **Source**.\n[^1]: Note.', null);
     const container = document.createElement('div');
@@ -744,6 +750,65 @@ describe('buildExportHtml', () => {
     expect(html).toContain('background: #ffffff');
     expect(html).toContain('border-color: #d4d4d8');
     expect(html).not.toContain('border-color: #3f3f46');
+  });
+
+  it('renders mermaid fences with Pele in HTML and PDF export', async () => {
+    const source = [
+      'Before',
+      '',
+      '```mermaid',
+      'flowchart LR',
+      'A[Start] --> B[End]',
+      '```',
+      '',
+      '```mermaid',
+      'sequenceDiagram',
+      'A->>B: Ping',
+      '```',
+      '',
+      '```ts',
+      'const n = 1',
+      '```',
+      '',
+      'After',
+    ].join('\n');
+
+    const html = await buildExportHtml({
+      title: 'Diagram',
+      source,
+      activeDocumentPath: null,
+    });
+    const pdf = await buildExportHtml({
+      title: 'Diagram',
+      source,
+      activeDocumentPath: null,
+      renderMode: 'paged',
+    });
+
+    for (const doc of [html, pdf]) {
+      expect(doc).toContain('class="pele pele-flowchart"');
+      expect(doc).toContain('class="pele pele-sequence"');
+      expect(doc).toContain('>Start<');
+      expect(doc).toContain('>End<');
+      expect(doc).toContain('pele-sequence');
+      expect(doc).toContain('--pele-fg: var(--foreground)');
+      expect(doc).toContain('Before');
+      expect(doc).toContain('After');
+      expect(doc).toContain('language-ts');
+      expect(doc).not.toContain('language-mermaid');
+    }
+  });
+
+  it('keeps a mermaid fence Pele cannot draw as source', async () => {
+    const html = await buildExportHtml({
+      title: 'Bad diagram',
+      source: '```mermaid\nthis is not a diagram\n```\n',
+      activeDocumentPath: null,
+    });
+
+    expect(html).toContain('language-mermaid');
+    expect(html).toContain('this is not a diagram');
+    expect(html).not.toContain('class="pele');
   });
 
   it('wraps long code block lines for PDF export', async () => {
