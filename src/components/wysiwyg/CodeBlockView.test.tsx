@@ -292,6 +292,17 @@ describe('CodeBlockView language picker', () => {
     expect(screen.getByText('Mermaid')).toBeInTheDocument();
     expect(screen.getByText(/mermaid source/i)).toBeInTheDocument();
     expect(screen.getByTestId('node-view-content')).toBeInTheDocument();
+
+    // The editable source is the block footer: it must follow the diagram in
+    // document order so the rendered figure always sits above the code.
+    const diagramPanel = document.querySelector('.mermaid-diagram-panel');
+    const sourceShell = document.querySelector('.mermaid-source-shell');
+    expect(diagramPanel).not.toBeNull();
+    expect(sourceShell).not.toBeNull();
+    expect(
+      diagramPanel!.compareDocumentPosition(sourceShell!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it('resets the cycle after the trigger loses focus', () => {

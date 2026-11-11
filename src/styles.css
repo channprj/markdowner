@@ -1531,6 +1531,9 @@ section[data-minimap='on'] .editor-pane-preview {
 }
 .code-block-view-mermaid {
   border: 1px solid var(--border);
+  /* Mermaid blocks read as a framed figure: keep the frame square so the
+     rendered diagram and the source footer share one continuous edge. */
+  border-radius: 0;
   background: color-mix(in oklab, var(--card) 88%, var(--muted));
 }
 .mermaid-diagram-panel {
@@ -1562,7 +1565,7 @@ section[data-minimap='on'] .editor-pane-preview {
   justify-content: center;
   min-height: 180px;
   overflow: auto;
-  border-radius: 0.375rem;
+  border-radius: 0;
   background: color-mix(in oklab, var(--background) 88%, transparent);
   color: var(--foreground);
 }
@@ -1585,11 +1588,16 @@ section[data-minimap='on'] .editor-pane-preview {
   line-height: 1.4;
   text-align: center;
 }
+/* The editable source is the block's footer. The shell owns the padding so
+   the code sits flush on the bottom edge, while the label keeps a small,
+   deliberate gap above the first line. */
 .mermaid-source-shell {
+  padding: 0.7rem 1rem 1rem;
   background: color-mix(in oklab, var(--muted) 72%, var(--background));
 }
 .mermaid-source-label {
-  padding: 0.45rem 0.85rem 0;
+  margin: 0 0 0.4rem;
+  padding: 0;
   color: var(--muted-foreground);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.6875rem;
@@ -1600,8 +1608,12 @@ section[data-minimap='on'] .editor-pane-preview {
 }
 .mermaid-source-pre {
   margin: 0;
-  padding: 0.55rem 0.85rem 0.85rem;
+  padding: 0;
   overflow: auto;
+  /* The generic ProseMirror pre rule adds a rounded border; the Mermaid
+     source is a plain footer, not a nested card. */
+  border: 0;
+  border-radius: 0;
   background: transparent;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.8125rem;

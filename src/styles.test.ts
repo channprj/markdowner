@@ -96,6 +96,22 @@ describe('shared inline style color stylesheet', () => {
   });
 });
 
+describe('Mermaid block layout stylesheet', () => {
+  it('keeps the Mermaid frame and diagram canvas square', () => {
+    expect(ruleBody('.code-block-view-mermaid')).toContain('border-radius: 0;');
+    expect(ruleBody('.mermaid-diagram-canvas')).toContain('border-radius: 0;');
+  });
+
+  it('renders the source as a square footer instead of a nested pre card', () => {
+    for (const declaration of ['border: 0;', 'border-radius: 0;', 'padding: 0;']) {
+      expect(ruleBody('.mermaid-source-pre')).toContain(declaration);
+    }
+    expect(ruleBody('.mermaid-source-shell')).toContain(
+      'padding: 0.7rem 1rem 1rem;',
+    );
+  });
+});
+
 describe('WYSIWYG code block wrapping stylesheet', () => {
   it('keeps ordinary and Mermaid source code unwrapped when the WYSIWYG toggle is off', () => {
     const selectors = [
