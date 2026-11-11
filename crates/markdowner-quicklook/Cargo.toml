@@ -1,0 +1,14 @@
+[package]
+name = "markdowner-quicklook"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "HTML document used by the macOS Finder Quick Look extension"
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+base64 = "0.22"
+pulldown-cmark = "0.13"

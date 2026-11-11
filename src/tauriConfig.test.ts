@@ -37,4 +37,11 @@ describe('tauri security config', () => {
   it('keeps the default bundle target as app for local install flows', () => {
     expect(tauriConfig.bundle?.targets).toBe('app');
   });
+
+  it('bundles a Finder Quick Look preview for Markdown files', () => {
+    expect(tauriConfig.build?.beforeBundleCommand).toBe('node scripts/build-quicklook.mjs');
+    expect(tauriConfig.bundle?.macOS?.files).toMatchObject({
+      'PlugIns/MarkdownerQuickLook.appex': 'quicklook/build/MarkdownerQuickLook.appex',
+    });
+  });
 });

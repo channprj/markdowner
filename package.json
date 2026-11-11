@@ -19,7 +19,7 @@
     "dmg:downloads": "node scripts/build-dmg-to-downloads.mjs",
     "release:build": "node scripts/release.mjs build",
     "release:publish": "node scripts/release.mjs publish",
-    "test": "node --test scripts/release.node-test.mjs && vitest run --maxWorkers=1 && bash scripts/build-and-install.test.sh && bash src-tauri/scripts/self-update.test.sh",
+    "test": "node --test scripts/release.node-test.mjs scripts/build-quicklook.node-test.mjs && vitest run --maxWorkers=1 && bash scripts/build-and-install.test.sh && bash src-tauri/scripts/self-update.test.sh",
     "preview": "vite preview",
     "tauri": "tauri"
   },

@@ -7,6 +7,7 @@
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:14238",
     "beforeBuildCommand": "pnpm build",
+    "beforeBundleCommand": "node scripts/build-quicklook.mjs",
     "frontendDist": "../dist"
   },
   "plugins": {
@@ -82,7 +83,10 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0",
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "files": {
+        "PlugIns/MarkdownerQuickLook.appex": "quicklook/build/MarkdownerQuickLook.appex"
+      }
     }
   }
 }

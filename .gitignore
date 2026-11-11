@@ -2,6 +2,7 @@
 *.db
 target/
 src-tauri/target/
+src-tauri/quicklook/build/
 node_modules/
 dist/
 .vite/
