@@ -7109,6 +7109,17 @@ export default function App() {
       </div>
       <TitleBar
         onStartWindowDrag={handleStartWindowDrag}
+        tabs={
+          <Tabs
+            items={tabStripItems}
+            activeTabId={activeTabId}
+            onSelectTab={(id) => void switchToTab(id)}
+            onCloseTab={(id) => void handleCloseTab(id)}
+            onReorderTab={(sourceId, index) =>
+              setTabs((prev) => moveTabToIndex(prev, sourceId, index))
+            }
+          />
+        }
         menu={
           <AppMenu
             className="mr-2"
@@ -7250,15 +7261,6 @@ export default function App() {
         />
 
       <div className="flex min-h-0 min-w-0 flex-col">
-        <Tabs
-          items={tabStripItems}
-          activeTabId={activeTabId}
-          onSelectTab={(id) => void switchToTab(id)}
-          onCloseTab={(id) => void handleCloseTab(id)}
-          onReorderTab={(sourceId, index) =>
-            setTabs((prev) => moveTabToIndex(prev, sourceId, index))
-          }
-        />
       {isSettingsTabActive ? (
         <SettingsTabContent
           settings={settings}

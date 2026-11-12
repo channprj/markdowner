@@ -302,7 +302,7 @@ export function Tabs({ items, activeTabId, onSelectTab, onCloseTab, onReorderTab
       ref={tablistRef}
       role="tablist"
       aria-label="Open documents"
-      className="flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-border bg-background"
+      className="flex h-full min-w-0 items-stretch overflow-x-auto border-l border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {items.map((item, index) => {
         const isActive = item.id === activeTabId;

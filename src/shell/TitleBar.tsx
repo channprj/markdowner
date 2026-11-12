@@ -1,11 +1,13 @@
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 
 interface TitleBarProps {
+  /** The open-document tab strip; it shrinks before the drag region does. */
+  tabs?: ReactNode;
   menu: ReactNode;
   onStartWindowDrag: (event: ReactPointerEvent<HTMLDivElement>) => void;
 }
 
-export function TitleBar({ menu, onStartWindowDrag }: TitleBarProps) {
+export function TitleBar({ tabs, menu, onStartWindowDrag }: TitleBarProps) {
   return (
     <div
       data-testid="app-titlebar"
@@ -16,10 +18,11 @@ export function TitleBar({ menu, onStartWindowDrag }: TitleBarProps) {
         className="h-full w-20 shrink-0"
         onPointerDown={onStartWindowDrag}
       />
+      {tabs}
       <div
         data-tauri-drag-region
         data-testid="app-titlebar-drag-region"
-        className="h-full min-w-0 flex-1"
+        className="h-full min-w-8 flex-1"
         onPointerDown={onStartWindowDrag}
       />
       {menu}

@@ -12326,6 +12326,7 @@ describe('App recent documents', () => {
 
     const tablist = await screen.findByRole('tablist');
     expect(within(tablist).getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getByTestId('app-titlebar')).toContainElement(tablist);
   });
 
   it('collapses a carried source selection when opening a new document', async () => {

@@ -36,6 +36,24 @@ describe('TitleBar', () => {
     expect(within(titlebar).getByRole('button', { name: /^app menu$/i })).toBeInTheDocument();
   });
 
+  it('places the tab strip between the drag regions, ahead of the menu', () => {
+    render(
+      <TitleBar
+        onStartWindowDrag={vi.fn()}
+        tabs={<div role="tablist" aria-label="Open documents" />}
+        menu={<button type="button">App menu</button>}
+      />,
+    );
+
+    const titlebar = screen.getByTestId('app-titlebar');
+    expect(Array.from(titlebar.children)).toEqual([
+      titlebar.querySelector('.w-20'),
+      screen.getByRole('tablist', { name: /open documents/i }),
+      screen.getByTestId('app-titlebar-drag-region'),
+      screen.getByRole('button', { name: /^app menu$/i }),
+    ]);
+  });
+
   it('routes pointer down from both drag regions', () => {
     const { container, onStartWindowDrag } = renderTitleBar();
     const dragRegions = container.querySelectorAll('[data-tauri-drag-region]');
