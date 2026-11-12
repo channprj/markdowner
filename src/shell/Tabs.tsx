@@ -1,9 +1,23 @@
-import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from 'react';
-import { FileDown, Settings as SettingsIcon, Sparkles, X } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  FileDown,
+  Settings as SettingsIcon,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { planTabDragPlacement, type TabSlot } from '@/lib/tabDragReorder';
 
@@ -12,6 +26,8 @@ const DRAG_THRESHOLD_PX = 4;
 const EDGE_SCROLL_ZONE_PX = 48;
 const EDGE_SCROLL_MAX_STEP_PX = 18;
 const TAB_SLIDE_MS = 130;
+/** Share of the visible strip one press of a scroll arrow travels. */
+const ARROW_SCROLL_RATIO = 0.8;
 
 export type TabsItemKind = 'document' | 'settings' | 'export' | 'ai-review';
 
@@ -72,6 +88,46 @@ export function Tabs({ items, activeTabId, onSelectTab, onCloseTab, onReorderTab
   const edgeScrollSpeedRef = useRef(0);
   const edgeScrollFrameRef = useRef<number | null>(null);
   const isDragging = drag !== null;
+  // Which sides of the strip hide tabs; drives the scroll arrows.
+  const [overflow, setOverflow] = useState({ start: false, end: false });
+  const hasTabs = items.length > 0;
+
+  const syncOverflow = useCallback(() => {
+    const strip = tablistRef.current;
+    if (!strip) return;
+    const start = strip.scrollLeft > 0;
+    // 1px slack: fractional scroll offsets never quite reach the far edge.
+    const end = strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1;
+    setOverflow((prev) =>
+      prev.start === start && prev.end === end ? prev : { start, end },
+    );
+  }, []);
+
+  /** Scrolls just far enough to bring the whole active tab into the strip. */
+  const revealActiveTab = useCallback(() => {
+    const strip = tablistRef.current;
+    const active = strip?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!strip || !active) return;
+    const stripRect = strip.getBoundingClientRect();
+    const rect = active.getBoundingClientRect();
+    if (rect.left < stripRect.left) {
+      strip.scrollLeft -= stripRect.left - rect.left;
+    } else if (rect.right > stripRect.right) {
+      strip.scrollLeft += rect.right - stripRect.right;
+    }
+  }, []);
+
+  const scrollByArrow = (direction: -1 | 1) => {
+    const strip = tablistRef.current;
+    if (!strip) return;
+    const reduceMotion =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    strip.scrollBy({
+      left: direction * strip.clientWidth * ARROW_SCROLL_RATIO,
+      behavior: reduceMotion ? 'auto' : 'smooth',
+    });
+  };
 
   /** Viewport x of the strip's content origin, so x moves with `scrollLeft`. */
   const contentOriginX = useCallback(() => {
@@ -295,122 +351,181 @@ export function Tabs({ items, activeTabId, onSelectTab, onCloseTab, onReorderTab
 
   useEffect(() => () => stopEdgeScroll(), [stopEdgeScroll]);
 
-  if (items.length === 0) return null;
+  // Switching, opening, closing or reordering tabs must never leave the active
+  // tab scrolled out of sight.
+  useLayoutEffect(() => {
+    revealActiveTab();
+    syncOverflow();
+  }, [activeTabId, renderedIds, revealActiveTab, syncOverflow]);
+
+  // The strip also narrows without any tab changing: a window resize, or the
+  // arrows themselves appearing.
+  useEffect(() => {
+    const strip = tablistRef.current;
+    if (!hasTabs || !strip || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      revealActiveTab();
+      syncOverflow();
+    });
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, [hasTabs, revealActiveTab, syncOverflow]);
+
+  if (!hasTabs) return null;
+
+  const hasOverflow = overflow.start || overflow.end;
+  const arrowClassName =
+    'inline-flex w-6 shrink-0 items-center justify-center border-r border-border text-muted-foreground hover:bg-accent/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-40';
 
   return (
     <div
-      ref={tablistRef}
-      role="tablist"
-      aria-label="Open documents"
-      className="flex h-full min-w-0 items-stretch overflow-x-auto border-l border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="flex h-full min-w-0 items-stretch border-l border-border"
+      onWheel={(event) => {
+        // A mouse wheel only reports vertical travel, and the strip has no
+        // vertical axis to spend it on. Trackpad swipes already scroll natively.
+        const strip = tablistRef.current;
+        if (strip && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+          strip.scrollLeft += event.deltaY;
+        }
+      }}
     >
-      {items.map((item, index) => {
-        const isActive = item.id === activeTabId;
-        const isDragged = drag?.id === item.id;
-        const offset = drag?.offsets[index] ?? 0;
-        const baseTooltip = item.shortcutLabel
-          ? `${item.name} (${item.shortcutLabel})`
-          : item.name;
-        const tooltip = onReorderTab
-          ? `${baseTooltip} — Drag to reorder`
-          : baseTooltip;
-        return (
-          <div
-            key={item.id}
-            data-tab-id={item.id}
-            data-tab-dragging={isDragged ? '' : undefined}
-            role="tab"
-            aria-selected={isActive}
-            tabIndex={isActive ? 0 : -1}
-            title={tooltip}
-            style={{
-              transform: offset === 0 ? undefined : `translateX(${offset}px)`,
-              transition:
-                isDragging && !isDragged
-                  ? `transform ${TAB_SLIDE_MS}ms ease-out`
-                  : undefined,
-            }}
-            onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
-              draggedRef.current = false;
-              if (!onReorderTab || event.button !== 0 || event.pointerType === 'touch') {
-                return;
-              }
-              if (blocksTabDrag(event.target)) return;
-              armedRef.current = {
-                id: item.id,
-                pointerId: event.pointerId,
-                startClientX: event.clientX,
-              };
-              pointerXRef.current = event.clientX;
-              setIsTrackingPointer(true);
-            }}
-            onClick={() => {
-              // The click that closes a drag gesture must not switch documents.
-              if (draggedRef.current) {
+      {hasOverflow ? (
+        <button
+          type="button"
+          aria-label="Scroll tabs left"
+          disabled={!overflow.start}
+          onClick={() => scrollByArrow(-1)}
+          className={arrowClassName}
+        >
+          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+        </button>
+      ) : null}
+      <div
+        ref={tablistRef}
+        role="tablist"
+        aria-label="Open documents"
+        onScroll={syncOverflow}
+        className="flex min-w-0 items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {items.map((item, index) => {
+          const isActive = item.id === activeTabId;
+          const isDragged = drag?.id === item.id;
+          const offset = drag?.offsets[index] ?? 0;
+          const baseTooltip = item.shortcutLabel
+            ? `${item.name} (${item.shortcutLabel})`
+            : item.name;
+          const tooltip = onReorderTab
+            ? `${baseTooltip} — Drag to reorder`
+            : baseTooltip;
+          return (
+            <div
+              key={item.id}
+              data-tab-id={item.id}
+              data-tab-dragging={isDragged ? '' : undefined}
+              role="tab"
+              aria-selected={isActive}
+              tabIndex={isActive ? 0 : -1}
+              title={tooltip}
+              style={{
+                transform: offset === 0 ? undefined : `translateX(${offset}px)`,
+                transition:
+                  isDragging && !isDragged
+                    ? `transform ${TAB_SLIDE_MS}ms ease-out`
+                    : undefined,
+              }}
+              onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
                 draggedRef.current = false;
-                return;
-              }
-              onSelectTab(item.id);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
+                if (!onReorderTab || event.button !== 0 || event.pointerType === 'touch') {
+                  return;
+                }
+                if (blocksTabDrag(event.target)) return;
+                armedRef.current = {
+                  id: item.id,
+                  pointerId: event.pointerId,
+                  startClientX: event.clientX,
+                };
+                pointerXRef.current = event.clientX;
+                setIsTrackingPointer(true);
+              }}
+              onClick={() => {
+                // The click that closes a drag gesture must not switch documents.
+                if (draggedRef.current) {
+                  draggedRef.current = false;
+                  return;
+                }
                 onSelectTab(item.id);
-              }
-            }}
-            className={cn(
-              'group relative flex max-w-[220px] shrink-0 select-none items-center gap-1.5 border-r border-border px-3 text-sm',
-              onReorderTab && 'cursor-grab',
-              !isDragging && 'transition-colors hover:bg-accent/40',
-              isActive && 'bg-accent text-accent-foreground',
-              isDragged && !isActive && 'bg-background',
-              isDragged && 'z-10 cursor-grabbing shadow-md',
-            )}
-          >
-            {item.kind === 'settings' ? (
-              <SettingsIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-            ) : null}
-            {item.kind === 'export' ? (
-              <FileDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-            ) : null}
-            {item.kind === 'ai-review' ? (
-              <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-            ) : null}
-            <span className={cn('truncate', item.missing && 'italic text-muted-foreground line-through')}>
-              {item.name}
-            </span>
-            {item.missing ? (
-              <span
-                aria-label="File missing on disk"
-                title="File no longer exists on disk"
-                className="ml-1 rounded bg-destructive/15 px-1 text-[10px] uppercase tracking-wide text-destructive"
-              >
-                missing
-              </span>
-            ) : null}
-            {item.isDirty ? (
-              <span aria-label="Unsaved changes" className="text-base leading-none text-muted-foreground">
-                ●
-              </span>
-            ) : null}
-            <button
-              type="button"
-              aria-label="Close tab"
-              data-no-tab-drag
-              onClick={(event: ReactMouseEvent) => {
-                event.stopPropagation();
-                onCloseTab(item.id);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onSelectTab(item.id);
+                }
               }}
               className={cn(
-                'ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground',
-                isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus:opacity-100',
+                'group relative flex max-w-[220px] shrink-0 select-none items-center gap-1.5 border-r border-border px-3 text-sm',
+                onReorderTab && 'cursor-grab',
+                !isDragging && 'transition-colors hover:bg-accent/40',
+                isActive && 'bg-accent text-accent-foreground',
+                isDragged && !isActive && 'bg-background',
+                isDragged && 'z-10 cursor-grabbing shadow-md',
               )}
             >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        );
-      })}
+              {item.kind === 'settings' ? (
+                <SettingsIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              ) : null}
+              {item.kind === 'export' ? (
+                <FileDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              ) : null}
+              {item.kind === 'ai-review' ? (
+                <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              ) : null}
+              <span className={cn('truncate', item.missing && 'italic text-muted-foreground line-through')}>
+                {item.name}
+              </span>
+              {item.missing ? (
+                <span
+                  aria-label="File missing on disk"
+                  title="File no longer exists on disk"
+                  className="ml-1 rounded bg-destructive/15 px-1 text-[10px] uppercase tracking-wide text-destructive"
+                >
+                  missing
+                </span>
+              ) : null}
+              {item.isDirty ? (
+                <span aria-label="Unsaved changes" className="text-base leading-none text-muted-foreground">
+                  ●
+                </span>
+              ) : null}
+              <button
+                type="button"
+                aria-label="Close tab"
+                data-no-tab-drag
+                onClick={(event: ReactMouseEvent) => {
+                  event.stopPropagation();
+                  onCloseTab(item.id);
+                }}
+                className={cn(
+                  'ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground',
+                  isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus:opacity-100',
+                )}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {hasOverflow ? (
+        <button
+          type="button"
+          aria-label="Scroll tabs right"
+          disabled={!overflow.end}
+          onClick={() => scrollByArrow(1)}
+          className={arrowClassName}
+        >
+          <ChevronRight className="h-4 w-4" aria-hidden="true" />
+        </button>
+      ) : null}
     </div>
   );
 }

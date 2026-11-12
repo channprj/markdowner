@@ -415,3 +415,90 @@ describe('Tabs drag reordering', () => {
     expect(screen.getByRole('tab', { name: /Export Preview/ }).querySelectorAll('svg')).toHaveLength(2);
   });
 });
+
+describe('Tabs overflow navigation', () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  /** A 300px strip showing content x=`scrollLeft`..+300 of 900px of tabs. */
+  function overflowStrip(scrollLeft: number) {
+    const strip = layoutStrip();
+    Object.defineProperties(strip, {
+      clientWidth: { configurable: true, value: 300 },
+      scrollWidth: { configurable: true, value: 900 },
+      scrollLeft: { configurable: true, value: scrollLeft, writable: true },
+    });
+    vi.spyOn(strip, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      right: 300,
+      width: 300,
+    } as DOMRect);
+    strip.scrollBy = vi.fn() as typeof strip.scrollBy;
+    fireEvent.scroll(strip);
+    return strip;
+  }
+
+  it('shows no scroll arrows while every tab fits', () => {
+    renderTabs(['a', 'b', 'c']);
+
+    expect(screen.queryByRole('button', { name: /scroll tabs/i })).toBeNull();
+  });
+
+  it('offers arrows that page the strip and disable at its edges', () => {
+    renderTabs(['a', 'b', 'c']);
+    const strip = overflowStrip(0);
+
+    const left = screen.getByRole('button', { name: /scroll tabs left/i });
+    const right = screen.getByRole('button', { name: /scroll tabs right/i });
+    expect(left).toBeDisabled();
+    expect(right).toBeEnabled();
+
+    fireEvent.click(right);
+    expect(strip.scrollBy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ left: 240 }),
+    );
+
+    strip.scrollLeft = 600;
+    fireEvent.scroll(strip);
+    expect(left).toBeEnabled();
+    expect(right).toBeDisabled();
+
+    fireEvent.click(left);
+    expect(strip.scrollBy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ left: -240 }),
+    );
+  });
+
+  it('scrolls the strip sideways with a vertical mouse wheel', () => {
+    renderTabs(['a', 'b', 'c']);
+    const strip = overflowStrip(0);
+
+    fireEvent.wheel(strip, { deltaY: 120 });
+
+    expect(strip.scrollLeft).toBe(120);
+  });
+
+  it('scrolls a newly activated tab into view on either side', () => {
+    const items = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => tabsItem(id, `${id}.md`));
+    const renderWith = (activeTabId: string) => (
+      <Tabs items={items} activeTabId={activeTabId} onSelectTab={vi.fn()} onCloseTab={vi.fn()} />
+    );
+    const { rerender } = render(renderWith('a'));
+    const strip = overflowStrip(0);
+
+    // Tab f spans x=500..600, 300px past the strip's right edge.
+    rerender(renderWith('f'));
+    expect(strip.scrollLeft).toBe(300);
+
+    // jsdom rects ignore scrolling, so place tab b 200px left of the strip by hand.
+    vi.spyOn(tab('b'), 'getBoundingClientRect').mockReturnValue({
+      left: -200,
+      right: -100,
+      width: 100,
+    } as DOMRect);
+    rerender(renderWith('b'));
+    expect(strip.scrollLeft).toBe(100);
+  });
+});
