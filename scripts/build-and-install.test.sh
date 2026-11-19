@@ -7,7 +7,7 @@ SOURCE_SCRIPT="${PROJECT_ROOT}/scripts/build-and-install.sh"
 SOURCE_BUILD_SCRIPT="${PROJECT_ROOT}/scripts/build.mjs"
 SOURCE_SYNC_VERSION_SCRIPT="${PROJECT_ROOT}/scripts/sync-version.mjs"
 SOURCE_PACKAGE_JSON="${PROJECT_ROOT}/package.json"
-SOURCE_RELEASE_WORKFLOW="${PROJECT_ROOT}/.github/workflows/release.yml"
+SOURCE_WORKFLOWS_DIR="${PROJECT_ROOT}/.github/workflows"
 SOURCE_VERSION_FILE="${PROJECT_ROOT}/VERSION"
 SOURCE_TAURI_CONF="${PROJECT_ROOT}/src-tauri/tauri.conf.json"
 SOURCE_TAURI_CARGO="${PROJECT_ROOT}/src-tauri/Cargo.toml"
@@ -398,9 +398,9 @@ test_pnpm_build_universal_dmg_invokes_tauri_universal_dmg_build() {
   assert_file_contains "${stdout}" "target/tauri-build-and-install/universal-apple-darwin/release/bundle/dmg/Markdowner_0.1.0_universal-apple-darwin.dmg"
 }
 
-test_github_actions_release_workflow_is_disabled() {
-  if [[ -e "${SOURCE_RELEASE_WORKFLOW}" ]]; then
-    fail "GitHub Actions release workflow must remain disabled: ${SOURCE_RELEASE_WORKFLOW}"
+test_github_actions_workflows_stay_removed() {
+  if [[ -e "${SOURCE_WORKFLOWS_DIR}" ]]; then
+    fail "GitHub Actions is removed; checks and releases run locally: ${SOURCE_WORKFLOWS_DIR}"
   fi
 }
 
@@ -411,7 +411,7 @@ test_pnpm_build_debug_invokes_tauri_debug_build
 test_pnpm_build_install_open_launches_installed_bundle
 test_pnpm_build_dmg_invokes_tauri_dmg_build_and_prints_hash
 test_pnpm_build_universal_dmg_invokes_tauri_universal_dmg_build
-test_github_actions_release_workflow_is_disabled
+test_github_actions_workflows_stay_removed
 test_help_lists_open_flag
 test_build_uses_isolated_cargo_target_dir
 test_open_flag_launches_installed_bundle
