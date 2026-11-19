@@ -136,10 +136,8 @@ export function buildRelease({
   fs.rmSync(recordPath, { force: true });
   const commit = readCleanHead(runner, projectRoot);
 
-  run(runner, projectRoot, 'pnpm', ['sync-version', '--check']);
-  run(runner, projectRoot, 'pnpm', ['test']);
-  // Process fixtures exercise short deadlines and shared OS resources.
-  run(runner, projectRoot, 'cargo', ['test', '--', '--test-threads=1']);
+  // The same gate developers run by hand; it replaces hosted CI.
+  run(runner, projectRoot, 'pnpm', ['check']);
   run(runner, projectRoot, 'pnpm', ['build', 'universal', 'dmg']);
 
   const artifact = requireReleaseDmg(projectRoot, version);
