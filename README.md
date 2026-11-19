@@ -201,12 +201,15 @@ pnpm build install -- --open
 
 ## Test
 
-Run the main verification suite:
+Run the full verification gate. It replaces hosted CI and is the same gate
+`pnpm release:build` and `pnpm release:publish` run before building:
 
 ```bash
-pnpm test
-cargo test
+pnpm check
 ```
+
+It checks that the version copies agree, then runs the release-script,
+frontend, and shell-script tests and the Rust tests one at a time.
 
 Useful focused checks:
 
@@ -237,8 +240,9 @@ Refresh the date/patch version locally:
 pnpm bump refresh
 ```
 
-GitHub Actions release automation is disabled. Releases are built on a local
-Mac and published explicitly with GitHub CLI. Authenticate once before the
+This repository has no GitHub Actions workflows, and Actions is turned off in
+its GitHub settings. Releases are built on a local Mac and published explicitly
+with GitHub CLI. Authenticate once before the
 first publish:
 
 ```bash

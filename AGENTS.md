@@ -20,8 +20,8 @@ This applies to documentation and configuration changes too.
 
 ## Required release workflow
 
-1. Finish the requested changes and run the relevant checks. Commit and push
-   using the requested Git workflow.
+1. Finish the requested changes and run the relevant checks. `pnpm check` is
+   the full local gate. Commit and push using the requested Git workflow.
 2. Check the working tree, current branch, and upstream after fetching. Publish
    only from a clean `main` with `origin/main` parity of `0 0`.
 3. Run `pnpm bump refresh`, then `pnpm sync-version --check`. The version scheme
@@ -34,8 +34,8 @@ This applies to documentation and configuration changes too.
    explicitly stage this file alongside `VERSION`, `package.json`,
    `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `Cargo.lock`. Commit as
    `chore(release): v<version>`, push, and verify upstream parity again.
-5. On macOS, run `pnpm release:publish`. This runs the release-script tests,
-   frontend tests, shell-script tests, and serialized Rust tests, builds the
+5. On macOS, run `pnpm release:publish`. This runs `pnpm check` (version sync,
+   release-script, frontend, shell-script, and serialized Rust tests), builds the
    Universal DMG, verifies it with `hdiutil`, and publishes the release. It may
    reuse a verified DMG only when its recorded version, commit, and SHA-256 match.
    Publishing requires the version-specific notes file and prepends it to
@@ -67,5 +67,6 @@ account. Pin the existing token to the publishing process:
 
 Never print the token, enable shell tracing around this command, or persist it
 in repository files. If the credential is unavailable, report the authentication
-blocker. GitHub Actions release automation remains disabled; the agent performs
-this local release workflow as part of completing an authorized push task.
+blocker. The repository has no GitHub Actions workflows and Actions is turned
+off in its GitHub settings; do not add workflows. The agent performs this local
+release workflow as part of completing an authorized push task.

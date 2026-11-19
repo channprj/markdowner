@@ -198,12 +198,15 @@ pnpm build install -- --open
 
 ## 테스트
 
-주요 검증 명령:
+전체 검증은 명령 하나로 돌립니다. 호스팅 CI를 대신하며, `pnpm release:build`와
+`pnpm release:publish`도 빌드 전에 같은 검증을 실행합니다.
 
 ```bash
-pnpm test
-cargo test
+pnpm check
 ```
+
+버전 사본이 서로 일치하는지 확인한 뒤 릴리스 스크립트, 프런트엔드, 셸 스크립트
+테스트를 돌리고 Rust 테스트를 하나씩 순서대로 실행합니다.
 
 필요할 때 자주 쓰는 집중 검증:
 
@@ -234,8 +237,8 @@ MAJOR.YYMMDD.PATCH
 pnpm bump refresh
 ```
 
-GitHub Actions 릴리스 자동화는 비활성화되어 있습니다. 릴리스는 로컬 Mac에서
-빌드한 뒤 GitHub CLI로 명시적으로 배포합니다. 처음 배포하기 전에 한 번
+이 저장소에는 GitHub Actions 워크플로가 없고, GitHub 저장소 설정에서도 Actions를
+꺼 두었습니다. 릴리스는 로컬 Mac에서 빌드한 뒤 GitHub CLI로 명시적으로 배포합니다. 처음 배포하기 전에 한 번
 인증합니다.
 
 ```bash
