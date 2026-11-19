@@ -2481,6 +2481,9 @@ pub fn run() {
         // Managed before any plugin so a second launch racing this one's
         // setup can already queue its documents.
         .manage(PendingExternalOpens::default())
+        // A Finder launch delivers `Opened` before `setup` runs, and that
+        // handler reads this state; unmanaged, it aborts the process.
+        .manage(session_flush::SessionFlush::default())
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             focus_main_window(app);
@@ -2538,7 +2541,6 @@ pub fn run() {
             app.manage(terminal::TerminalState::new());
             app.manage(local_agents::LocalAgentState::default());
             app.manage(ExitCoordinator::default());
-            app.manage(session_flush::SessionFlush::default());
             let ai_state = ai::AiState::new(app.path().app_data_dir()?)
                 .map_err(|error| std::io::Error::other(error.message))?;
             app.manage(ai_state);
@@ -3727,6 +3729,23 @@ mod tests {
                 "{handler} must not activate a document behind the frontend's session restore"
             );
         }
+    }
+
+    // A Finder launch delivers `RunEvent::Opened` before `setup`, so every
+    // state `request_external_opens` reads unconditionally must be managed on
+    // the builder. Reading unmanaged state there aborts the process.
+    #[test]
+    fn native_open_state_is_managed_before_setup() {
+        let source = include_str!("lib.rs");
+        let body = function_body(source, "pub fn run()").expect("run body should be readable");
+        assert_in_order(
+            body,
+            &[
+                ".manage(PendingExternalOpens::default())",
+                ".manage(session_flush::SessionFlush::default())",
+                ".setup(",
+            ],
+        );
     }
 
     #[test]
